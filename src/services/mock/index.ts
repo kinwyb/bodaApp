@@ -1,89 +1,21 @@
-import dayjs from 'dayjs';
-import type { EmployeeRecord } from '../modules/employee';
-import type { MenuNode, UserMenuPermission } from '../modules/menu';
-import type { YupaiOrderChange, YupaiOrder } from '../modules/yupai.ts';
-import type { ApiResponse, QueryParams } from '../types';
-import employeesJson from './employees.json';
-import menus from './menus.json';
-import preorderChangesJson from './preorderChanges.json';
-import preordersJson from './preorders.json';
-import userMenus from './userMenus.json';
+import type { ApiResponse, PageInfo, QueryParams } from '../types';
 
-const menuTree = menus as unknown as MenuNode[];
-const permissionTree = userMenus as unknown as UserMenuPermission[];
-const employees = employeesJson as unknown as EmployeeRecord[];
-const preorders = preordersJson as unknown as YupaiOrder[];
-const preorderChanges = preorderChangesJson as unknown as YupaiOrderChange[];
+/**
+ * Mock 数据按 API 路径组织在 data/ 目录下：
+ *   GET /menus              → data/menus.json
+ *   GET /user/menus         → data/user/menus.json
+ *   GET /preorders          → data/preorders.json
+ *   GET /preorders/changes  → data/preorders/changes.json
+ *   GET /preorders/filters  → data/preorders/filters.json
+ *   GET /employees          → data/employees.json
+ *   GET /views/{any}/rows   → data/views/_dynamic/rows.json
+ *
+ * 分页规则：请求参数包含 page 或 pageSize 时自动分页，否则返回全量数据。
+ * 写操作（POST/PUT/DELETE）直接回传请求体，不持久化。
+ */
 
-/** 按数据集自动生成筛选候选项：低基数、短文本的字段才作为枚举候选 */
-function buildFilterOptions(rows: YupaiOrder[]): Record<string, string[]> {
-  const options: Record<string, string[]> = {};
-  if (!rows.length) return options;
-  Object.keys(rows[0]).forEach((field) => {
-    if (field === 'ID' || field.endsWith('ID')) return;
-    const values = new Set<string>();
-    for (const row of rows) {
-      const value = row[field];
-      if (value === undefined || value === null || value === '') continue;
-      const text = String(value);
-      if (text.length > 30) return;
-      values.add(text);
-      if (values.size > 60) return;
-    }
-    if (values.size > 0 && values.size <= 60) {
-      options[field] = [...values].sort();
-    }
-  });
-  return options;
-}
-
-interface FilterConditionInput {
-  values?: string[];
-  min?: string | number;
-  max?: string | number;
-  text?: string;
-}
-
-/** 应用自定义筛选条件 */
-function applyFilters(list: YupaiOrder[], filters?: string): YupaiOrder[] {
-  if (!filters) return list;
-  let model: Record<string, FilterConditionInput>;
-  try {
-    model = JSON.parse(filters) as Record<string, FilterConditionInput>;
-  } catch {
-    return list;
-  }
-  let result = [...list];
-  Object.entries(model).forEach(([field, condition]) => {
-    if (!condition) return;
-    const { values, min, max, text } = condition;
-    if (values?.length) {
-      const allow = new Set(values.map(String));
-      result = result.filter((item) => allow.has(String(item[field] ?? '')));
-    }
-    if (text) {
-      const keyword = text.toLowerCase();
-      result = result.filter((item) => String(item[field] ?? '').toLowerCase().includes(keyword));
-    }
-    if (min !== undefined && min !== '') {
-      result = result.filter((item) => {
-        const value = item[field];
-        if (value === undefined || value === null || value === '') return false;
-        return typeof min === 'number'
-          ? Number(value) >= min
-          : String(value).slice(0, 10) >= String(min);
-      });
-    }
-    if (max !== undefined && max !== '') {
-      result = result.filter((item) => {
-        const value = item[field];
-        if (value === undefined || value === null || value === '') return false;
-        return typeof max === 'number' ? Number(value) <= max : String(value).slice(0, 10) <= String(max);
-      });
-    }
-  });
-  return result;
-}
+/** 构建时 eager-import 所有 mock JSON，key 格式：./data/{path}.json */
+const MOCK_FILES = import.meta.glob<Record<string, unknown>>('./data/**/*.json', { eager: true });
 
 export interface MockRequestInit {
   method: string;
@@ -92,210 +24,66 @@ export interface MockRequestInit {
   body?: unknown;
 }
 
-interface MockEntity {
-  id: string;
-  name: string;
-  status: string;
-  createdAt: string;
-}
+/** 按 API 路径查找 mock 数据文件，未命中返回 undefined */
+function findMockData(apiPath: string): unknown[] | Record<string, unknown> | undefined {
+  const key = `./data/${apiPath}.json`;
+  const mod = MOCK_FILES[key];
+  if (mod) return mod as unknown[] | Record<string, unknown>;
 
-const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-
-function hashString(input: string): number {
-  let hash = 0;
-  for (let i = 0; i < input.length; i += 1) {
-    hash = (hash * 31 + input.charCodeAt(i)) >>> 0;
+  // 动态路径降级：/views/V0005_V0010/rows → /views/_dynamic/rows
+  const parts = apiPath.split('/');
+  if (parts.length >= 3) {
+    const fallback = [...parts.slice(0, -2), '_dynamic', parts[parts.length - 1]].join('/');
+    const fallbackKey = `./data/${fallback}.json`;
+    const fallbackMod = MOCK_FILES[fallbackKey];
+    if (fallbackMod) return fallbackMod as unknown[] | Record<string, unknown>;
   }
-  return hash;
+
+  return undefined;
 }
 
-/** 生成本地 mock 主键：优先用 UUID，退化到时间戳 */
-function createId(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID().toUpperCase();
+/** 自动分页：请求参数中有 page 或 pageSize 时启用 */
+function autoPaginate<T>(list: T[], params: QueryParams): ApiResponse<T[]> {
+  const hasPaging = params.page !== undefined || params.pageSize !== undefined;
+  if (!hasPaging) {
+    return { code: 0, data: list };
   }
-  return `MOCK-${Date.now().toString(16).toUpperCase()}`;
-}
-
-/** 按 View 路径生成稳定的列表数据，保证同一菜单每次进入行数一致 */
-function createViewRows(view: string): MockEntity[] {
-  const seed = hashString(view);
-  const count = 15 + (seed % 40);
-  return Array.from({ length: count }, (_, i) => ({
-    id: `${view}-${String(i + 1).padStart(3, '0')}`,
-    name: `${view} 记录 ${i + 1}`,
-    status: (seed + i) % 2 === 0 ? 'enabled' : 'disabled',
-    createdAt: dayjs().subtract(i, 'day').format('YYYY-MM-DD HH:mm:ss'),
-  }));
-}
-const viewRows = new Map<string, MockEntity[]>();
-
-function getViewRows(view: string): MockEntity[] {
-  let rows = viewRows.get(view);
-  if (!rows) {
-    rows = createViewRows(view);
-    viewRows.set(view, rows);
-  }
-  return rows;
-}
-
-/** 按标准分页参数裁剪并组装 page 对象 */
-function paginate<T>(list: T[], params: QueryParams = {}): ApiResponse<T[]> {
   const page = Math.max(1, Number(params.page) || 1);
   const rows = Math.max(1, Number(params.pageSize) || 10);
   const total = list.length;
   const allpage = Math.max(1, Math.ceil(total / rows));
   const start = (page - 1) * rows;
-  return {
-    code: 0,
-    data: list.slice(start, start + rows),
-    page: { page, rows, total, allpage },
-  };
+  const pageInfo: PageInfo = { page, rows, total, allpage };
+  return { code: 0, data: list.slice(start, start + rows), page: pageInfo };
 }
-
-function filterEntities(list: MockEntity[], params: QueryParams): MockEntity[] {
-  let result = [...list];
-  if (params.keyword) {
-    const keyword = String(params.keyword).toLowerCase();
-    result = result.filter(
-      (item) => item.id.toLowerCase().includes(keyword) || item.name.toLowerCase().includes(keyword),
-    );
-  }
-  if (params.status) {
-    result = result.filter((item) => item.status === params.status);
-  }
-  if (params.startDate) {
-    result = result.filter((item) => item.createdAt.slice(0, 10) >= String(params.startDate));
-  }
-  if (params.endDate) {
-    result = result.filter((item) => item.createdAt.slice(0, 10) <= String(params.endDate));
-  }
-  return result;
-}
-
-function filterPreorders(list: YupaiOrder[], params: QueryParams): YupaiOrder[] {
-  let result = applyFilters(list, params.filters ? String(params.filters) : undefined);
-  if (params.keyword) {
-    const keyword = String(params.keyword).toLowerCase();
-    result = result.filter(
-      (item) =>
-        item.OrderCode.toLowerCase().includes(keyword) ||
-        item.StyleCode.toLowerCase().includes(keyword) ||
-        item.ProduceName.toLowerCase().includes(keyword) ||
-        item.Ywy.toLowerCase().includes(keyword) ||
-        item.Memo.toLowerCase().includes(keyword),
-    );
-  }
-  if (params.salesman) result = result.filter((item) => item.Ywy === params.salesman);
-  if (params.workPlace) result = result.filter((item) => item.WorkPlace === params.workPlace);
-  return result;
-}
-
-const notFound = <T>(label: string, id: string): ApiResponse<T> => ({
-  code: 1,
-  data: null as unknown as T,
-  errmsg: `${label} ${id} 不存在`,
-});
 
 /**
- * 本地 mock 请求分发。返回 undefined 表示未命中 mock 规则，
+ * Mock 请求分发。返回 undefined 表示未命中 mock 规则，
  * 由调用方回退到真实网络请求。
  */
 export async function mockRequest<T>(init: MockRequestInit): Promise<ApiResponse<T> | undefined> {
   const { method, params = {}, body } = init;
-  const path = init.path.replace(/^\/+/, '').replace(/\/+$/, '');
-  const segments = path.split('/').map((item) => decodeURIComponent(item));
-  const [resource, second, third] = segments;
+  const apiPath = init.path.replace(/^\/+/, '').replace(/\/+$/, '');
 
-  await sleep(280);
+  // 模拟网络延迟
+  await new Promise<void>((r) => setTimeout(r, 200));
 
-  // 菜单树
-  if (resource === 'menus' && method === 'GET') {
-    return { code: 0, data: menuTree as unknown as T };
+  // GET：读取 mock 文件
+  if (method === 'GET') {
+    const data = findMockData(apiPath);
+    if (data === undefined) return undefined;
+    if (Array.isArray(data)) return autoPaginate(data, params) as ApiResponse<T>;
+    return { code: 0, data: data as unknown as T };
   }
 
-  // 当前用户权限菜单
-  if (resource === 'user' && second === 'menus' && method === 'GET') {
-    return { code: 0, data: permissionTree as unknown as T };
+  // DELETE：返回空数据
+  if (method === 'DELETE') {
+    return { code: 0, data: null as unknown as T };
   }
 
-  // 通用页面列表：/views/{view}/rows[/{id}]
-  if (resource === 'views') {
-    const view = second ?? '';
-    const rows = getViewRows(view);
-    if (method === 'GET' && third === 'rows') {
-      return paginate(filterEntities(rows, params), params) as ApiResponse<T>;
-    }
-    if (method === 'DELETE' && third === 'rows' && segments[3]) {
-      const rowId = segments[3];
-      const index = rows.findIndex((item) => item.id === rowId);
-      if (index < 0) return notFound<T>('记录', rowId);
-      rows.splice(index, 1);
-      return { code: 0, data: null as unknown as T };
-    }
-  }
-
-  // 筛选候选项：按当前数据集去重
-  if (resource === 'preorders' && second === 'filters' && method === 'GET') {
-    return { code: 0, data: buildFilterOptions(preorders) as unknown as T };
-  }
-
-  // 员工列表（快速选择用），支持按工号 / 姓名 / 部门过滤
-  if (resource === 'employees' && method === 'GET' && !second) {
-    let result = employees;
-    if (params.keyword) {
-      const keyword = String(params.keyword).toLowerCase();
-      result = result.filter(
-        (item) =>
-          item.EmployeeNo.toLowerCase().includes(keyword) ||
-          item.EmployeeName.toLowerCase().includes(keyword) ||
-          item.DepartmentName.toLowerCase().includes(keyword),
-      );
-    }
-    if (params.departmentId) {
-      result = result.filter((item) => item.DepartmentID === params.departmentId);
-    }
-    return { code: 0, data: result as unknown as T };
-  }
-
-  // 最近变更明细（list/change）
-  if (resource === 'preorders' && second === 'changes' && method === 'GET') {
-    return { code: 0, data: preorderChanges as unknown as T };
-  }
-
-  if (resource === 'preorders' && method === 'GET') {
-    return paginate(filterPreorders(preorders, params), params) as ApiResponse<T>;
-  }
-
-  // 新增预订单
-  if (resource === 'preorders' && method === 'POST') {
-    const payload = (body ?? {}) as Partial<YupaiOrder>;
-    const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
-    const created = {
-      ...payload,
-      ID: createId(),
-      YPDate: payload.YPDate ?? dayjs().format('YYYY-MM-DD'),
-      Qty: Number(payload.Qty) || 0,
-      UpdateUser: payload.UpdateUser ?? payload.CreateUser ?? '',
-      CreateTime: now,
-      UpdateTime: now,
-      Status: payload.Status ?? 0,
-    } as YupaiOrder;
-    preorders.unshift(created);
-    return { code: 0, data: created as unknown as T };
-  }
-
-  // 修改预订单
-  if (resource === 'preorders' && method === 'PUT' && second) {
-    const index = preorders.findIndex((item) => item.ID === second);
-    if (index < 0) return notFound<T>('预订单', second);
-    preorders[index] = {
-      ...preorders[index],
-      ...(body as Partial<YupaiOrder>),
-      ID: second,
-      UpdateTime: dayjs().format('YYYY-MM-DD HH:mm:ss'),
-    };
-    return { code: 0, data: preorders[index] as unknown as T };
+  // POST / PUT / PATCH：回传请求体
+  if (body !== undefined) {
+    return { code: 0, data: body as unknown as T };
   }
 
   return undefined;
