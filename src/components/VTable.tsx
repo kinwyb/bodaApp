@@ -533,6 +533,7 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     // 先清掉排序状态，避免 setRecords 内部再排一次把统计行带走
     table.updateSortState(null, false);
     table.setRecords(rows);
+    table.clearSelected();
     // setRecords 会重置排序状态（表头图标会消失），这里还原状态但不再执行排序
     if (sortState) table.updateSortState(sortState, false);
     scheduleBottomFrozen(table, summary ? 1 : 0);

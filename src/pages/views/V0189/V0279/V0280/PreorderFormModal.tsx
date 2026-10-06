@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { App, Button, DatePicker, Form, Input, InputNumber, Modal, Select } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
-import { ApiError, employeeService, preorderService, type YupaiOrder } from '@/services';
+import { ApiError, employeeService, yupaiOrderService, type YupaiOrder } from '@/services';
 import { VTable } from '@/components/VTable';
 import { EmployeeQuickSelect } from '@/components/quick-select';
 import {
@@ -169,7 +169,7 @@ const PreorderFormModal: React.FC<PreorderFormModalProps> = ({
     }
     setChecking(true);
     try {
-      const res = await preorderService.list({ page: 1, pageSize: 200, keyword: code });
+      const res = await yupaiOrderService.list({ page: 1, pageSize: 200, keyword: code });
       const duplicated = res.data.some(
         (item) => String(item.OrderCode) === code && item.ID !== record?.ID,
       );
@@ -228,8 +228,8 @@ const PreorderFormModal: React.FC<PreorderFormModalProps> = ({
 
     setSaving(true);
     try {
-      if (mode === 'edit' && record) await preorderService.update(record.ID, payload);
-      else await preorderService.create(payload);
+      if (mode === 'edit' && record) await yupaiOrderService.update(record.ID, payload);
+      else await yupaiOrderService.create(payload);
       message.success(mode === 'edit' ? '保存成功' : '新增成功');
       onSaved();
     } catch (error) {

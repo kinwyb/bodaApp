@@ -1,6 +1,28 @@
 import { http } from '../request';
 import type { PageQuery } from '../types';
 
+/** 尺码列标题，按界面原样展示 */
+export const YupaiMachineSizeHeader = [
+  '12/960',
+  '12/1056',
+  '13/1152',
+  '14/1248',
+  '15/1344',
+  '16/1440',
+  '17/1536',
+  '18/1632',
+  '19/1728',
+  '20/1824',
+  '13/1296',
+  '14/1392',
+  '15/1488',
+  '16/1584',
+  '17/1680',
+  '18/1766',
+  '21/1290',
+  '21/1904'
+];
+
 export interface PreorderQuery extends PageQuery {
   keyword?: string;
   salesman?: string;
@@ -109,7 +131,7 @@ export interface YupaiOrderChange {
 /** 订单 ID -> 变更字段（空数组表示整行变化） */
 export type PreorderChangeMap = Record<string, string[]>;
 
-export const preorderService = {
+export const yupaiOrderService = {
   list: (query: PreorderQuery = {}) => http.get<YupaiOrder[]>('/preorders', query),
   /** 最近发生变化的明细 */
   changes: () => http.get<YupaiOrderChange[]>('/preorders/changes'),

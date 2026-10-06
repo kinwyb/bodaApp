@@ -17,7 +17,7 @@ import {
   ShopOutlined,
   TagOutlined,
 } from '@ant-design/icons';
-import { ApiError, preorderService, type PreorderQuery, type YupaiOrder } from '@/services';
+import { ApiError, yupaiOrderService, type PreorderQuery, type YupaiOrder } from '@/services';
 import { CommandBar } from '@/components/CommandBar';
 import type { CommandItem } from '@/components/CommandBar';
 import { FilterTable } from '@/components/FilterTable';
@@ -49,7 +49,7 @@ const PreorderPage: React.FC<ViewPageProps> = ({ view, trail }) => {
     async (params: PreorderQuery) => {
       setLoading(true);
       try {
-        const res = await preorderService.list(params);
+        const res = await yupaiOrderService.list(params);
         setDataSource(res.data);
         setTotal(res.page?.total ?? res.data.length);
       } catch (error) {
@@ -68,7 +68,7 @@ const PreorderPage: React.FC<ViewPageProps> = ({ view, trail }) => {
   useEffect(() => {
     (async () => {
       try {
-        const res = await preorderService.changes();
+        const res = await yupaiOrderService.changes();
         const map: Record<string, string[]> = {};
         res.data.forEach((item) => {
           if (!map[item.YupaiOrderID]) map[item.YupaiOrderID] = [];
