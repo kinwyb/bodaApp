@@ -13,7 +13,7 @@ const statusMap: Record<ViewRowStatus, { color: string; label: string }> = {
   disabled: { color: '#8c8c8c', label: '停用' },
 };
 
-const DEFAULT_PAGE_SIZE = 10;
+const DEFAULT_PAGE_SIZE = 30;
 
 /** V0005_V0010 基础资料 > 部门设定 */
 const DepartmentPage: React.FC<ViewPageProps> = ({ view, trail }) => {
@@ -193,6 +193,7 @@ const DepartmentPage: React.FC<ViewPageProps> = ({ view, trail }) => {
           pageSize={query.pageSize}
           total={total}
           showSizeChanger
+          pageSizeOptions={[10, 30, 50, 100]}
           showTotal={(count) => `共 ${count} 条`}
           onChange={(page, pageSize) => setQuery((prev) => ({ ...prev, page, pageSize }))}
         />

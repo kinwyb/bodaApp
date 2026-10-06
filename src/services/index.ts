@@ -22,3 +22,5 @@ export { viewService } from './modules/view';
 export type { ViewRow, ViewRowQuery, ViewRowStatus } from './modules/view';
 export { preorderService } from './modules/preorder';
 export type { PreorderQuery, PreorderRecord } from './modules/preorder';
+export { employeeService } from './modules/employee';
+export type { EmployeeQuery, EmployeeRecord } from './modules/employee';

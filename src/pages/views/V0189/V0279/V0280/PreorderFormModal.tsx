@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { App, Button, DatePicker, Dropdown, Form, Input, InputNumber, Modal, Select } from 'antd';
-import type { MenuProps } from 'antd';
+import { App, Button, DatePicker, Form, Input, InputNumber, Modal, Select } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
-import { ApiError, preorderService, type PreorderRecord } from '@/services';
+import { ApiError, employeeService, preorderService, type PreorderRecord } from '@/services';
 import { VTable } from '@/components/VTable';
+import { EmployeeQuickSelect } from '@/components/quick-select';
 import {
   buildPreorderDetailColumns,
   createDetailRow,
@@ -39,8 +39,6 @@ export interface PreorderFormModalProps {
   mode: 'add' | 'edit';
   /** 编辑时的原始记录，新增时为 undefined */
   record?: PreorderRecord | null;
-  /** 业务员候选（来自筛选候选项） */
-  salesmen: string[];
   /** 产地候选（来自筛选候选项） */
   workPlaces: string[];
   /** 是否整体禁用（详情分组连同下面的明细表格一起禁用） */
@@ -126,7 +124,6 @@ const PreorderFormModal: React.FC<PreorderFormModalProps> = ({
   open,
   mode,
   record,
-  salesmen,
   workPlaces,
   disabled = false,
   onCancel,
@@ -137,10 +134,14 @@ const PreorderFormModal: React.FC<PreorderFormModalProps> = ({
   const [saving, setSaving] = useState(false);
   const [checking, setChecking] = useState(false);
   const [detailRows, setDetailRows] = useState<PreorderDetailRow[]>([]);
+  const [employeeOpen, setEmployeeOpen] = useState(false);
 
   // 打开时重置并按模式填充：新增给空表，编辑铺原始数据
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      setEmployeeOpen(false);
+      return;
+    }
     form.resetFields();
     form.setFieldsValue(buildValues(record));
     setDetailRows(buildDetailRows(record));
@@ -156,14 +157,6 @@ const PreorderFormModal: React.FC<PreorderFormModalProps> = ({
       );
     },
     [],
-  );
-
-  const salesmanMenu = useMemo<MenuProps>(
-    () => ({
-      items: salesmen.map((name) => ({ key: name, label: name })),
-      onClick: ({ key }) => form.setFieldValue('Ywy', key),
-    }),
-    [form, salesmen],
   );
 
   const handleCheck = useCallback(async () => {
@@ -289,15 +282,14 @@ const PreorderFormModal: React.FC<PreorderFormModalProps> = ({
               <Form.Item name="Ywy" noStyle>
                 <Input style={{ width: 120 }} readOnly />
               </Form.Item>
-              <Dropdown
-                menu={salesmanMenu}
-                trigger={['click']}
-                disabled={disabled || !salesmen.length}
+              <Button
+                style={{ width: 30, padding: 0 }}
+                className="pf-picker-btn"
+                disabled={disabled}
+                onClick={() => setEmployeeOpen(true)}
               >
-                <Button style={{ width: 30, padding: 0 }} className="pf-picker-btn">
-                  ...
-                </Button>
-              </Dropdown>
+                ...
+              </Button>
             </Field>
             <Field label="产地">
               <Form.Item name="WorkPlace" noStyle>
@@ -414,6 +406,17 @@ const PreorderFormModal: React.FC<PreorderFormModalProps> = ({
           </div>
         </fieldset>
       </Form>
+
+      <EmployeeQuickSelect
+        open={employeeOpen}
+        title="快速选择-业务员"
+        loadData={async () => (await employeeService.list()).data}
+        onSelect={(employee) => {
+          form.setFieldValue('Ywy', employee.EmployeeName);
+          setEmployeeOpen(false);
+        }}
+        onCancel={() => setEmployeeOpen(false)}
+      />
     </Modal>
   );
 };

@@ -47,6 +47,8 @@ export interface QuickSelectModalProps<T extends QuickSelectRow = QuickSelectRow
   height?: number;
   /** 空数据提示 */
   emptyTip?: string;
+  /** 列宽总和不足容器宽度时，是否自动拉宽各列来填满容器；默认 false（右侧留白） */
+  autoFillWidth?: boolean;
   /** 输入防抖毫秒数，默认 300 */
   debounceMs?: number;
 }
@@ -85,6 +87,7 @@ export function QuickSelectModal<T extends QuickSelectRow = QuickSelectRow>({
   width = 760,
   height = 460,
   emptyTip = '暂无数据',
+  autoFillWidth = false,
   debounceMs = 300,
 }: QuickSelectModalProps<T>): React.ReactElement {
   const { message } = App.useApp();
@@ -208,6 +211,7 @@ export function QuickSelectModal<T extends QuickSelectRow = QuickSelectRow>({
       destroyOnHidden
       onCancel={onCancel}
       styles={{
+        header: { textAlign: 'center' },
         body: {
           height,
           display: 'flex',
@@ -237,6 +241,7 @@ export function QuickSelectModal<T extends QuickSelectRow = QuickSelectRow>({
           records={displayRecords as Array<Record<string, unknown>>}
           rowKey={rowKey}
           highlightMode="row"
+          autoFillWidth={autoFillWidth}
           emptyTip={emptyTip}
           onCellClick={handleCellClick}
           onCellDblClick={handleDblClick}

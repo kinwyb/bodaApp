@@ -28,7 +28,7 @@ import type { ViewPageProps } from '@/pages/types';
 import { buildPreorderColumns, preorderFilterFields } from './columns';
 import PreorderFormModal from './PreorderFormModal';
 
-const DEFAULT_PAGE_SIZE = 20;
+const DEFAULT_PAGE_SIZE = 30;
 const SELECT_FIELD = '__checked';
 
 const COMMANDS: CommandItem[] = [
@@ -167,7 +167,6 @@ const PreorderPage: React.FC<ViewPageProps> = ({ view, trail }) => {
 
   const columns = useMemo(() => buildPreorderColumns(), []);
 
-  const salesmen = useMemo(() => (filterOptions.Ywy ?? []).map(String), [filterOptions]);
   const workPlaces = useMemo(() => (filterOptions.WorkPlace ?? []).map(String), [filterOptions]);
 
   const summary = useCallback((records: Array<Record<string, unknown>>): Record<string, unknown> => {
@@ -223,7 +222,6 @@ const PreorderPage: React.FC<ViewPageProps> = ({ view, trail }) => {
         open={formOpen}
         mode={formMode}
         record={formMode === 'edit' ? editingRecord : null}
-        salesmen={salesmen}
         workPlaces={workPlaces}
         onCancel={() => setFormOpen(false)}
         onSaved={() => {

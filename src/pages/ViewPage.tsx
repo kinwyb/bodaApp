@@ -14,7 +14,7 @@ const statusMap: Record<ViewRowStatus, { color: string; label: string }> = {
 };
 
 const statusOptions = Object.entries(statusMap).map(([value, { label }]) => ({ value, label }));
-const DEFAULT_PAGE_SIZE = 10;
+const DEFAULT_PAGE_SIZE = 30;
 
 interface SearchValues {
   keyword?: string;
@@ -201,6 +201,7 @@ const ViewPage: React.FC<ViewPageProps> = ({ view, trail }) => {
           pageSize={query.pageSize}
           total={total}
           showSizeChanger
+          pageSizeOptions={[10, 30, 50, 100]}
           showTotal={(count) => `共 ${count} 条`}
           onChange={(page, pageSize) => setQuery((prev) => ({ ...prev, page, pageSize }))}
         />

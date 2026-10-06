@@ -165,6 +165,8 @@ export interface VTableProps {
   summary?: Record<string, unknown>;
   /** 选择高亮模式，默认整行高亮 */
   highlightMode?: 'row' | 'column' | 'cell' | 'cross';
+  /** 列宽总和不足容器宽度时，是否自动拉宽各列来填满容器；默认 false（右侧留白） */
+  autoFillWidth?: boolean;
   /** 页面自定义单元格样式（业务提醒用，如最近变更标绿） */
   cellStyle?: VTableCellStyleHook;
   /** 可编辑列：字段 -> 已注册的编辑器名（用 register.editor 注册），不传则整表只读 */
@@ -233,6 +235,7 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
   frozenColCount = 0,
   summary,
   highlightMode = 'row',
+  autoFillWidth = false,
   cellStyle,
   editableFields,
   editCellTrigger = 'doubleclick',
@@ -415,6 +418,7 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
       defaultHeaderRowHeight: headerRowHeight,
       widthMode: 'standard',
       heightMode: 'standard',
+      autoFillWidth,
       theme: THEME,
       ...(editableFields ? { editCellTrigger } : {}),
       ...(emptyTip ? { emptyTip: { text: emptyTip } } : {}),
@@ -585,11 +589,13 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     const table = tableRef.current;
     const base = optionsRef.current;
     if (!table || !base) return;
+    // 列不足容器时是否拉宽填满：可在运行时切换
+    base.autoFillWidth = autoFillWidth;
     // 传入完整 options（去掉 records，避免重复 setRecords），否则 theme 等配置会被重置
     const next: ListTableConstructorOptions = { ...base, columns: finalColumns };
     delete next.records;
     void table.updateOption(next);
-  }, [finalColumns]);
+  }, [finalColumns, autoFillWidth]);
 
   return <div ref={containerRef} style={{ width: '100%', height: '100%', minHeight: 0 }} />;
 });

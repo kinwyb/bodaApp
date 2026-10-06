@@ -1,7 +1,9 @@
 import dayjs from 'dayjs';
+import type { EmployeeRecord } from '../modules/employee';
 import type { MenuNode, UserMenuPermission } from '../modules/menu';
 import type { PreorderChange, PreorderRecord } from '../modules/preorder';
 import type { ApiResponse, QueryParams } from '../types';
+import employeesJson from './employees.json';
 import menus from './menus.json';
 import preorderChangesJson from './preorderChanges.json';
 import preordersJson from './preorders.json';
@@ -9,6 +11,7 @@ import userMenus from './userMenus.json';
 
 const menuTree = menus as unknown as MenuNode[];
 const permissionTree = userMenus as unknown as UserMenuPermission[];
+const employees = employeesJson as unknown as EmployeeRecord[];
 const preorders = preordersJson as unknown as PreorderRecord[];
 const preorderChanges = preorderChangesJson as unknown as PreorderChange[];
 
@@ -257,6 +260,24 @@ export async function mockRequest<T>(init: MockRequestInit): Promise<ApiResponse
   // 筛选候选项：按当前数据集去重
   if (resource === 'preorders' && second === 'filters' && method === 'GET') {
     return { code: 0, data: buildFilterOptions(preorders) as unknown as T };
+  }
+
+  // 员工列表（快速选择用），支持按工号 / 姓名 / 部门过滤
+  if (resource === 'employees' && method === 'GET' && !second) {
+    let result = employees;
+    if (params.keyword) {
+      const keyword = String(params.keyword).toLowerCase();
+      result = result.filter(
+        (item) =>
+          item.EmployeeNo.toLowerCase().includes(keyword) ||
+          item.EmployeeName.toLowerCase().includes(keyword) ||
+          item.DepartmentName.toLowerCase().includes(keyword),
+      );
+    }
+    if (params.departmentId) {
+      result = result.filter((item) => item.DepartmentID === params.departmentId);
+    }
+    return { code: 0, data: result as unknown as T };
   }
 
   // 最近变更明细（list/change）

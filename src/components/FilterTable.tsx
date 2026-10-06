@@ -11,7 +11,7 @@ import {
   type VTableCellStyleHook,
 } from './VTable';
 
-const DEFAULT_PAGE_SIZE = 20;
+const DEFAULT_PAGE_SIZE = 30;
 
 export interface FilterTableProps {
   /** 面包屑导航 */
@@ -40,6 +40,8 @@ export interface FilterTableProps {
   summary?: Record<string, unknown> | ((records: Array<Record<string, unknown>>) => Record<string, unknown>);
   /** 单元格样式回调 */
   cellStyle?: VTableCellStyleHook;
+  /** 列宽总和不足容器宽度时，是否自动拉宽各列来填满容器；默认 false（右侧留白） */
+  autoFillWidth?: boolean;
   /** 可编辑列 */
   editableFields?: Record<string, string>;
   /** 行高 */
@@ -105,6 +107,7 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
       frozenColCount,
       summary,
       cellStyle,
+      autoFillWidth,
       editableFields,
       rowHeight,
       headerRowHeight,
@@ -113,7 +116,7 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
       total,
       page = 1,
       pageSize = DEFAULT_PAGE_SIZE,
-      pageSizeOptions = [10, 20, 50, 100],
+      pageSizeOptions = [10, 30, 50, 100],
       showCount = true,
       showPagination = true,
       showSummary = true,
@@ -275,6 +278,7 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
             frozenColCount={frozenColCount}
             summary={resolvedSummary}
             cellStyle={cellStyle}
+            autoFillWidth={autoFillWidth}
             editableFields={editableFields}
             rowHeight={rowHeight}
             headerRowHeight={headerRowHeight}
