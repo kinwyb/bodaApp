@@ -17,7 +17,7 @@ import {
   ShopOutlined,
   TagOutlined,
 } from '@ant-design/icons';
-import { ApiError, preorderService, type PreorderQuery, type PreorderRecord } from '@/services';
+import { ApiError, preorderService, type PreorderQuery, type YupaiOrder } from '@/services';
 import { CommandBar } from '@/components/CommandBar';
 import type { CommandItem } from '@/components/CommandBar';
 import { FilterTable } from '@/components/FilterTable';
@@ -33,7 +33,7 @@ const SELECT_FIELD = '__checked';
 /** V0189_V0279_V0280 计划管理 > 预订单 > 预订单管理 */
 const PreorderPage: React.FC<ViewPageProps> = ({ view, trail }) => {
   const { message } = App.useApp();
-  const [dataSource, setDataSource] = useState<PreorderRecord[]>([]);
+  const [dataSource, setDataSource] = useState<YupaiOrder[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
@@ -42,7 +42,7 @@ const PreorderPage: React.FC<ViewPageProps> = ({ view, trail }) => {
   const [changedCells, setChangedCells] = useState<Record<string, string[]>>({});
   const [formOpen, setFormOpen] = useState(false);
   const [formMode, setFormMode] = useState<'add' | 'edit' | 'view'>('add');
-  const [editingRecord, setEditingRecord] = useState<PreorderRecord | null>(null);
+  const [editingRecord, setEditingRecord] = useState<YupaiOrder | null>(null);
   const tableRef = useRef<VTableApi | null>(null);
 
   const loadData = useCallback(
@@ -82,14 +82,17 @@ const PreorderPage: React.FC<ViewPageProps> = ({ view, trail }) => {
   }, []);
 
   const cellStyle: VTableCellStyleHook = useCallback(
-    ({ rowKey, field }) => {
+    ({ rowKey, field, record }) => {
       if (!rowKey || rowKey === '__summary__') return undefined;
-      const fields = changedCells[rowKey];
-      if (!fields) return undefined;
-      if (fields.length === 0 || fields.includes(field)) {
-        return { bgColor: '#d9f7be' };
+      const style: Record<string, unknown> = {};
+      if (record && (record as YupaiOrder).Status === 0) {
+        style.color = '#389e0d';
       }
-      return undefined;
+      const fields = changedCells[rowKey];
+      if (fields && (fields.length === 0 || fields.includes(field))) {
+        style.bgColor = '#d9f7be';
+      }
+      return Object.keys(style).length > 0 ? style : undefined;
     },
     [changedCells],
   );
@@ -107,8 +110,8 @@ const PreorderPage: React.FC<ViewPageProps> = ({ view, trail }) => {
       onClick: () => {
         const checked = selectedKeys.length === 1 ? dataSource.find((r) => r.ID === selectedKeys[0]) : undefined;
         const current = (tableRef.current?.getSelection().rows ?? []).find((r) =>
-          dataSource.some((d) => d.ID === (r as PreorderRecord).ID),
-        ) as PreorderRecord | undefined;
+          dataSource.some((d) => d.ID === (r as YupaiOrder).ID),
+        ) as YupaiOrder | undefined;
         const target = checked ?? current;
         if (!target) { message.warning('请选择一条预订单再修改'); return; }
         setFormMode('edit'); setEditingRecord(target); setFormOpen(true);
@@ -177,7 +180,7 @@ const PreorderPage: React.FC<ViewPageProps> = ({ view, trail }) => {
           onSelectionChange={setSelectedKeys}
           onActiveSelectionChange={(info) => setActiveRowCount(info.rowCount)}
           onCellDblClick={(info) => {
-            const target = info.record as PreorderRecord | undefined;
+            const target = info.record as YupaiOrder | undefined;
             if (!target?.ID) return;
             setFormMode('view');
             setEditingRecord(target);

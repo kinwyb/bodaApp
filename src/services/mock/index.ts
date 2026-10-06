@@ -1,7 +1,7 @@
 import dayjs from 'dayjs';
 import type { EmployeeRecord } from '../modules/employee';
 import type { MenuNode, UserMenuPermission } from '../modules/menu';
-import type { PreorderChange, PreorderRecord } from '../modules/preorder';
+import type { YupaiOrderChange, YupaiOrder } from '../modules/yupai.ts';
 import type { ApiResponse, QueryParams } from '../types';
 import employeesJson from './employees.json';
 import menus from './menus.json';
@@ -12,11 +12,11 @@ import userMenus from './userMenus.json';
 const menuTree = menus as unknown as MenuNode[];
 const permissionTree = userMenus as unknown as UserMenuPermission[];
 const employees = employeesJson as unknown as EmployeeRecord[];
-const preorders = preordersJson as unknown as PreorderRecord[];
-const preorderChanges = preorderChangesJson as unknown as PreorderChange[];
+const preorders = preordersJson as unknown as YupaiOrder[];
+const preorderChanges = preorderChangesJson as unknown as YupaiOrderChange[];
 
 /** 按数据集自动生成筛选候选项：低基数、短文本的字段才作为枚举候选 */
-function buildFilterOptions(rows: PreorderRecord[]): Record<string, string[]> {
+function buildFilterOptions(rows: YupaiOrder[]): Record<string, string[]> {
   const options: Record<string, string[]> = {};
   if (!rows.length) return options;
   Object.keys(rows[0]).forEach((field) => {
@@ -45,7 +45,7 @@ interface FilterConditionInput {
 }
 
 /** 应用自定义筛选条件 */
-function applyFilters(list: PreorderRecord[], filters?: string): PreorderRecord[] {
+function applyFilters(list: YupaiOrder[], filters?: string): YupaiOrder[] {
   if (!filters) return list;
   let model: Record<string, FilterConditionInput>;
   try {
@@ -173,7 +173,7 @@ function filterEntities(list: MockEntity[], params: QueryParams): MockEntity[] {
   return result;
 }
 
-function filterPreorders(list: PreorderRecord[], params: QueryParams): PreorderRecord[] {
+function filterPreorders(list: YupaiOrder[], params: QueryParams): YupaiOrder[] {
   let result = applyFilters(list, params.filters ? String(params.filters) : undefined);
   if (params.keyword) {
     const keyword = String(params.keyword).toLowerCase();
@@ -269,7 +269,7 @@ export async function mockRequest<T>(init: MockRequestInit): Promise<ApiResponse
 
   // 新增预订单
   if (resource === 'preorders' && method === 'POST') {
-    const payload = (body ?? {}) as Partial<PreorderRecord>;
+    const payload = (body ?? {}) as Partial<YupaiOrder>;
     const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
     const created = {
       ...payload,
@@ -280,7 +280,7 @@ export async function mockRequest<T>(init: MockRequestInit): Promise<ApiResponse
       CreateTime: now,
       UpdateTime: now,
       Status: payload.Status ?? 0,
-    } as PreorderRecord;
+    } as YupaiOrder;
     preorders.unshift(created);
     return { code: 0, data: created as unknown as T };
   }
@@ -291,7 +291,7 @@ export async function mockRequest<T>(init: MockRequestInit): Promise<ApiResponse
     if (index < 0) return notFound<T>('预订单', second);
     preorders[index] = {
       ...preorders[index],
-      ...(body as Partial<PreorderRecord>),
+      ...(body as Partial<YupaiOrder>),
       ID: second,
       UpdateTime: dayjs().format('YYYY-MM-DD HH:mm:ss'),
     };

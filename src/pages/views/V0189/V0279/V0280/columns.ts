@@ -1,5 +1,5 @@
 import type { ColumnsDefine } from '@visactor/vtable';
-import type { PreorderRecord } from '@/services';
+import type { YupaiOrder } from '@/services';
 import type { FilterField } from '@/components/TableFilter';
 import { buildColumns, type AppColumnDef } from '@/components/columnBuilder';
 
@@ -35,7 +35,7 @@ const COLUMNS: AppColumnDef[] = [
     title: '织造产地',
     width: 90,
     columnProps: {
-      fieldFormat: (record: PreorderRecord) => orgLabel(record.KnitOrgID),
+      fieldFormat: (record: YupaiOrder) => orgLabel(record.KnitOrgID),
     },
   },
   { field: 'Ywy', title: '业务员', width: 80 },

@@ -10,7 +10,7 @@ export interface PreorderQuery extends PageQuery {
 }
 
 /** 预订单列表记录，字段与后端 /preorders 返回一致 */
-export interface PreorderRecord {
+export interface YupaiOrder {
   ID: string;
   /** 预订日期 */
   YPDate: string;
@@ -97,7 +97,7 @@ export interface PreorderRecord {
 }
 
 /** 变更清单记录（list/change 接口返回） */
-export interface PreorderChange {
+export interface YupaiOrderChange {
   /** 0：整行变化；1：字段级变化 */
   Action: number;
   /** 订单 ID，对应列表的 ID */
@@ -110,12 +110,12 @@ export interface PreorderChange {
 export type PreorderChangeMap = Record<string, string[]>;
 
 export const preorderService = {
-  list: (query: PreorderQuery = {}) => http.get<PreorderRecord[]>('/preorders', query),
+  list: (query: PreorderQuery = {}) => http.get<YupaiOrder[]>('/preorders', query),
   /** 最近发生变化的明细 */
-  changes: () => http.get<PreorderChange[]>('/preorders/changes'),
+  changes: () => http.get<YupaiOrderChange[]>('/preorders/changes'),
   /** 新增预订单 */
-  create: (payload: Partial<PreorderRecord>) => http.post<PreorderRecord>('/preorders', payload),
+  create: (payload: Partial<YupaiOrder>) => http.post<YupaiOrder>('/preorders', payload),
   /** 修改预订单 */
-  update: (id: string, payload: Partial<PreorderRecord>) =>
-    http.put<PreorderRecord>(`/preorders/${encodeURIComponent(id)}`, payload),
+  update: (id: string, payload: Partial<YupaiOrder>) =>
+    http.put<YupaiOrder>(`/preorders/${encodeURIComponent(id)}`, payload),
 };

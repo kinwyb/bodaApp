@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { App, Button, DatePicker, Form, Input, InputNumber, Modal, Select } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
-import { ApiError, employeeService, preorderService, type PreorderRecord } from '@/services';
+import { ApiError, employeeService, preorderService, type YupaiOrder } from '@/services';
 import { VTable } from '@/components/VTable';
 import { EmployeeQuickSelect } from '@/components/quick-select';
 import {
@@ -36,7 +36,7 @@ interface PreorderFormValues {
 export interface PreorderFormModalProps {
   open: boolean;
   mode: 'add' | 'edit' | 'view';
-  record?: PreorderRecord | null;
+  record?: YupaiOrder | null;
   workPlaces: string[];
   disabled?: boolean;
   onCancel: () => void;
@@ -54,7 +54,7 @@ const toDayjs = (value: unknown): Dayjs | undefined => {
 const toDateString = (value: Dayjs | undefined): string =>
   value && dayjs.isDayjs(value) ? value.format(DATE_FORMAT) : '';
 
-const buildValues = (record?: PreorderRecord | null): PreorderFormValues => {
+const buildValues = (record?: YupaiOrder | null): PreorderFormValues => {
   if (!record) {
     return { YPDate: dayjs(), Qty: 0 };
   }
@@ -78,7 +78,7 @@ const buildValues = (record?: PreorderRecord | null): PreorderFormValues => {
   };
 };
 
-const buildDetailRows = (record?: PreorderRecord | null): PreorderDetailRow[] => {
+const buildDetailRows = (record?: YupaiOrder | null): PreorderDetailRow[] => {
   if (!record) return [createDetailRow('__new__')];
   const row: PreorderDetailRow = {
     __id: String(record.ID ?? 'detail-1'),
@@ -196,7 +196,7 @@ const PreorderFormModal: React.FC<PreorderFormModalProps> = ({
       return;
     }
 
-    const payload: Partial<PreorderRecord> = {
+    const payload: Partial<YupaiOrder> = {
       OrderCode: values.OrderCode ?? '',
       YPDate: toDateString(values.YPDate),
       Ywy: values.Ywy ?? '',
