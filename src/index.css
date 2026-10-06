@@ -144,7 +144,7 @@ html, body, #root {
 
 .table-filter-panel {
   width: 420px;
-  height: 58vh;
+  max-height: 58vh;
   display: flex;
   flex-direction: column;
 }
@@ -153,6 +153,7 @@ html, body, #root {
   flex: 1;
   overflow-y: auto;
   padding-right: 8px;
+  min-height: 0;
 }
 
 .table-filter-row {
