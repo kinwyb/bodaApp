@@ -95,7 +95,7 @@ html, body, #root {
   align-items: stretch;
   gap: 2px;
   padding-bottom: 8px;
-  margin-bottom: 8px;
+  
   border-bottom: 1px solid #f0f0f0;
 }
 
@@ -138,7 +138,7 @@ html, body, #root {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  margin-bottom: 8px;
+  
 }
 
 .table-filter-panel {
@@ -151,7 +151,7 @@ html, body, #root {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 8px;
+  
 }
 
 .table-filter-label {

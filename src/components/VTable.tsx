@@ -146,6 +146,8 @@ export interface VTableApi {
   repaint: () => void;
   /** 当前选中态（行 + 单元格 + 最后点选的单元格），取自 VTable 原生选中态 */
   getSelection: () => VTableSelection;
+  /** 获取内部 ListTable 实例（供 SearchComponent 等外部工具使用） */
+  getTable: () => ListTable | null;
 }
 
 export interface VTableProps {
@@ -575,7 +577,7 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
   // 把方法挂到 ref 上：<VTable ref={tableRef} />，之后用 tableRef.current?.repaint()
   useImperativeHandle(
     ref,
-    () => ({ autoFitColumns, repaint, getSelection }),
+    () => ({ autoFitColumns, repaint, getSelection, getTable: () => tableRef.current }),
     [autoFitColumns, repaint, getSelection],
   );
 

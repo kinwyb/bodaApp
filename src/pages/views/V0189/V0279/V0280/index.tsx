@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { App, Breadcrumb, Input, Pagination } from 'antd';
+import { App } from 'antd';
 import {
   ApartmentOutlined,
   CalendarOutlined,
@@ -14,7 +14,6 @@ import {
   PlusOutlined,
   ReloadOutlined,
   SafetyCertificateOutlined,
-  SearchOutlined,
   SendOutlined,
   SettingOutlined,
   ShopOutlined,
@@ -22,15 +21,14 @@ import {
   TagOutlined,
 } from '@ant-design/icons';
 import { ApiError, preorderService, type PreorderQuery, type PreorderRecord } from '@/services';
-import { CommandBar, type CommandItem } from '@/components/CommandBar';
-import { VTable, type VTableApi, type VTableCellStyleHook } from '@/components/VTable';
-import { TableFilter, type FilterModel } from '@/components/TableFilter';
+import type { CommandItem } from '@/components/CommandBar';
+import { FilterTable } from '@/components/FilterTable';
+import type { VTableApi, VTableCellStyleHook } from '@/components/VTable';
 import type { ViewPageProps } from '@/pages/types';
 import { buildPreorderColumns, preorderFilterFields } from './columns';
 import PreorderFormModal from './PreorderFormModal';
 
 const DEFAULT_PAGE_SIZE = 20;
-/** 勾选列字段名，由 VTable 自己维护状态 */
 const SELECT_FIELD = '__checked';
 
 const COMMANDS: CommandItem[] = [
@@ -62,17 +60,12 @@ const PreorderPage: React.FC<ViewPageProps> = ({ view, trail }) => {
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
-  const [keyword, setKeyword] = useState('');
   const [query, setQuery] = useState<PreorderQuery>({ page: 1, pageSize: DEFAULT_PAGE_SIZE });
-  const [filters, setFilters] = useState<FilterModel>({});
   const [filterOptions, setFilterOptions] = useState<Record<string, Array<string | number>>>({});
-  /** 最近变更的单元格：订单 ID -> 变更字段（空数组 = 整行变化） */
   const [changedCells, setChangedCells] = useState<Record<string, string[]>>({});
-  /** 新增 / 编辑弹窗 */
   const [formOpen, setFormOpen] = useState(false);
   const [formMode, setFormMode] = useState<'add' | 'edit'>('add');
   const [editingRecord, setEditingRecord] = useState<PreorderRecord | null>(null);
-  /** 表格实例引用：需要调用 autoFitColumns 等命令式方法时用 */
   const tableRef = useRef<VTableApi | null>(null);
 
   const loadData = useCallback(
@@ -95,7 +88,6 @@ const PreorderPage: React.FC<ViewPageProps> = ({ view, trail }) => {
     void loadData(query);
   }, [loadData, query]);
 
-  // 筛选候选项：由后端按当前数据集去重返回
   useEffect(() => {
     (async () => {
       try {
@@ -107,53 +99,27 @@ const PreorderPage: React.FC<ViewPageProps> = ({ view, trail }) => {
     })();
   }, []);
 
-  // 最近变更明细：标出发生变化的单元格
   useEffect(() => {
     (async () => {
       try {
         const res = await preorderService.changes();
         const map: Record<string, string[]> = {};
         res.data.forEach((item) => {
-          const key = item.YupaiOrderID;
-          if (!key) return;
-          const existing = map[key];
-          if (existing && existing.length === 0) return; // 已是整行变更
-          if (!item.FieldName) {
-            map[key] = [];
-            return;
-          }
-          if (existing) {
-            if (!existing.includes(item.FieldName)) existing.push(item.FieldName);
-          } else {
-            map[key] = [item.FieldName];
-          }
+          if (!map[item.YupaiOrderID]) map[item.YupaiOrderID] = [];
+          if (item.FieldName) map[item.YupaiOrderID].push(item.FieldName);
         });
         setChangedCells(map);
       } catch {
-        // 变更信息拿不到不影响列表使用
+        // 变更明细拿不到不影响列表使用
       }
     })();
   }, []);
 
-  const handleFilterChange = useCallback((model: FilterModel) => {
-    setFilters(model);
-    setQuery((prev) => ({
-      ...prev,
-      page: 1,
-      filters: Object.keys(model).length ? JSON.stringify(model) : undefined,
-    }));
-  }, []);
-
-  /**
-   * 最近变更提醒：命中变更明细的行标绿底。
-   * 这是本页的业务规则，所以放在页面里通过 cellStyle 回调实现。
-   */
-  const cellStyle = useCallback<VTableCellStyleHook>(
+  const cellStyle: VTableCellStyleHook = useCallback(
     ({ rowKey, field }) => {
-      if (!rowKey) return undefined;
+      if (!rowKey || rowKey === '__summary__') return undefined;
       const fields = changedCells[rowKey];
       if (!fields) return undefined;
-      // 空数组代表整行变化
       if (fields.length === 0 || fields.includes(field)) {
         return { bgColor: '#d9f7be' };
       }
@@ -162,7 +128,6 @@ const PreorderPage: React.FC<ViewPageProps> = ({ view, trail }) => {
     [changedCells],
   );
 
-  // 变更明细是异步到达的，拿到后主动重绘一次
   useEffect(() => {
     tableRef.current?.repaint();
   }, [changedCells]);
@@ -181,7 +146,6 @@ const PreorderPage: React.FC<ViewPageProps> = ({ view, trail }) => {
         return;
       }
       if (item.key === 'edit') {
-        // 勾选了就用勾选的那一行；没勾选就用表格里当前选中的行（点一下即选中）
         const checked =
           selectedKeys.length === 1 ? dataSource.find((row) => row.ID === selectedKeys[0]) : undefined;
         const current = (tableRef.current?.getSelection().rows ?? []).find((row) =>
@@ -203,13 +167,11 @@ const PreorderPage: React.FC<ViewPageProps> = ({ view, trail }) => {
 
   const columns = useMemo(() => buildPreorderColumns(), []);
 
-  /** 弹窗里的业务员 / 产地候选项 */
   const salesmen = useMemo(() => (filterOptions.Ywy ?? []).map(String), [filterOptions]);
   const workPlaces = useMemo(() => (filterOptions.WorkPlace ?? []).map(String), [filterOptions]);
 
-  /** 统计行：汇总当前页的数量列 */
-  const summary = useMemo(() => {
-    const totals = dataSource.reduce(
+  const summary = useCallback((records: Array<Record<string, unknown>>): Record<string, unknown> => {
+    const totals = records.reduce(
       (acc, row) => {
         acc.qty += Number(row.Qty) || 0;
         acc.number += Number(row.Number) || 0;
@@ -219,79 +181,43 @@ const PreorderPage: React.FC<ViewPageProps> = ({ view, trail }) => {
     );
     return {
       ID: '__summary__',
-      WorkPlace: `合计（${dataSource.length} 行）`,
+      WorkPlace: `合计（${records.length} 行）`,
       Qty: totals.qty,
       Number: totals.number,
     };
-  }, [dataSource]);
+  }, []);
 
   return (
-    <div className="page-container page-fill">
-      <Breadcrumb style={{ marginBottom: 12 }} items={trail.map((item) => ({ title: item.name }))} />
-
-      <CommandBar view={view} items={commands} />
-
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-        <TableFilter
-          fields={preorderFilterFields}
-          options={filterOptions}
-          value={filters}
-          onChange={handleFilterChange}
-        />
-        <Input
-          allowClear
-          size="small"
-          style={{ width: 220, marginLeft: 'auto' }}
-          placeholder="订单号/款号/款式/业务员"
-          prefix={<SearchOutlined />}
-          value={keyword}
-          onChange={(event) => {
-            const value = event.target.value;
-            setKeyword(value);
-            if (!value) setQuery((prev) => ({ ...prev, page: 1, keyword: undefined }));
-          }}
-          onPressEnter={() => setQuery((prev) => ({ ...prev, page: 1, keyword: keyword || undefined }))}
-        />
-      </div>
-
-      <div className="vtable-host">
-        <VTable
-          ref={tableRef}
-          columns={columns}
-          records={dataSource}
-          rowKey="ID"
-          selectField={SELECT_FIELD}
-          frozenColCount={2}
-          summary={summary}
-          cellStyle={cellStyle}
-          emptyTip={loading ? '加载中…' : '暂无数据'}
-          onSelectionChange={setSelectedKeys}
-          onCellDblClick={(info) => {
-            const target = info.record as PreorderRecord | undefined;
-            if (!target?.ID) return;
-            setFormMode('edit');
-            setEditingRecord(target);
-            setFormOpen(true);
-          }}
-        />
-      </div>
-
-      <div className="grid-footer">
-        <span>计数 = {selectedKeys.length}</span>
-        <Pagination
-          size="small"
-          current={query.page}
-          pageSize={query.pageSize}
-          total={total}
-          showSizeChanger
-          pageSizeOptions={[10, 20, 50, 100]}
-          showTotal={(count) => `共 ${count} 条`}
-          onChange={(page, pageSize) => {
-            setSelectedKeys([]);
-            setQuery((prev) => ({ ...prev, page, pageSize }));
-          }}
-        />
-      </div>
+    <>
+      <FilterTable
+        ref={tableRef}
+        trail={trail}
+        commands={commands}
+        view={view}
+        filterFields={preorderFilterFields}
+        filterOptions={filterOptions}
+        columns={columns}
+        records={dataSource}
+        rowKey="ID"
+        selectField={SELECT_FIELD}
+        frozenColCount={2}
+        summary={summary}
+        cellStyle={cellStyle}
+        loading={loading}
+        total={total}
+        page={query.page}
+        pageSize={query.pageSize}
+        searchPlaceholder="订单号/款号/款式/业务员"
+        onPageChange={(page, pageSize) => setQuery((prev) => ({ ...prev, page, pageSize }))}
+        onSelectionChange={setSelectedKeys}
+        onCellDblClick={(info) => {
+          const target = info.record as PreorderRecord | undefined;
+          if (!target?.ID) return;
+          setFormMode('edit');
+          setEditingRecord(target);
+          setFormOpen(true);
+        }}
+      />
 
       <PreorderFormModal
         open={formOpen}
@@ -303,12 +229,11 @@ const PreorderPage: React.FC<ViewPageProps> = ({ view, trail }) => {
         onSaved={() => {
           setFormOpen(false);
           setSelectedKeys([]);
-          // 新增的记录插到最前，回到第一页；编辑保持当前页刷新
           if (formMode === 'add') setQuery((prev) => ({ ...prev, page: 1 }));
           else void loadData(query);
         }}
       />
-    </div>
+    </>
   );
 };
 
