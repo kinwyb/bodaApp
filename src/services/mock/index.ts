@@ -14,8 +14,8 @@ import type { ApiResponse, PageInfo, QueryParams } from '../types';
  * 写操作（POST/PUT/DELETE）直接回传请求体，不持久化。
  */
 
-/** 构建时 eager-import 所有 mock JSON，key 格式：./data/{path}.json */
-const MOCK_FILES = import.meta.glob<Record<string, unknown>>('./data/**/*.json', { eager: true });
+/** 构建时 eager-import 所有 mock JSON，JSON 数据在 default 导出中 */
+const MOCK_FILES = import.meta.glob<{ default: unknown }>('./data/**/*.json', { eager: true });
 
 export interface MockRequestInit {
   method: string;
@@ -25,10 +25,10 @@ export interface MockRequestInit {
 }
 
 /** 按 API 路径查找 mock 数据文件，未命中返回 undefined */
-function findMockData(apiPath: string): unknown[] | Record<string, unknown> | undefined {
+function findMockData(apiPath: string): unknown | undefined {
   const key = `./data/${apiPath}.json`;
   const mod = MOCK_FILES[key];
-  if (mod) return mod as unknown[] | Record<string, unknown>;
+  if (mod) return mod.default;
 
   // 动态路径降级：/views/V0005_V0010/rows → /views/_dynamic/rows
   const parts = apiPath.split('/');
@@ -36,7 +36,7 @@ function findMockData(apiPath: string): unknown[] | Record<string, unknown> | un
     const fallback = [...parts.slice(0, -2), '_dynamic', parts[parts.length - 1]].join('/');
     const fallbackKey = `./data/${fallback}.json`;
     const fallbackMod = MOCK_FILES[fallbackKey];
-    if (fallbackMod) return fallbackMod as unknown[] | Record<string, unknown>;
+    if (fallbackMod) return fallbackMod.default;
   }
 
   return undefined;
