@@ -112,12 +112,40 @@ export interface VTableCellInfo {
   record?: Record<string, unknown>;
 }
 
+/** 选中单元格信息：单元格所在的行列、列字段与所在行的记录 */
+export interface VTableCellSelection {
+  /** 列号（含勾选列 / 序号列） */
+  col: number;
+  /** 行号（含表头行） */
+  row: number;
+  /** 列字段名 */
+  field?: string;
+  /** 该单元格所在行的原始记录 */
+  record?: Record<string, unknown>;
+  /** 单元格显示值 */
+  value?: unknown;
+  /** 单元格原始值 */
+  dataValue?: unknown;
+}
+
+/** 表格当前选中态：行、单元格、以及最后点选的那一格 */
+export interface VTableSelection {
+  /** 选中的行数据（按行去重、行号升序） */
+  rows: Array<Record<string, unknown>>;
+  /** 选中的单元格：点选一格是一条，框选则是范围内所有格 */
+  cells: VTableCellSelection[];
+  /** 最后点选的单元格，用它可以知道「选中的是哪一列」 */
+  activeCell: VTableCellSelection | null;
+}
+
 /** 表格实例对外暴露的方法 */
 export interface VTableApi {
   /** 按内容自适应所有列宽（与双击列边界的效果一致） */
   autoFitColumns: () => void;
   /** 重绘表格：页面自定义样式（cellStyle）变化后调用即可生效 */
   repaint: () => void;
+  /** 当前选中态（行 + 单元格 + 最后点选的单元格），取自 VTable 原生选中态 */
+  getSelection: () => VTableSelection;
 }
 
 export interface VTableProps {
@@ -498,8 +526,58 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     scheduleBottomFrozen(table, summaryRef.current ? 1 : 0);
   }, []);
 
+  /**
+   * 取当前选中态：走 VTable 原生选中态（getSelectedCellInfos）。
+   * 选中高亮可以是整行，但选中范围是实际点选的那一格，所以既能拿整行数据，
+   * 也能拿到具体行列 / 字段（activeCell 即「选中的是哪一列」）。
+   */
+  const getSelection = useCallback((): VTableSelection => {
+    const empty: VTableSelection = { rows: [], cells: [], activeCell: null };
+    const table = tableRef.current;
+    if (!table) return empty;
+    const infos = table.getSelectedCellInfos();
+    if (!infos || infos.length === 0) return empty;
+
+    const byRow = new Map<number, Record<string, unknown>>();
+    const cells: VTableCellSelection[] = [];
+    infos.forEach((group) => {
+      group.forEach((cell) => {
+        const record = (cell.originData ?? table.getCellOriginRecord(cell.col, cell.row)) as
+          | Record<string, unknown>
+          | undefined;
+        cells.push({
+          col: cell.col,
+          row: cell.row,
+          field: cell.field === undefined ? undefined : String(cell.field),
+          record,
+          value: cell.value,
+          dataValue: cell.dataValue,
+        });
+        if (record && !byRow.has(cell.row)) byRow.set(cell.row, record);
+      });
+    });
+
+    const pos = table.stateManager?.select?.cellPos;
+    const activeCell =
+      pos && pos.col >= 0 && pos.row >= 0
+        ? (cells.find((cell) => cell.col === pos.col && cell.row === pos.row) ?? cells[cells.length - 1])
+        : (cells[cells.length - 1] ?? null);
+
+    return {
+      rows: Array.from(byRow.entries())
+        .sort(([a], [b]) => a - b)
+        .map(([, record]) => record),
+      cells,
+      activeCell: activeCell ?? null,
+    };
+  }, []);
+
   // 把方法挂到 ref 上：<VTable ref={tableRef} />，之后用 tableRef.current?.repaint()
-  useImperativeHandle(ref, () => ({ autoFitColumns, repaint }), [autoFitColumns, repaint]);
+  useImperativeHandle(
+    ref,
+    () => ({ autoFitColumns, repaint, getSelection }),
+    [autoFitColumns, repaint, getSelection],
+  );
 
   useEffect(() => {
     const table = tableRef.current;

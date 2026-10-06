@@ -181,13 +181,15 @@ const PreorderPage: React.FC<ViewPageProps> = ({ view, trail }) => {
         return;
       }
       if (item.key === 'edit') {
-        if (selectedKeys.length !== 1) {
-          message.warning('请选择一条预订单再修改');
-          return;
-        }
-        const target = dataSource.find((row) => row.ID === selectedKeys[0]);
+        // 勾选了就用勾选的那一行；没勾选就用表格里当前选中的行（点一下即选中）
+        const checked =
+          selectedKeys.length === 1 ? dataSource.find((row) => row.ID === selectedKeys[0]) : undefined;
+        const current = (tableRef.current?.getSelection().rows ?? []).find((row) =>
+          dataSource.some((item) => item.ID === (row as PreorderRecord).ID),
+        ) as PreorderRecord | undefined;
+        const target = checked ?? current;
         if (!target) {
-          message.warning('未找到选中的预订单');
+          message.warning('请选择一条预订单再修改');
           return;
         }
         setFormMode('edit');
