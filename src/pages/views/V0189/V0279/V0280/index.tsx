@@ -27,7 +27,6 @@ import type { ViewPageProps } from '@/pages/types';
 import { buildPreorderColumns, preorderFilterFields } from './columns';
 import PreorderFormModal from './PreorderFormModal';
 
-const DEFAULT_PAGE_SIZE = 30;
 const SELECT_FIELD = '__checked';
 
 /** V0189_V0279_V0280 计划管理 > 预订单 > 预订单管理 */
@@ -38,7 +37,7 @@ const PreorderPage: React.FC<ViewPageProps> = ({ view, trail }) => {
   const [total, setTotal] = useState(0);
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [activeRowCount, setActiveRowCount] = useState(0);
-  const [query, setQuery] = useState<PreorderQuery>({ page: 1, pageSize: DEFAULT_PAGE_SIZE });
+  const [query, setQuery] = useState<PreorderQuery>({});
   const [changedCells, setChangedCells] = useState<Record<string, string[]>>({});
   const [formOpen, setFormOpen] = useState(false);
   const [formMode, setFormMode] = useState<'add' | 'edit' | 'view'>('add');
@@ -51,7 +50,7 @@ const PreorderPage: React.FC<ViewPageProps> = ({ view, trail }) => {
       try {
         const res = await yupaiOrderService.list(params);
         setDataSource(res.data);
-        setTotal(res.page?.total ?? res.data.length);
+        setTotal(res.page?.total ?? 0);
       } catch (error) {
         message.error(error instanceof ApiError ? error.message : '加载预订单失败');
       } finally {
@@ -173,8 +172,8 @@ const PreorderPage: React.FC<ViewPageProps> = ({ view, trail }) => {
           cellStyle={cellStyle}
           loading={loading}
           total={total}
-          page={query.page}
-          pageSize={query.pageSize}
+          page={query.page ?? 1}
+          pageSize={query.pageSize ?? 30}
           searchPlaceholder="关键字"
           onPageChange={(page, pageSize) => { setActiveRowCount(0); setQuery((prev) => ({ ...prev, page, pageSize })); }}
           onSelectionChange={setSelectedKeys}

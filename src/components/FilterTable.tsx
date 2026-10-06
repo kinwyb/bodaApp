@@ -298,7 +298,7 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
           />
         </div>
 
-        {showPagination && (
+        {showPagination && total > 0 && (
           <div className="grid-footer">
             {showCount && <span>计数 = {selectedKeys.length}</span>}
             <Pagination

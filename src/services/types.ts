@@ -32,7 +32,7 @@ export interface PageQuery {
 }
 
 /** query 参数集合 */
-export type QueryParams = Record<string, unknown>;
+export type QueryParams = Record<string, unknown> | object;
 
 /** 单次请求配置 */
 export interface RequestOptions {

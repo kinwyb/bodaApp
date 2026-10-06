@@ -169,7 +169,7 @@ const PreorderFormModal: React.FC<PreorderFormModalProps> = ({
     }
     setChecking(true);
     try {
-      const res = await yupaiOrderService.list({ page: 1, pageSize: 200, keyword: code });
+      const res = await yupaiOrderService.list({ keyword: code });
       const duplicated = res.data.some(
         (item) => String(item.OrderCode) === code && item.ID !== record?.ID,
       );

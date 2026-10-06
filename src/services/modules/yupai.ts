@@ -1,5 +1,5 @@
 import { http } from '../request';
-import type { PageQuery } from '../types';
+import type {PageQuery} from "@/services";
 
 /** 尺码列标题，按界面原样展示 */
 export const YupaiMachineSizeHeader = [
