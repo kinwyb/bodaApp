@@ -101,25 +101,6 @@ interface MockEntity {
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-function createOrders(): MockEntity[] {
-  const statuses = ['pending', 'processing', 'completed', 'cancelled'];
-  return Array.from({ length: 171 }, (_, i) => ({
-    id: `ORD-${String(i + 1).padStart(4, '0')}`,
-    name: `订单项目 ${i + 1}`,
-    status: statuses[i % statuses.length],
-    createdAt: dayjs().subtract(i, 'day').format('YYYY-MM-DD HH:mm:ss'),
-  }));
-}
-
-function createUsers(): MockEntity[] {
-  return Array.from({ length: 36 }, (_, i) => ({
-    id: `USR-${String(i + 1).padStart(3, '0')}`,
-    name: `用户${i + 1}`,
-    status: i % 3 === 0 ? 'inactive' : 'active',
-    createdAt: dayjs().subtract(i, 'day').format('YYYY-MM-DD HH:mm:ss'),
-  }));
-}
-
 function hashString(input: string): number {
   let hash = 0;
   for (let i = 0; i < input.length; i += 1) {
@@ -147,9 +128,6 @@ function createViewRows(view: string): MockEntity[] {
     createdAt: dayjs().subtract(i, 'day').format('YYYY-MM-DD HH:mm:ss'),
   }));
 }
-
-const orders = createOrders();
-const users = createUsers();
 const viewRows = new Map<string, MockEntity[]>();
 
 function getViewRows(view: string): MockEntity[] {
@@ -318,57 +296,6 @@ export async function mockRequest<T>(init: MockRequestInit): Promise<ApiResponse
       UpdateTime: dayjs().format('YYYY-MM-DD HH:mm:ss'),
     };
     return { code: 0, data: preorders[index] as unknown as T };
-  }
-
-  if (resource === 'orders') {
-    if (method === 'GET' && !second) return paginate(filterEntities(orders, params), params) as ApiResponse<T>;
-    if (method === 'GET' && second) {
-      const found = orders.find((item) => item.id === second);
-      return found ? ({ code: 0, data: found as unknown as T }) : notFound<T>('订单', second);
-    }
-    if (method === 'DELETE' && second) {
-      const index = orders.findIndex((item) => item.id === second);
-      if (index < 0) return notFound<T>('订单', second);
-      orders.splice(index, 1);
-      return { code: 0, data: null as unknown as T };
-    }
-    if (method === 'POST') {
-      const payload = (body ?? {}) as Partial<MockEntity>;
-      const created: MockEntity = {
-        id: `ORD-${String(orders.length + 1).padStart(4, '0')}`,
-        name: payload.name ?? '新订单',
-        status: payload.status ?? 'pending',
-        createdAt: dayjs().format('YYYY-MM-DD HH:mm:ss'),
-      };
-      orders.unshift(created);
-      return { code: 0, data: created as unknown as T };
-    }
-    if (method === 'PUT' && second) {
-      const index = orders.findIndex((item) => item.id === second);
-      if (index < 0) return notFound<T>('订单', second);
-      orders[index] = { ...orders[index], ...(body as Partial<MockEntity>), id: second };
-      return { code: 0, data: orders[index] as unknown as T };
-    }
-  }
-
-  if (resource === 'users') {
-    if (method === 'GET' && !second) return paginate(filterEntities(users, params), params) as ApiResponse<T>;
-    if (method === 'GET' && second) {
-      const found = users.find((item) => item.id === second);
-      return found ? ({ code: 0, data: found as unknown as T }) : notFound<T>('用户', second);
-    }
-    if (method === 'DELETE' && second) {
-      const index = users.findIndex((item) => item.id === second);
-      if (index < 0) return notFound<T>('用户', second);
-      users.splice(index, 1);
-      return { code: 0, data: null as unknown as T };
-    }
-    if (method === 'PUT' && second) {
-      const index = users.findIndex((item) => item.id === second);
-      if (index < 0) return notFound<T>('用户', second);
-      users[index] = { ...users[index], ...(body as Partial<MockEntity>), id: second };
-      return { code: 0, data: users[index] as unknown as T };
-    }
   }
 
   return undefined;

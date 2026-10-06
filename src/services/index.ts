@@ -1,9 +1,5 @@
 export * from './types';
 export { ApiError, clearToken, getToken, http, request, setToken } from './request';
-export { orderService } from './modules/order';
-export type { OrderPayload, OrderQuery, OrderRecord, OrderStatus } from './modules/order';
-export { userService } from './modules/user';
-export type { UserQuery, UserRecord, UserStatus } from './modules/user';
 export {
   applyMenuPermission,
   buildPermissionIndex,
