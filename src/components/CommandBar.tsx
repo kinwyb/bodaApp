@@ -55,6 +55,7 @@ export const CommandBar: React.FC<CommandBarProps> = ({ view, items, className }
     }
     const common = {
       className: 'command-item',
+      type: 'text' as const,
       icon: item.icon,
       danger: item.danger,
       disabled: item.disabled,
@@ -66,7 +67,7 @@ export const CommandBar: React.FC<CommandBarProps> = ({ view, items, className }
           {item.label}
         </AuthButton>
       ) : (
-        <Button key={item.key} type="text" {...common}>
+        <Button key={item.key} {...common}>
           {item.label}
         </Button>
       ),
