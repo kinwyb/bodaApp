@@ -423,6 +423,10 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
       heightMode: 'standard',
       autoFillWidth,
       theme: THEME,
+      // 启用 Ctrl+C 复制选中单元格内容
+      keyboardOptions: {
+        copySelected: true,
+      },
       ...(editableFields ? { editCellTrigger } : {}),
       ...(emptyTip ? { emptyTip: { text: emptyTip } } : {}),
     };
@@ -442,6 +446,7 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     // 选中高亮交给 VTable 原生 select（样式取自 theme.bodyStyle.select），这里只透传点击事件
     table.on('click_cell', (args) => handlers.current.onCellClick?.(toInfo(args)));
     table.on('dblclick_cell', (args) => handlers.current.onCellDblClick?.(toInfo(args)));
+
     // 原生选中变化：点击 / 框选单元格时通知外部
     table.on('selected_cell', () => {
       if (!handlers.current.onActiveSelectionChange) return;
