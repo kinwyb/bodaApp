@@ -239,6 +239,8 @@ html, body, #root {
   flex-direction: column;
 }
 
+
+
 .preorder-fieldset > legend {
   padding: 0 6px;
   font-size: 13px;
@@ -362,4 +364,38 @@ html, body, #root {
 }
 ::-webkit-scrollbar-track {
   background: transparent;
+}
+
+/* 查看模式：disabled 的 DatePicker 和 Select 视觉正常 */
+.preorder-view-readonly .ant-picker-disabled,
+.preorder-view-readonly .ant-picker-disabled .ant-picker-input > input,
+.preorder-view-readonly .ant-picker-disabled .ant-picker-suffix {
+  background-color: #fff !important;
+  color: rgba(0, 0, 0, 0.88) !important;
+  cursor: not-allowed !important;
+  opacity: 1 !important;
+}
+
+.preorder-view-readonly .ant-picker-disabled:hover {
+  border-color: #d9d9d9 !important;
+}
+
+.preorder-view-readonly .ant-select-disabled .ant-select-selector,
+.preorder-view-readonly .ant-select-disabled .ant-select-selection-item,
+.preorder-view-readonly .ant-select-disabled .ant-select-arrow {
+  background-color: #fff !important;
+  color: rgba(0, 0, 0, 0.88) !important;
+  cursor: not-allowed !important;
+  opacity: 1 !important;
+}
+
+.preorder-view-readonly .ant-select-disabled:hover {
+  border-color: #d9d9d9 !important;
+}
+
+/* 新增模式检测前：详情分组灰色提示 */
+.preorder-fieldset-disabled {
+  opacity: 0.55;
+  user-select: none;
+  background: #fafafa;
 }

@@ -68,8 +68,14 @@ export const DETAIL_EDITOR_FIELDS: Record<string, string> = Object.fromEntries(
   DETAIL_COLUMNS.map((column) => [column.field, DETAIL_EDITOR_NAME]),
 );
 
-export function buildPreorderDetailColumns(): ColumnsDefine {
-  // 每列都挂上输入编辑器，双击即可修改
+/**
+ * 构建详情表格列定义
+ * @param readonly 是否只读模式（不挂编辑器，单元格不可双击编辑）
+ */
+export function buildPreorderDetailColumns(readonly?: boolean): ColumnsDefine {
+  if (readonly) {
+    return buildColumns(DETAIL_COLUMNS);
+  }
   return buildColumns(
     DETAIL_COLUMNS.map((column) => ({
       ...column,

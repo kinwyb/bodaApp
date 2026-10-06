@@ -14,7 +14,6 @@ import {
 
 const DATE_FORMAT = 'YYYY-MM-DD';
 
-/** 表单值：日期为 dayjs，提交前再转成后端字符串 */
 interface PreorderFormValues {
   OrderCode?: string;
   YPDate?: Dayjs;
@@ -36,18 +35,14 @@ interface PreorderFormValues {
 
 export interface PreorderFormModalProps {
   open: boolean;
-  mode: 'add' | 'edit';
-  /** 编辑时的原始记录，新增时为 undefined */
+  mode: 'add' | 'edit' | 'view';
   record?: PreorderRecord | null;
-  /** 产地候选（来自筛选候选项） */
   workPlaces: string[];
-  /** 是否整体禁用（详情分组连同下面的明细表格一起禁用） */
   disabled?: boolean;
   onCancel: () => void;
   onSaved: () => void;
 }
 
-/** 后端用 0001-01-01 表示空日期 */
 const toDayjs = (value: unknown): Dayjs | undefined => {
   if (value === null || value === undefined || value === '') return undefined;
   const text = String(value);
@@ -59,7 +54,6 @@ const toDayjs = (value: unknown): Dayjs | undefined => {
 const toDateString = (value: Dayjs | undefined): string =>
   value && dayjs.isDayjs(value) ? value.format(DATE_FORMAT) : '';
 
-/** 编辑时把原始记录铺进表单，新增时给一个空表单（预排日期、总数量给默认值） */
 const buildValues = (record?: PreorderRecord | null): PreorderFormValues => {
   if (!record) {
     return { YPDate: dayjs(), Qty: 0 };
@@ -84,7 +78,6 @@ const buildValues = (record?: PreorderRecord | null): PreorderFormValues => {
   };
 };
 
-/** 编辑时由原始记录生成一行款式明细；新增时给一行空白行供输入 */
 const buildDetailRows = (record?: PreorderRecord | null): PreorderDetailRow[] => {
   if (!record) return [createDetailRow('__new__')];
   const row: PreorderDetailRow = {
@@ -106,7 +99,6 @@ const buildDetailRows = (record?: PreorderRecord | null): PreorderDetailRow[] =>
   return [row];
 };
 
-/** 表单里的一组「标签 + 控件」 */
 const Field: React.FC<{
   label: string;
   required?: boolean;
@@ -119,7 +111,6 @@ const Field: React.FC<{
   </div>
 );
 
-/** V0189_V0279_V0280 新增 / 编辑预订单弹窗 */
 const PreorderFormModal: React.FC<PreorderFormModalProps> = ({
   open,
   mode,
@@ -135,21 +126,32 @@ const PreorderFormModal: React.FC<PreorderFormModalProps> = ({
   const [checking, setChecking] = useState(false);
   const [detailRows, setDetailRows] = useState<PreorderDetailRow[]>([]);
   const [employeeOpen, setEmployeeOpen] = useState(false);
+  const [orderChecked, setOrderChecked] = useState(false);
 
-  // 打开时重置并按模式填充：新增给空表，编辑铺原始数据
+  const isView = mode === 'view';
+  const isEdit = mode === 'edit';
+  const isAdd = mode === 'add';
+
+  const toolbarLocked = isView || isEdit;
+  const detailLocked = isView || (isAdd && !orderChecked);
+
   useEffect(() => {
     if (!open) {
       setEmployeeOpen(false);
+      setOrderChecked(false);
       return;
     }
     form.resetFields();
     form.setFieldsValue(buildValues(record));
     setDetailRows(buildDetailRows(record));
+    setOrderChecked(false);
   }, [form, open, record]);
 
-  const detailColumns = useMemo(() => buildPreorderDetailColumns(), []);
+  const detailColumns = useMemo(
+    () => buildPreorderDetailColumns(detailLocked),
+    [detailLocked],
+  );
 
-  /** 明细表格里编辑完一个单元格后同步回本地行数据，保存时一起提交 */
   const handleDetailChange = useCallback(
     ({ field, rowIndex, value }: { field: string; rowIndex: number; value: unknown }) => {
       setDetailRows((prev) =>
@@ -171,10 +173,16 @@ const PreorderFormModal: React.FC<PreorderFormModalProps> = ({
       const duplicated = res.data.some(
         (item) => String(item.OrderCode) === code && item.ID !== record?.ID,
       );
-      if (duplicated) message.warning(`订单号 ${code} 已存在`);
-      else message.success(`订单号 ${code} 可以使用`);
+      if (duplicated) {
+        message.warning(`订单号 ${code} 已存在`);
+        setOrderChecked(false);
+      } else {
+        message.success(`订单号 ${code} 可以使用`);
+        setOrderChecked(true);
+      }
     } catch (error) {
       message.error(error instanceof ApiError ? error.message : '检测订单号失败');
+      setOrderChecked(false);
     } finally {
       setChecking(false);
     }
@@ -185,7 +193,7 @@ const PreorderFormModal: React.FC<PreorderFormModalProps> = ({
     try {
       values = await form.validateFields();
     } catch {
-      return; // 校验未通过，antd 已在控件上提示
+      return;
     }
 
     const payload: Partial<PreorderRecord> = {
@@ -206,7 +214,6 @@ const PreorderFormModal: React.FC<PreorderFormModalProps> = ({
       ZQCheckDate: toDateString(values.ZQCheckDate),
       ZQCheckMemo: values.ZQCheckMemo ?? '',
     };
-    // 明细行回填主表的款式字段（当前一单一款式）
     const firstRow = detailRows[0];
     if (firstRow) {
       payload.StyleCode = String(firstRow.StyleCode ?? '');
@@ -232,10 +239,20 @@ const PreorderFormModal: React.FC<PreorderFormModalProps> = ({
     }
   }, [detailRows, form, message, mode, onSaved, record]);
 
+  const modalTitle = isView ? '查看预订单' : isEdit ? '编辑预订单' : '新增预订单';
+
+  // DatePicker: open={false} 阻止打开, inputReadOnly 阻止输入
+  // Select: open={false} 阻止下拉, allowClear=false 阻止清除
+  const dpProps = (locked: boolean) =>
+    locked ? { open: false, inputReadOnly: true, allowClear: false } : { allowClear: true };
+
+  const selectProps = (locked: boolean) =>
+    locked ? { open: false, allowClear: false } : { allowClear: true };
+
   return (
     <Modal
       open={open}
-      title={mode === 'edit' ? '编辑预订单' : '新增预订单'}
+      title={modalTitle}
       width="94vw"
       style={{ top: 24, maxWidth: 1600 }}
       styles={{
@@ -250,42 +267,55 @@ const PreorderFormModal: React.FC<PreorderFormModalProps> = ({
       mask={{ closable: false }}
       onCancel={onCancel}
     >
-      <Form form={form} component={false} className="preorder-form" disabled={disabled}>
+      <Form form={form} component={false} className="preorder-form">
         <div className="preorder-form-toolbar">
           <span className="pf-label">订单号</span>
           <Form.Item name="OrderCode" noStyle>
-            <Input style={{ width: 150 }} allowClear placeholder="订单号" />
+            <Input
+              style={{ width: 150 }}
+              allowClear={!toolbarLocked}
+              placeholder="订单号"
+              readOnly={toolbarLocked}
+            />
           </Form.Item>
-          <Button loading={checking} disabled={disabled} onClick={handleCheck}>
-            检测
-          </Button>
+          {isAdd && (
+            <Button loading={checking} disabled={disabled} onClick={handleCheck}>
+              检测
+            </Button>
+          )}
           <span className="pf-label pf-toolbar-gap">预排日期</span>
           <Form.Item name="YPDate" noStyle>
-            <DatePicker style={{ width: 150 }} format={DATE_FORMAT} />
+            <DatePicker
+              style={{ width: 150 }}
+              format={DATE_FORMAT}
+              {...dpProps(toolbarLocked)}
+            />
           </Form.Item>
-          <Button
-            type="primary"
-            style={{ marginLeft: 'auto' }}
-            loading={saving}
-            disabled={disabled}
-            onClick={handleSave}
-          >
-            保存
-          </Button>
+          {!isView && (
+            <Button
+              type="primary"
+              style={{ marginLeft: 'auto' }}
+              loading={saving}
+              disabled={detailLocked}
+              onClick={handleSave}
+            >
+              保存
+            </Button>
+          )}
         </div>
 
-        <fieldset className="preorder-fieldset">
+        <fieldset className={`preorder-fieldset${detailLocked && !isView ? ' preorder-fieldset-disabled' : ''}`}>
           <legend>详情</legend>
 
           <div className="pf-row">
             <Field label="业务员" required>
               <Form.Item name="Ywy" noStyle>
-                <Input style={{ width: 120 }} readOnly />
+                <Input style={{ width: 120 }} readOnly allowClear={false} />
               </Form.Item>
               <Button
                 style={{ width: 30, padding: 0 }}
                 className="pf-picker-btn"
-                disabled={disabled}
+                disabled={detailLocked}
                 onClick={() => setEmployeeOpen(true)}
               >
                 ...
@@ -294,10 +324,10 @@ const PreorderFormModal: React.FC<PreorderFormModalProps> = ({
             <Field label="产地">
               <Form.Item name="WorkPlace" noStyle>
                 <Select
-                  allowClear
                   style={{ width: 150 }}
                   placeholder="请选择"
                   options={workPlaces.map((value) => ({ value, label: value }))}
+                  {...selectProps(detailLocked)}
                 />
               </Form.Item>
             </Field>
@@ -310,12 +340,20 @@ const PreorderFormModal: React.FC<PreorderFormModalProps> = ({
                 noStyle
                 rules={[{ required: true, message: '请选择计划下单日期' }]}
               >
-                <DatePicker style={{ width: 150 }} format={DATE_FORMAT} />
+                <DatePicker
+                  style={{ width: 150 }}
+                  format={DATE_FORMAT}
+                  {...dpProps(detailLocked)}
+                />
               </Form.Item>
             </Field>
             <Field label="确认可下单期">
               <Form.Item name="QRDate" noStyle>
-                <DatePicker style={{ width: 150 }} format={DATE_FORMAT} />
+                <DatePicker
+                  style={{ width: 150 }}
+                  format={DATE_FORMAT}
+                  {...dpProps(detailLocked)}
+                />
               </Form.Item>
             </Field>
           </div>
@@ -327,7 +365,11 @@ const PreorderFormModal: React.FC<PreorderFormModalProps> = ({
                 noStyle
                 rules={[{ required: true, message: '请选择尾货期' }]}
               >
-                <DatePicker style={{ width: 150 }} format={DATE_FORMAT} />
+                <DatePicker
+                  style={{ width: 150 }}
+                  format={DATE_FORMAT}
+                  {...dpProps(detailLocked)}
+                />
               </Form.Item>
             </Field>
             <Field label="走货期" required>
@@ -336,7 +378,11 @@ const PreorderFormModal: React.FC<PreorderFormModalProps> = ({
                 noStyle
                 rules={[{ required: true, message: '请选择走货期' }]}
               >
-                <DatePicker style={{ width: 150 }} format={DATE_FORMAT} />
+                <DatePicker
+                  style={{ width: 150 }}
+                  format={DATE_FORMAT}
+                  {...dpProps(detailLocked)}
+                />
               </Form.Item>
             </Field>
           </div>
@@ -344,17 +390,29 @@ const PreorderFormModal: React.FC<PreorderFormModalProps> = ({
           <div className="pf-row">
             <Field label="原料可下单期">
               <Form.Item name="YLDate" noStyle>
-                <DatePicker style={{ width: 150 }} format={DATE_FORMAT} />
+                <DatePicker
+                  style={{ width: 150 }}
+                  format={DATE_FORMAT}
+                  {...dpProps(detailLocked)}
+                />
               </Form.Item>
             </Field>
             <Field label="缝制辅料可下单期">
               <Form.Item name="FLDate" noStyle>
-                <DatePicker style={{ width: 150 }} format={DATE_FORMAT} />
+                <DatePicker
+                  style={{ width: 150 }}
+                  format={DATE_FORMAT}
+                  {...dpProps(detailLocked)}
+                />
               </Form.Item>
             </Field>
             <Field label="包装辅料提供期">
               <Form.Item name="BZFLDate" noStyle>
-                <DatePicker style={{ width: 150 }} format={DATE_FORMAT} />
+                <DatePicker
+                  style={{ width: 150 }}
+                  format={DATE_FORMAT}
+                  {...dpProps(detailLocked)}
+                />
               </Form.Item>
             </Field>
           </div>
@@ -362,12 +420,21 @@ const PreorderFormModal: React.FC<PreorderFormModalProps> = ({
           <div className="pf-row">
             <Field label="下单把握率">
               <Form.Item name="XDRate" noStyle>
-                <Input style={{ width: 150 }} placeholder="如 95%" />
+                <Input
+                  style={{ width: 150 }}
+                  placeholder="如 95%"
+                  readOnly={detailLocked}
+                  allowClear={!detailLocked}
+                />
               </Form.Item>
             </Field>
             <Field label="总数量:">
               <Form.Item name="Qty" noStyle>
-                <InputNumber style={{ width: 130 }} min={0} />
+                <InputNumber
+                  style={{ width: 130 }}
+                  min={0}
+                  readOnly={detailLocked}
+                />
               </Form.Item>
             </Field>
           </div>
@@ -375,7 +442,7 @@ const PreorderFormModal: React.FC<PreorderFormModalProps> = ({
           <div className="pf-row">
             <Field label="备注" grow>
               <Form.Item name="Memo" noStyle>
-                <Input placeholder="备注" />
+                <Input placeholder="备注" readOnly={detailLocked} allowClear={!detailLocked} />
               </Form.Item>
             </Field>
           </div>
@@ -383,23 +450,30 @@ const PreorderFormModal: React.FC<PreorderFormModalProps> = ({
           <div className="pf-row">
             <Field label="中期检验日期">
               <Form.Item name="ZQCheckDate" noStyle>
-                <DatePicker style={{ width: 150 }} format={DATE_FORMAT} />
+                <DatePicker
+                  style={{ width: 150 }}
+                  format={DATE_FORMAT}
+                  {...dpProps(detailLocked)}
+                />
               </Form.Item>
             </Field>
             <Field label="中期检验要求" grow>
               <Form.Item name="ZQCheckMemo" noStyle>
-                <Input placeholder="中期检验要求" />
+                <Input
+                  placeholder="中期检验要求"
+                  readOnly={detailLocked}
+                  allowClear={!detailLocked}
+                />
               </Form.Item>
             </Field>
           </div>
 
-          {/* 明细表格属于「详情」分组，禁用分组时连同表格一起禁用 */}
           <div className="preorder-detail-grid">
             <VTable
               columns={detailColumns}
               records={detailRows as unknown as Array<Record<string, unknown>>}
               rowKey="__id"
-              editableFields={disabled ? undefined : DETAIL_EDITOR_FIELDS}
+              editableFields={detailLocked ? undefined : DETAIL_EDITOR_FIELDS}
               onCellValueChange={handleDetailChange}
             />
             {detailRows.length === 0 && <div className="preorder-detail-empty">没有任何记录</div>}

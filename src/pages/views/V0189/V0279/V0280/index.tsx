@@ -42,7 +42,7 @@ const PreorderPage: React.FC<ViewPageProps> = ({ view, trail }) => {
   const [filterOptions, setFilterOptions] = useState<Record<string, Array<string | number>>>({});
   const [changedCells, setChangedCells] = useState<Record<string, string[]>>({});
   const [formOpen, setFormOpen] = useState(false);
-  const [formMode, setFormMode] = useState<'add' | 'edit'>('add');
+  const [formMode, setFormMode] = useState<'add' | 'edit' | 'view'>('add');
   const [editingRecord, setEditingRecord] = useState<PreorderRecord | null>(null);
   const tableRef = useRef<VTableApi | null>(null);
 
@@ -189,7 +189,7 @@ const PreorderPage: React.FC<ViewPageProps> = ({ view, trail }) => {
           onCellDblClick={(info) => {
             const target = info.record as PreorderRecord | undefined;
             if (!target?.ID) return;
-            setFormMode('edit');
+            setFormMode('view');
             setEditingRecord(target);
             setFormOpen(true);
           }}
@@ -199,7 +199,7 @@ const PreorderPage: React.FC<ViewPageProps> = ({ view, trail }) => {
       <PreorderFormModal
         open={formOpen}
         mode={formMode}
-        record={formMode === 'edit' ? editingRecord : null}
+        record={formMode !== 'add' ? editingRecord : null}
         workPlaces={workPlaces}
         onCancel={() => setFormOpen(false)}
         onSaved={() => {
