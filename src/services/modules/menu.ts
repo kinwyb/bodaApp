@@ -30,11 +30,12 @@ export interface UserMenuPermission {
   EnableLog?: boolean;
   Enable?: boolean;
   IsAction?: boolean;
+  Release?: boolean;
 }
 
 /** 菜单是否可作为导航项 */
 export function isNavigableMenu(node: MenuNode): boolean {
-  return !node.IsAction;
+  return !node.IsAction && node.Release;
 }
 
 /** 将 View 路径按下划线拆分成层级，例如 V0005_V0010 -> ["V0005", "V0010"] */

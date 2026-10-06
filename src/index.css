@@ -144,15 +144,22 @@ html, body, #root {
 
 .table-filter-panel {
   width: 420px;
-  max-height: 58vh;
-  overflow: auto;
+  height: 58vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.table-filter-rows {
+  flex: 1;
+  overflow-y: auto;
+  padding-right: 8px;
 }
 
 .table-filter-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  
+  margin-bottom: 12px;
 }
 
 .table-filter-label {

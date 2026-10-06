@@ -15,8 +15,6 @@ const DEFAULT_PAGE_SIZE = 30;
 export interface FilterTableProps {
   /** 筛选字段定义；不传则不渲染筛选条 */
   filterFields?: FilterField[];
-  /** 筛选候选项 */
-  filterOptions?: Record<string, Array<string | number>>;
 
   /** VTable 列定义 */
   columns: ColumnsDefine;
@@ -90,7 +88,6 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
   (
     {
       filterFields,
-      filterOptions,
       columns,
       records,
       rowKey,
@@ -126,6 +123,34 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
     const searchRef = useRef<SearchComponent | null>(null);
     const [filters, setFilters] = useState<FilterModel>({});
     const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
+
+    // 从当前 records 自动构建 enum 类型的筛选候选项
+    const autoOptions = useMemo(() => {
+      if (!filterFields) return {};
+      const enumFields = filterFields.filter((f) => f.type === 'enum');
+      if (enumFields.length === 0) return {};
+
+      const result: Record<string, Set<string | number>> = {};
+      enumFields.forEach((field) => {
+        result[field.field] = new Set();
+      });
+
+      records.forEach((record) => {
+        enumFields.forEach((field) => {
+          const value = record[field.field];
+          if (value != null && value !== '') {
+            result[field.field].add(value as string | number);
+          }
+        });
+      });
+
+      const options: Record<string, Array<string | number>> = {};
+      Object.entries(result).forEach(([field, set]) => {
+        options[field] = Array.from(set).sort((a, b) => String(a).localeCompare(String(b)));
+      });
+
+      return options;
+    }, [filterFields, records]);
 
     const handleFilterChange = useCallback(
       (next: FilterModel) => {
@@ -237,7 +262,7 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
             <div style={{ marginTop: 2 }}>
               <TableFilter
                 fields={filterFields}
-                options={filterOptions}
+                options={autoOptions}
                 value={filters}
                 onChange={handleFilterChange}
               />

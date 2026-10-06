@@ -39,7 +39,6 @@ const PreorderPage: React.FC<ViewPageProps> = ({ view, trail }) => {
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [activeRowCount, setActiveRowCount] = useState(0);
   const [query, setQuery] = useState<PreorderQuery>({ page: 1, pageSize: DEFAULT_PAGE_SIZE });
-  const [filterOptions, setFilterOptions] = useState<Record<string, Array<string | number>>>({});
   const [changedCells, setChangedCells] = useState<Record<string, string[]>>({});
   const [formOpen, setFormOpen] = useState(false);
   const [formMode, setFormMode] = useState<'add' | 'edit' | 'view'>('add');
@@ -65,17 +64,6 @@ const PreorderPage: React.FC<ViewPageProps> = ({ view, trail }) => {
   useEffect(() => {
     void loadData(query);
   }, [loadData, query]);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await preorderService.filterOptions();
-        setFilterOptions(res.data);
-      } catch {
-        // 候选项拿不到不影响列表使用
-      }
-    })();
-  }, []);
 
   useEffect(() => {
     (async () => {
@@ -143,7 +131,10 @@ const PreorderPage: React.FC<ViewPageProps> = ({ view, trail }) => {
 
   const columns = useMemo(() => buildPreorderColumns(), []);
 
-  const workPlaces = useMemo(() => (filterOptions.WorkPlace ?? []).map(String), [filterOptions]);
+  const workPlaces = useMemo(
+    () => [...new Set(dataSource.map((r) => String(r.WorkPlace ?? '')))].filter(Boolean).sort(),
+    [dataSource],
+  );
 
   const summary = useCallback((records: Array<Record<string, unknown>>): Record<string, unknown> => {
     const totals = records.reduce<{ qty: number; number: number }>(
@@ -170,7 +161,6 @@ const PreorderPage: React.FC<ViewPageProps> = ({ view, trail }) => {
         <FilterTable
           ref={tableRef}
           filterFields={preorderFilterFields}
-          filterOptions={filterOptions}
           columns={columns}
           records={dataSource}
           rowKey="ID"

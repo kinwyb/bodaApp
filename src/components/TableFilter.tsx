@@ -139,12 +139,14 @@ export const TableFilter: React.FC<TableFilterProps> = ({ fields, options, value
 
   const panel = (
     <div className="table-filter-panel">
-      {fields.map((item) => (
-        <div key={item.field} className="table-filter-row">
-          <span className="table-filter-label">{item.title}</span>
-          <div className="table-filter-control">{renderControl(item)}</div>
-        </div>
-      ))}
+      <div className="table-filter-rows">
+        {fields.map((item) => (
+          <div key={item.field} className="table-filter-row">
+            <span className="table-filter-label">{item.title}</span>
+            <div className="table-filter-control">{renderControl(item)}</div>
+          </div>
+        ))}
+      </div>
       <Divider style={{ margin: '4px 0 12px' }} />
       <div className="table-filter-actions">
         <Button

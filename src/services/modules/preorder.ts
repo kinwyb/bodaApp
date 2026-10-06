@@ -96,9 +96,6 @@ export interface PreorderRecord {
   [key: string]: unknown;
 }
 
-/** 某字段的筛选候选项（按当前数据集去重） */
-export type PreorderFilterOptions = Record<string, Array<string | number>>;
-
 /** 变更清单记录（list/change 接口返回） */
 export interface PreorderChange {
   /** 0：整行变化；1：字段级变化 */
@@ -114,7 +111,6 @@ export type PreorderChangeMap = Record<string, string[]>;
 
 export const preorderService = {
   list: (query: PreorderQuery = {}) => http.get<PreorderRecord[]>('/preorders', query),
-  filterOptions: () => http.get<PreorderFilterOptions>('/preorders/filters'),
   /** 最近发生变化的明细 */
   changes: () => http.get<PreorderChange[]>('/preorders/changes'),
   /** 新增预订单 */
