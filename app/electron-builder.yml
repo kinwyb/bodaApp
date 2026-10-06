@@ -1,0 +1,22 @@
+appId: com.bodaway.app
+productName: bodaWay
+directories:
+  output: release
+files:
+  - "app/dist/**/*"
+  - "dist/**/*"
+  - "package.json"
+mac:
+  target:
+    - dmg
+    - zip
+  category: public.app-category.productivity
+win:
+  target:
+    - nsis
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+linux:
+  target:
+    - AppImage

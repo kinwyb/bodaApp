@@ -23,3 +23,7 @@ dist-ssr
 *.sln
 *.sw?
 /.agents/
+
+# Electron
+app/dist
+release
