@@ -306,6 +306,37 @@ html, body, #root {
   pointer-events: none;
 }
 
+/* 快速选择弹窗：上面筛选输入 + 下面表格 */
+.quick-select-toolbar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.quick-select-label {
+  font-size: 13px;
+  line-height: 1;
+  color: rgba(0, 0, 0, 0.75);
+  white-space: nowrap;
+}
+
+.quick-select-table {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+.quick-select-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.6);
+}
+
 /* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 6px;

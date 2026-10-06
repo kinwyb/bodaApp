@@ -171,7 +171,7 @@ const PreorderPage: React.FC<ViewPageProps> = ({ view, trail }) => {
   const workPlaces = useMemo(() => (filterOptions.WorkPlace ?? []).map(String), [filterOptions]);
 
   const summary = useCallback((records: Array<Record<string, unknown>>): Record<string, unknown> => {
-    const totals = records.reduce(
+    const totals = records.reduce<{ qty: number; number: number }>(
       (acc, row) => {
         acc.qty += Number(row.Qty) || 0;
         acc.number += Number(row.Number) || 0;
