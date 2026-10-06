@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { App, Breadcrumb, Button, DatePicker, Form, Input, Pagination, Select, Space } from 'antd';
+import { App, Button, DatePicker, Form, Input, Pagination, Select, Space } from 'antd';
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import type { ColumnsDefine } from '@visactor/vtable';
 import type { Dayjs } from 'dayjs';
 import { ApiError, viewService, type ViewRow, type ViewRowQuery, type ViewRowStatus } from '@/services';
 import { usePermission } from '@/store/permission';
 import { VTable } from '@/components/VTable';
+import { PageBreadcrumb } from '@/components/PageBreadcrumb';
 import type { ViewPageProps } from './types';
 
 const statusMap: Record<ViewRowStatus, { color: string; label: string }> = {
@@ -140,7 +141,7 @@ const ViewPage: React.FC<ViewPageProps> = ({ view, trail }) => {
 
   return (
     <div className="page-container page-fill">
-      <Breadcrumb style={{ marginBottom: 12 }} items={trail.map((item) => ({ title: item.name }))} />
+      <PageBreadcrumb trail={trail} />
       <Form
         className="page-search"
         form={form}

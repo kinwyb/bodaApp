@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { App, Breadcrumb, Button, Form, Input, Pagination, Space } from 'antd';
+import { App, Button, Form, Input, Pagination, Space } from 'antd';
 import { PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import type { ColumnsDefine } from '@visactor/vtable';
 import { ApiError, viewService, type ViewRow, type ViewRowQuery, type ViewRowStatus } from '@/services';
@@ -7,6 +7,7 @@ import { usePermission } from '@/store/permission';
 import { VTable } from '@/components/VTable';
 import { AuthButton } from '@/components/Permission';
 import type { ViewPageProps } from '@/pages/types';
+import { PageBreadcrumb } from '@/components/PageBreadcrumb';
 
 const statusMap: Record<ViewRowStatus, { color: string; label: string }> = {
   enabled: { color: '#52c41a', label: '启用' },
@@ -133,7 +134,7 @@ const DepartmentPage: React.FC<ViewPageProps> = ({ view, trail }) => {
 
   return (
     <div className="page-container page-fill">
-      <Breadcrumb style={{ marginBottom: 12 }} items={trail.map((item) => ({ title: item.name }))} />
+      <PageBreadcrumb trail={trail} />
       <Form
         className="page-search"
         form={form}

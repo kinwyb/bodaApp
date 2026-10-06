@@ -1,8 +1,7 @@
 import React, { useCallback, useImperativeHandle, useMemo, useRef, useState } from 'react';
-import { Breadcrumb, Input, Pagination } from 'antd';
+import { Input, Pagination } from 'antd';
 import type { ColumnsDefine } from '@visactor/vtable';
 import { SearchComponent } from '@visactor/vtable-search';
-import { CommandBar, type CommandItem } from './CommandBar';
 import { TableFilter, type FilterField, type FilterModel } from './TableFilter';
 import {
   VTable,
@@ -14,13 +13,6 @@ import {
 const DEFAULT_PAGE_SIZE = 30;
 
 export interface FilterTableProps {
-  /** 面包屑导航 */
-  trail?: Array<{ name: string }>;
-  /** 命令条按钮；不传则不渲染命令条 */
-  commands?: CommandItem[];
-  /** 命令条权限 View */
-  view?: string;
-
   /** 筛选字段定义；不传则不渲染筛选条 */
   filterFields?: FilterField[];
   /** 筛选候选项 */
@@ -80,6 +72,8 @@ export interface FilterTableProps {
   onPageChange?: (page: number, pageSize: number) => void;
   /** 勾选变化回调 */
   onSelectionChange?: (keys: string[]) => void;
+  /** 原生单元格选中变化（点击/框选），回传选中行数 */
+  onActiveSelectionChange?: (info: { rowCount: number }) => void;
   /** 单元格点击 */
   onCellClick?: (info: VTableCellInfo) => void;
   /** 单元格双击 */
@@ -95,9 +89,6 @@ export interface FilterTableProps {
 export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
   (
     {
-      trail,
-      commands,
-      view,
       filterFields,
       filterOptions,
       columns,
@@ -125,6 +116,7 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
       onFilterChange,
       onPageChange,
       onSelectionChange,
+      onActiveSelectionChange,
       onCellClick,
       onCellDblClick,
     },
@@ -239,16 +231,7 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
     const hasFilter = filterFields && filterFields.length > 0;
 
     return (
-      <div className="page-container page-fill">
-        {trail && trail.length > 0 && (
-          <Breadcrumb
-            style={{ marginBottom: 12 }}
-            items={trail.map((item) => ({ title: item.name }))}
-          />
-        )}
-
-        {commands && commands.length > 0 && <CommandBar view={view} items={commands} />}
-
+      <div className="filter-table">
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, marginBottom: 8 }}>
           {hasFilter && (
             <div style={{ marginTop: 2 }}>
@@ -284,6 +267,7 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
             headerRowHeight={headerRowHeight}
             emptyTip={loading ? '加载中…' : emptyTip ?? '暂无数据'}
             onSelectionChange={handleSelectionChange}
+            onActiveSelectionChange={onActiveSelectionChange}
             onCellClick={onCellClick}
             onCellDblClick={onCellDblClick}
           />

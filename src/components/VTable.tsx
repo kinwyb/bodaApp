@@ -182,6 +182,8 @@ export interface VTableProps {
   onCellDblClick?: (info: VTableCellInfo) => void;
   /** 勾选变化时回传全部选中行的主键 */
   onSelectionChange?: (keys: string[]) => void;
+  /** 原生单元格选中变化（点击 / 框选），回传选中行数 */
+  onActiveSelectionChange?: (info: { rowCount: number }) => void;
 }
 
 const THEME: themes.TableTheme = themes.DEFAULT.extends({
@@ -246,6 +248,7 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
   onCellClick,
   onCellDblClick,
   onSelectionChange,
+  onActiveSelectionChange,
 }, ref) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const tableRef = useRef<ListTable | null>(null);
@@ -253,8 +256,8 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
   const optionsRef = useRef<ListTableConstructorOptions | null>(null);
   /** 已勾选行的主键（VTable 的勾选状态在自己的 state 里，不回写 record） */
   const selectedRef = useRef<Set<string>>(new Set());
-  const handlers = useRef({ onCellClick, onCellDblClick, onSelectionChange, onCellValueChange });
-  handlers.current = { onCellClick, onCellDblClick, onSelectionChange, onCellValueChange };
+  const handlers = useRef({ onCellClick, onCellDblClick, onSelectionChange, onCellValueChange, onActiveSelectionChange });
+  handlers.current = { onCellClick, onCellDblClick, onSelectionChange, onCellValueChange, onActiveSelectionChange };
   /** 当前排序状态（由表头排序图标驱动，排序在本地完成，统计行不参与） */
   const [sortState, setSortState] = useState<VTableSortState | null>(null);
   /** 判断某行是否为统计行，供勾选列 / 选中高亮禁用使用 */
@@ -439,6 +442,18 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     // 选中高亮交给 VTable 原生 select（样式取自 theme.bodyStyle.select），这里只透传点击事件
     table.on('click_cell', (args) => handlers.current.onCellClick?.(toInfo(args)));
     table.on('dblclick_cell', (args) => handlers.current.onCellDblClick?.(toInfo(args)));
+    // 原生选中变化：点击 / 框选单元格时通知外部
+    table.on('selected_cell', () => {
+      if (!handlers.current.onActiveSelectionChange) return;
+      const infos = table.getSelectedCellInfos();
+      if (!infos || infos.length === 0) {
+        handlers.current.onActiveSelectionChange({ rowCount: 0 });
+        return;
+      }
+      const rows = new Set<number>();
+      infos.forEach((group) => group.forEach((cell) => rows.add(cell.row)));
+      handlers.current.onActiveSelectionChange({ rowCount: rows.size });
+    });
     // 单元格编辑完成：回传字段、行索引与新值
     table.on('change_cell_value', (args) => {
       const field = args.field === undefined ? '' : String(args.field);

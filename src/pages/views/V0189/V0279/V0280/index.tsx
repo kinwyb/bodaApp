@@ -3,11 +3,9 @@ import { App } from 'antd';
 import {
   ApartmentOutlined,
   CalendarOutlined,
-  CheckOutlined,
   CloseOutlined,
   ColumnWidthOutlined,
   CopyOutlined,
-  DeleteOutlined,
   EditOutlined,
   ExportOutlined,
   FieldTimeOutlined,
@@ -17,12 +15,13 @@ import {
   SendOutlined,
   SettingOutlined,
   ShopOutlined,
-  StopOutlined,
   TagOutlined,
 } from '@ant-design/icons';
 import { ApiError, preorderService, type PreorderQuery, type PreorderRecord } from '@/services';
+import { CommandBar } from '@/components/CommandBar';
 import type { CommandItem } from '@/components/CommandBar';
 import { FilterTable } from '@/components/FilterTable';
+import { PageBreadcrumb } from '@/components/PageBreadcrumb';
 import type { VTableApi, VTableCellStyleHook } from '@/components/VTable';
 import type { ViewPageProps } from '@/pages/types';
 import { buildPreorderColumns, preorderFilterFields } from './columns';
@@ -31,28 +30,6 @@ import PreorderFormModal from './PreorderFormModal';
 const DEFAULT_PAGE_SIZE = 30;
 const SELECT_FIELD = '__checked';
 
-const COMMANDS: CommandItem[] = [
-  { key: 'add', label: '新增', icon: <PlusOutlined />, permission: '新增' },
-  { key: 'edit', label: '修改', icon: <EditOutlined />, permission: '编辑' },
-  { key: 'delete', label: '删除', icon: <DeleteOutlined />, permission: '删除', danger: true },
-  { key: 'cancel', label: '取消', icon: <CloseOutlined />, dividerBefore: true },
-  { key: 'copy', label: '复制', icon: <CopyOutlined /> },
-  { key: 'copyOrdered', label: '已下订单复制', icon: <CopyOutlined /> },
-  { key: 'changeDate', label: '变更日期', icon: <CalendarOutlined />, dividerBefore: true },
-  { key: 'publish', label: '发布', icon: <SendOutlined />, permission: '发布' },
-  { key: 'ordered', label: '已下单单', icon: <TagOutlined /> },
-  { key: 'assign', label: '分配', icon: <ApartmentOutlined />, dividerBefore: true },
-  { key: 'stage', label: '预订的阶段', icon: <FieldTimeOutlined /> },
-  { key: 'origin', label: '工厂产地', icon: <ShopOutlined />, permission: '产地设置' },
-  { key: 'plan', label: '计划设立', icon: <SettingOutlined />, permission: 'PMC设置' },
-  { key: 'refresh', label: '刷新', icon: <ReloadOutlined />, dividerBefore: true },
-  { key: 'autoWidth', label: '列宽自适应', icon: <ColumnWidthOutlined /> },
-  { key: 'stop', label: '中止', icon: <StopOutlined />, danger: true },
-  { key: 'finish', label: '完成', icon: <CheckOutlined />, permission: '完成' },
-  { key: 'export', label: '导出', icon: <ExportOutlined />, dividerBefore: true },
-  { key: 'auth', label: '权限', icon: <SafetyCertificateOutlined />, permission: '权限管理' },
-];
-
 /** V0189_V0279_V0280 计划管理 > 预订单 > 预订单管理 */
 const PreorderPage: React.FC<ViewPageProps> = ({ view, trail }) => {
   const { message } = App.useApp();
@@ -60,6 +37,7 @@ const PreorderPage: React.FC<ViewPageProps> = ({ view, trail }) => {
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
+  const [activeRowCount, setActiveRowCount] = useState(0);
   const [query, setQuery] = useState<PreorderQuery>({ page: 1, pageSize: DEFAULT_PAGE_SIZE });
   const [filterOptions, setFilterOptions] = useState<Record<string, Array<string | number>>>({});
   const [changedCells, setChangedCells] = useState<Record<string, string[]>>({});
@@ -132,38 +110,36 @@ const PreorderPage: React.FC<ViewPageProps> = ({ view, trail }) => {
     tableRef.current?.repaint();
   }, [changedCells]);
 
-  const commands = COMMANDS.map((item) => ({
-    ...item,
-    onClick: () => {
-      if (item.key === 'autoWidth') {
-        tableRef.current?.autoFitColumns();
-        return;
-      }
-      if (item.key === 'add') {
-        setFormMode('add');
-        setEditingRecord(null);
-        setFormOpen(true);
-        return;
-      }
-      if (item.key === 'edit') {
-        const checked =
-          selectedKeys.length === 1 ? dataSource.find((row) => row.ID === selectedKeys[0]) : undefined;
-        const current = (tableRef.current?.getSelection().rows ?? []).find((row) =>
-          dataSource.some((item) => item.ID === (row as PreorderRecord).ID),
+  const hasSelection = selectedKeys.length > 0 || activeRowCount > 0;
+
+  const commands: CommandItem[] = useMemo(() => [
+    { key: 'add', label: '新增', icon: <PlusOutlined />, permission: '新增',
+      onClick: () => { setFormMode('add'); setEditingRecord(null); setFormOpen(true); } },
+    { key: 'edit', label: '修改', icon: <EditOutlined />, permission: '编辑', disabled: !hasSelection,
+      onClick: () => {
+        const checked = selectedKeys.length === 1 ? dataSource.find((r) => r.ID === selectedKeys[0]) : undefined;
+        const current = (tableRef.current?.getSelection().rows ?? []).find((r) =>
+          dataSource.some((d) => d.ID === (r as PreorderRecord).ID),
         ) as PreorderRecord | undefined;
         const target = checked ?? current;
-        if (!target) {
-          message.warning('请选择一条预订单再修改');
-          return;
-        }
-        setFormMode('edit');
-        setEditingRecord(target);
-        setFormOpen(true);
-        return;
-      }
-      message.info(`${item.label}（演示）`);
-    },
-  }));
+        if (!target) { message.warning('请选择一条预订单再修改'); return; }
+        setFormMode('edit'); setEditingRecord(target); setFormOpen(true);
+      } },
+    { key: 'cancel', label: '取消', icon: <CloseOutlined />, onClick: () => message.info('取消（演示）') },
+    { key: 'copy', label: '复制', icon: <CopyOutlined />, dividerBefore: true, onClick: () => message.info('复制（演示）') },
+    { key: 'copyOrdered', label: '已下订单复制', icon: <CopyOutlined />, disabled: true, onClick: () => {} },
+    { key: 'changeDate', label: '变更日志', icon: <CalendarOutlined />, dividerBefore: true, onClick: () => message.info('变更日志（演示）') },
+    { key: 'publish', label: '发布', icon: <SendOutlined />, permission: '发布', disabled: !hasSelection, onClick: () => message.info('发布（演示）') },
+    { key: 'ordered', label: '已下单', icon: <TagOutlined />, onClick: () => message.info('已下单（演示）') },
+    { key: 'assign', label: '分批', icon: <ApartmentOutlined />, dividerBefore: true, onClick: () => message.info('分批（演示）') },
+    { key: 'stage', label: '预订的阶段', icon: <FieldTimeOutlined />, onClick: () => message.info('预订的阶段（演示）') },
+    { key: 'origin', label: '工段产地', icon: <ShopOutlined />, permission: '产地设置', onClick: () => message.info('工段产地（演示）') },
+    { key: 'plan', label: '计划部设定', icon: <SettingOutlined />, permission: 'PMC设置', onClick: () => message.info('计划部设定（演示）') },
+    { key: 'refresh', label: '刷新', icon: <ReloadOutlined />, dividerBefore: true, onClick: () => void loadData(query) },
+    { key: 'autoWidth', label: '列宽自适应', icon: <ColumnWidthOutlined />, onClick: () => tableRef.current?.autoFitColumns() },
+    { key: 'export', label: '导出', icon: <ExportOutlined />, dividerBefore: true, onClick: () => message.info('导出（演示）') },
+    { key: 'auth', label: '权限', icon: <SafetyCertificateOutlined />, permission: '权限管理', onClick: () => message.info('权限（演示）') },
+  ], [hasSelection, selectedKeys, dataSource, message, query, loadData]);
 
   const columns = useMemo(() => buildPreorderColumns(), []);
 
@@ -188,35 +164,37 @@ const PreorderPage: React.FC<ViewPageProps> = ({ view, trail }) => {
 
   return (
     <>
-      <FilterTable
-        ref={tableRef}
-        trail={trail}
-        commands={commands}
-        view={view}
-        filterFields={preorderFilterFields}
-        filterOptions={filterOptions}
-        columns={columns}
-        records={dataSource}
-        rowKey="ID"
-        selectField={SELECT_FIELD}
-        frozenColCount={2}
-        summary={summary}
-        cellStyle={cellStyle}
-        loading={loading}
-        total={total}
-        page={query.page}
-        pageSize={query.pageSize}
-        searchPlaceholder="订单号/款号/款式/业务员"
-        onPageChange={(page, pageSize) => setQuery((prev) => ({ ...prev, page, pageSize }))}
-        onSelectionChange={setSelectedKeys}
-        onCellDblClick={(info) => {
-          const target = info.record as PreorderRecord | undefined;
-          if (!target?.ID) return;
-          setFormMode('edit');
-          setEditingRecord(target);
-          setFormOpen(true);
-        }}
-      />
+      <div className="page-container page-fill">
+        <PageBreadcrumb trail={trail} />
+        {commands.length > 0 && <CommandBar view={view} items={commands} />}
+        <FilterTable
+          ref={tableRef}
+          filterFields={preorderFilterFields}
+          filterOptions={filterOptions}
+          columns={columns}
+          records={dataSource}
+          rowKey="ID"
+          selectField={SELECT_FIELD}
+          frozenColCount={2}
+          summary={summary}
+          cellStyle={cellStyle}
+          loading={loading}
+          total={total}
+          page={query.page}
+          pageSize={query.pageSize}
+          searchPlaceholder="关键字"
+          onPageChange={(page, pageSize) => { setActiveRowCount(0); setQuery((prev) => ({ ...prev, page, pageSize })); }}
+          onSelectionChange={setSelectedKeys}
+          onActiveSelectionChange={(info) => setActiveRowCount(info.rowCount)}
+          onCellDblClick={(info) => {
+            const target = info.record as PreorderRecord | undefined;
+            if (!target?.ID) return;
+            setFormMode('edit');
+            setEditingRecord(target);
+            setFormOpen(true);
+          }}
+        />
+      </div>
 
       <PreorderFormModal
         open={formOpen}
