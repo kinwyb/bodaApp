@@ -1,0 +1,320 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+    'Noto Sans', sans-serif;
+}
+
+/* antd <App> 会渲染一层 .ant-app，需要给它高度，
+   否则内部 Layout 的 height:100% 会退化成自适应高度 */
+#root > .ant-app {
+  height: 100%;
+}
+
+/* Unified content panel: tabs + page content share one surface */
+.main-sider .ant-layout-sider-children {
+  display: flex;
+  flex-direction: column;
+}
+
+.main-sider-menu {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.main-sider-footer {
+  flex: 0 0 auto;
+  padding: 8px;
+  border-top: 1px solid #f0f0f0;
+}
+
+.main-content-panel {
+  background: #fff;
+  border-radius: 6px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid #f0f0f0;
+}
+
+.main-tabs {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.main-tabs > .ant-tabs-nav {
+  margin: 0;
+  padding: 8px 8px 0;
+}
+
+.main-tabs > .ant-tabs-nav::before {
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.main-tabs > .ant-tabs-body-holder {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+}
+
+/* 打通高度链，页面内的 height:100% 才能生效（canvas 表格依赖容器有确定高度） */
+.main-tabs > .ant-tabs-body-holder > .ant-tabs-body,
+.main-tabs > .ant-tabs-body-holder .ant-tabs-content-active {
+  height: 100%;
+  min-height: 0;
+}
+
+.page-container {
+  display: flex;
+  flex-direction: column;
+}
+
+.page-search {
+  margin-bottom: 16px;
+}
+
+.page-divider {
+  border-bottom: 1px solid #f0f0f0;
+  margin: 0 0 16px;
+}
+
+/* 命令条：图标在上、文字在下 */
+.command-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 2px;
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.command-item.ant-btn {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  height: auto;
+  min-width: 60px;
+  padding: 6px 6px 5px;
+  font-size: 12px;
+  line-height: 1.2;
+  color: rgba(0, 0, 0, 0.78);
+}
+
+.command-item.ant-btn .anticon {
+  font-size: 20px;
+  color: #1677ff;
+}
+
+.command-item.ant-btn-dangerous .anticon {
+  color: #ff4d4f;
+}
+
+.command-item.ant-btn:disabled .anticon {
+  color: rgba(0, 0, 0, 0.25);
+}
+
+.command-bar-divider {
+  width: 1px;
+  margin: 4px 6px;
+  background: #f0f0f0;
+}
+
+/* 网格页：整页撑满，滚动交给表格内部 */
+.table-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.table-filter-panel {
+  width: 420px;
+  max-height: 58vh;
+  overflow: auto;
+}
+
+.table-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.table-filter-label {
+  flex: 0 0 96px;
+  overflow: hidden;
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.72);
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.table-filter-control {
+  flex: 1;
+  min-width: 0;
+}
+
+.table-filter-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.page-container.page-fill {
+  height: 100%;
+  min-height: 0;
+}
+
+.vtable-host {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: #fff;
+  border: 1px solid #f0f0f0;
+  border-radius: 4px;
+}
+
+.grid-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.65);
+}
+
+/* 预订单新增 / 编辑弹窗 */
+.preorder-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 1;
+  min-height: 0;
+}
+
+.preorder-form-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.preorder-fieldset {
+  border: 1px solid #d9d9d9;
+  border-radius: 4px;
+  padding: 8px 16px 16px;
+  margin: 0;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.preorder-fieldset > legend {
+  padding: 0 6px;
+  font-size: 13px;
+  color: rgba(0, 0, 0, 0.75);
+}
+
+.pf-label {
+  font-size: 13px;
+  line-height: 1;
+  color: rgba(0, 0, 0, 0.75);
+  white-space: nowrap;
+}
+
+.pf-label-required {
+  color: #ff4d4f;
+}
+
+.pf-toolbar-gap {
+  margin-left: 16px;
+}
+
+.pf-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 28px;
+  margin-bottom: 10px;
+}
+
+.pf-row:last-child {
+  margin-bottom: 0;
+}
+
+.pf-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pf-field-grow {
+  flex: 1 1 420px;
+}
+
+.pf-field-grow .pf-control {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.pf-control {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.pf-picker-btn.ant-btn {
+  font-weight: 700;
+  color: rgba(0, 0, 0, 0.65);
+}
+
+.preorder-detail-grid {
+  position: relative;
+  flex: 1;
+  min-height: 140px;
+  margin-top: 4px;
+  border: 1px solid #f0f0f0;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.preorder-detail-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  color: rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
