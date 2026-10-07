@@ -9,8 +9,11 @@ import type { ApiResponse, PageInfo, QueryParams } from '../types';
  *   /plan/yupaiOrder/list/changes   → data/plan/yupaiOrder/list/changes.json
  *   /views/{any}/rows               → data/views/_dynamic/rows.json
  *
- * 命中规则：不论请求方法，一律先按路径找 data/ 下的同名 JSON 文件，
- * 命中即返回文件内容（数组自动分页）；只有文件不存在时才按方法走默认返回。
+ * 命中规则：不论请求方法，一律先按路径找 data/ 下的同名 JSON 文件，命中即按文件内容返回：
+ *   1. 数组            → 自动分页
+ *   2. 带 code 的对象  → 视为完整响应，原样返回（文件里写的就是 { code, data }）
+ *   3. 其他            → 包一层成 { code: 0, data }
+ * 只有文件不存在时才按方法走默认返回。
  *
  * 分页规则：请求参数包含 page 或 pageSize 时自动分页，否则返回全量数据。
  *
@@ -50,6 +53,17 @@ function findMockData(apiPath: string): unknown | undefined {
 }
 
 /**
+ * 判断 mock 文件内容是不是「完整的 ApiResponse」。
+ *
+ * 之所以要求 code 必须是数字：业务数据里也可能有个叫 code 的字段（比如物料编码），
+ * 只看有没有 code 键会把那种数据误判成响应外壳，导致调用方拿到的 res.data 是 undefined。
+ */
+function isApiResponseShape(value: unknown): value is ApiResponse<unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  return typeof (value as { code?: unknown }).code === 'number' && 'data' in value;
+}
+
+/**
  * 分页入参的形状：只要求能读出 page / pageSize。
  *
  * 不直接用 QueryParams 做索引访问 —— 它带一个 `object` 分支，没有索引签名，
@@ -81,16 +95,20 @@ function autoPaginate<T>(list: T[], params: PagingParams): ApiResponse<T[]> {
  * 由调用方回退到真实网络请求。
  */
 export async function mockRequest<T>(init: MockRequestInit): Promise<ApiResponse<T> | undefined> {
+  console.log(init);
   const { method, params = {}, body } = init;
   const apiPath = init.path.replace(/^\/+/, '').replace(/\/+$/, '');
 
   // 模拟网络延迟
   await new Promise<void>((r) => setTimeout(r, 200));
 
-  // 任意方法：先找对应 mock 文件，命中即返回文件内容
+  // 任意方法：先找对应 mock 文件，命中即按文件内容返回
   const data = findMockData(apiPath);
   if (data !== undefined) {
     if (Array.isArray(data)) return autoPaginate(data, params) as ApiResponse<T>;
+    // 文件里已经写了完整响应（带 code）就原样返回，不再包一层 ——
+    // 包了的话调用方拿到的 res.data 会是 { code, data } 这个对象本身
+    if (isApiResponseShape(data)) return data as ApiResponse<T>;
     return { code: 0, data: data as unknown as T };
   }
 
