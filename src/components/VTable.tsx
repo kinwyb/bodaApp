@@ -38,6 +38,31 @@ interface StyleArgs {
  */
 export const SUMMARY_ROW_KEY = '__summary__';
 
+/** 选中行整行底色的样式 id 与配色（配色与 theme.bodyStyle.select.cellBgColor 保持一致） */
+const SELECTED_ROW_STYLE_ID = '__selected_row__';
+const SELECTED_ROW_BG = '#e6f4ff';
+
+/**
+ * customCellStyle 插件的类型没有从包根导出，这里只声明实际用到的两个方法。
+ * 该插件由 BaseTable 无条件创建（options.customCellStyle 默认是 []），所以表建好后一定拿得到。
+ */
+interface CustomCellStylePluginLike {
+  registerCustomCellStyle: (id: string, style: Record<string, unknown>) => void;
+  arrangeCustomCellStyle: (
+    cellPos: {
+      col?: number;
+      row?: number;
+      range?: { start: { col: number; row: number }; end: { col: number; row: number } };
+    },
+    customStyleId?: string,
+  ) => void;
+}
+
+function getStylePlugin(table: ListTable): CustomCellStylePluginLike | undefined {
+  return (table as unknown as { customCellStylePlugin?: CustomCellStylePluginLike })
+    .customCellStylePlugin;
+}
+
 /** 自定义单元格样式的回调参数 */
 export interface VTableCellStyleInfo {
   /** 表格行号（含表头行） */
@@ -244,6 +269,14 @@ export interface VTableApi {
   /** 获取内部 ListTable 实例（供 SearchComponent 等外部工具使用） */
   getTable: () => ListTable | null;
   /**
+   * 清空表格的选中态：勾选框（含表头全选）与原生单元格选中一起清，并回调 onSelectionChange([]) /
+   * onActiveSelectionChange({ rowCount: 0 })。
+   *
+   * 页面把自己那边的 selectedKeys 置空**不会**联动到表格 —— VTable 的勾选状态存在它自己的 state 里，
+   * 只在 rows 变化时才自动重置。所以「删除成功后立刻清空」这类场景必须显式调这个方法。
+   */
+  clearSelection: () => void;
+  /**
    * 导出 Excel（走 @visactor/vtable-plugins 的 TableExportPlugin，默认直接下载文件）。
    * 传 fileName 会覆盖 exportOptions 里配的文件名；返回插件的原始结果（配了 downloadFile: false 时是文件内容）。
    */
@@ -288,6 +321,21 @@ export interface VTableProps {
   summary?: Record<string, unknown>;
   /** 选择高亮模式，默认整行高亮 */
   highlightMode?: 'row' | 'column' | 'cell' | 'cross';
+  /**
+   * 框选、Shift 扩展这类「一个范围覆盖多格」的选中，是否把高亮铺满整行。
+   *
+   * VTable 这项默认是 false（见 es/state/state.js:216 的 Object.assign 默认值），
+   * 后果是：只有「单击一个单元格」才走整行高亮分支（isCellSelected 里要求范围是单格），
+   * 一旦范围跨格就掉到多范围分支 —— 而那条分支只在 selectionFillMode === 'replace' 时才上色，
+   * 主题默认是 'overlay'（theme-define.js:546），于是连单元格底色都没有，看起来就像「选中丢了」。
+   * 所以这里默认打开，保证单击与框选的观感一致。
+   */
+  highlightInRange?: boolean;
+  /**
+   * 是否允许多选。true：Ctrl/Cmd 点选追加、Shift 点选扩展范围；
+   * false：只能单选，点新的会替换掉旧的（VTable 内建的 ctrl/shiftMultiSelect 一并关掉）。
+   */
+  multiSelect?: boolean;
   /** 列宽总和不足容器宽度时，是否自动拉宽各列来填满容器；默认 false（右侧留白） */
   autoFillWidth?: boolean;
   /** 页面自定义单元格样式（业务提醒用，如最近变更标绿） */
@@ -362,6 +410,9 @@ const THEME: themes.TableTheme = themes.DEFAULT.extends({
     cellBorderColor: '#1677ff',
     cellBorderLineWidth: 1,
     cellBgColor: 'rgba(22,119,255,0.10)',
+    // 多个选中范围（Ctrl 多选）时，isCellSelected 只有在这一项等于 'replace' 时才会给范围内的格子上色，
+    // 主题默认是 'overlay'，结果就是多选一格都不上色、只剩范围边框
+    selectionFillMode: 'replace',
   },
   frameStyle: { borderColor: '#e8e8e8', borderLineWidth: 1 },
 });
@@ -382,6 +433,8 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
   unfreezeAllOnExceedsMaxWidth = false,
   summary,
   highlightMode = 'row',
+  highlightInRange = true,
+  multiSelect = true,
   autoFillWidth = false,
   cellStyle,
   editableFields,
@@ -407,6 +460,84 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
   const selectedRef = useRef<Set<string>>(new Set());
   const handlers = useRef({ onCellClick, onCellDblClick, onSelectionChange, onCellValueChange, onActiveSelectionChange });
   handlers.current = { onCellClick, onCellDblClick, onSelectionChange, onCellValueChange, onActiveSelectionChange };
+  /** 上一次铺过底色的行，用来增量撤销 */
+  const paintedRowsRef = useRef<number[]>([]);
+  /** customCellStyle 的样式只需注册一次 */
+  const styleRegisteredRef = useRef(false);
+
+  /**
+   * 给「当前选中的行」整行铺底色 —— 走 customCellStyle，而不是 VTable 原生的选中高亮。
+   *
+   * 为什么不用原生的：多个选中范围（Ctrl 多选产生的就是多个 range）时，VTable 只给 range 覆盖到的
+   * 格子画 cellBgColor，而 Ctrl 点出来的 range 恰好是单格，所以整行铺不开
+   * （见 es/state/select/is-cell-select-highlight.js 里 getCellSelectColor 的分支判断）。
+   *
+   * customCellStyle 正好合适：样式优先级最高（core/style-helper.js 里 mergeStyle 合成在业务样式之上），
+   * 且渲染时现查；arrangeCustomCellStyle 内部还会自己 updateCellContent + updateNextFrame。
+   *
+   * 关键是**完全不动选中范围**：点一个格子就还是选中一个格子，getSelection() 行为保持原样。
+   */
+  const paintSelectedRows = useCallback(() => {
+    const table = tableRef.current;
+    const plugin = table ? getStylePlugin(table) : undefined;
+    if (!table || !plugin) return;
+
+    if (!styleRegisteredRef.current) {
+      plugin.registerCustomCellStyle(SELECTED_ROW_STYLE_ID, { bgColor: SELECTED_ROW_BG });
+      styleRegisteredRef.current = true;
+    }
+
+    // 选中范围可能跨行（框选），把覆盖到的行都算进来
+    const ranges = (table.stateManager?.select?.ranges ?? []) as Array<{
+      start: { row: number };
+      end: { row: number };
+    }>;
+    const nextRows = new Set<number>();
+    ranges.forEach((range) => {
+      const from = Math.min(range.start.row, range.end.row);
+      const to = Math.max(range.start.row, range.end.row);
+      for (let row = from; row <= to; row += 1) {
+        // 表头行不参与
+        if (row >= table.columnHeaderLevelCount) nextRows.add(row);
+      }
+    });
+
+    // arrangeCustomCellStyle 收的是 cellPosition（col / row / range 三选一），整行用 range 表达
+    const rowCellPos = (row: number) => ({
+      range: {
+        start: { col: 0, row },
+        end: { col: table.colCount - 1, row },
+      },
+    });
+    // 先撤掉不再选中的行（不传样式 id 就是清除）
+    paintedRowsRef.current
+      .filter((row) => !nextRows.has(row))
+      .forEach((row) => plugin.arrangeCustomCellStyle(rowCellPos(row)));
+    // 再给新选中的行铺上
+    nextRows.forEach((row) => {
+      if (!paintedRowsRef.current.includes(row)) {
+        plugin.arrangeCustomCellStyle(rowCellPos(row), SELECTED_ROW_STYLE_ID);
+      }
+    });
+    paintedRowsRef.current = Array.from(nextRows);
+  }, []);
+
+  /** 撤掉所有已铺的行底色（换数据 / 清空选中时用，行号在新数据里已经没意义了） */
+  const clearPaintedRows = useCallback(() => {
+    const table = tableRef.current;
+    const plugin = table ? getStylePlugin(table) : undefined;
+    if (!table || !plugin || paintedRowsRef.current.length === 0) return;
+    paintedRowsRef.current.forEach((row) => {
+      plugin.arrangeCustomCellStyle({
+        range: {
+          start: { col: 0, row },
+          end: { col: table.colCount - 1, row },
+        },
+      });
+    });
+    paintedRowsRef.current = [];
+  }, []);
+
   /** 当前排序状态（由表头排序图标驱动，排序在本地完成，统计行不参与） */
   const [sortState, setSortState] = useState<VTableSortState | null>(null);
 
@@ -720,6 +851,8 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
         : {}),
       select: {
         highlightMode,
+        // 打开后，框选 / Shift 扩展的多格范围也会整行高亮（默认不打开，只有单击整行）
+        highlightInRange,
         headerSelectMode: 'inline',
         blankAreaClickDeselect: true,
         // 统计行不参与选中高亮
@@ -735,6 +868,9 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
       // 启用 Ctrl+C 复制选中单元格内容
       keyboardOptions: {
         copySelected: true,
+        // 关掉后 VTable 不再用 Ctrl/Shift 追加选中范围，等于单选
+        ctrlMultiSelect: multiSelect,
+        shiftMultiSelect: multiSelect,
       },
       ...(editableFields ? { editCellTrigger } : {}),
       ...(emptyTip ? { emptyTip: { text: emptyTip } } : {}),
@@ -790,8 +926,9 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
       });
     });
 
-    // 原生选中变化：点击 / 框选单元格时通知外部
+    // 原生选中变化：先给选中的行铺整行底色，再通知外部
     table.on('selected_cell', () => {
+      paintSelectedRows();
       if (!handlers.current.onActiveSelectionChange) return;
       const infos = table.getSelectedCellInfos();
       if (!infos || infos.length === 0) {
@@ -801,6 +938,12 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
       const rows = new Set<number>();
       infos.forEach((group) => group.forEach((cell) => rows.add(cell.row)));
       handlers.current.onActiveSelectionChange({ rowCount: rows.size });
+    });
+
+    // 选中被清空（点画布空白处等）：底色一并撤掉，否则会留在那儿
+    table.on('selected_clear', () => {
+      paintSelectedRows();
+      handlers.current.onActiveSelectionChange?.({ rowCount: 0 });
     });
     // 单元格编辑完成：回传字段、行索引与新值
     table.on('change_cell_value', (args) => {
@@ -891,11 +1034,13 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     scheduleBottomFrozen(table, summary ? 1 : 0);
     // 换页 / 换数据后重置勾选
     selectedRef.current.clear();
+    // 行号在新数据里已经没意义了，铺过的底色一并撤掉
+    clearPaintedRows();
     if (selectField) {
       table.clearCheckboxState(selectField);
       handlers.current.onSelectionChange?.([]);
     }
-  }, [rows, selectField, summary]);
+  }, [rows, selectField, summary, clearPaintedRows]);
 
   /** 重绘：异步拿到业务标记（如变更明细）后调用，让 cellStyle 生效 */
   const repaint = useCallback(() => {
@@ -974,6 +1119,26 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     return table.exportToCsv();
   }, []);
 
+  /**
+   * 清空表格的选中态。
+   * - 勾选：状态在 VTable 自己手里，必须调它的 clearCheckboxState 才能把复选框真的画成未勾选；
+   *   同时清掉组件里那份 selectedRef，否则下次勾选回传的 keys 会混进旧值。
+   * - 原生选中：clearSelected() 负责解除高亮，行数这里主动回调归零
+   *   （不能指望 selected_clear 事件，它只在框选结束时触发）。
+   */
+  const clearSelection = useCallback(() => {
+    const table = tableRef.current;
+    if (!table) return;
+    selectedRef.current.clear();
+    clearPaintedRows();
+    if (selectField) {
+      table.clearCheckboxState(selectField);
+      handlers.current.onSelectionChange?.([]);
+    }
+    table.clearSelected();
+    handlers.current.onActiveSelectionChange?.({ rowCount: 0 });
+  }, [selectField, clearPaintedRows]);
+
   // 把方法挂到 ref 上：<VTable ref={tableRef} />，之后用 tableRef.current?.repaint()
   useImperativeHandle(
     ref,
@@ -984,8 +1149,9 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
       getTable: () => tableRef.current,
       exportExcel,
       exportCsv,
+      clearSelection,
     }),
-    [autoFitColumns, repaint, getSelection, exportExcel, exportCsv],
+    [autoFitColumns, repaint, getSelection, exportExcel, exportCsv, clearSelection],
   );
 
   useEffect(() => {

@@ -275,6 +275,7 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
           // 导出是 VTable 内部 TableExportPlugin 的能力，这里一并转发出去
           exportExcel: (fileName?: string) => tableRef.current?.exportExcel(fileName),
           exportCsv: (fileName?: string) => tableRef.current?.exportCsv(fileName),
+          clearSelection: () => tableRef.current?.clearSelection(),
         }) as VTableApi,
       [],
     );
