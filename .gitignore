@@ -31,3 +31,6 @@ release
 # Local env files
 .env.development
 .env.local
+
+# 本地工作区数据（记忆、会话状态等），不入版本库
+.workbuddy/
