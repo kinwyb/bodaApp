@@ -386,17 +386,37 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
   const autoFitColumns = useCallback(() => {
     const table = tableRef.current;
     if (!table) return;
-    const scenegraph = (
-      table as unknown as { scenegraph?: { updateAutoColWidth: (col: number) => void } }
-    ).scenegraph;
+    const host = table as unknown as {
+      colCount: number;
+      frozenColCount: number;
+      rightFrozenColCount: number;
+      stateManager?: { checkFrozen?: () => void };
+      scenegraph?: {
+        updateAutoColWidth: (col: number) => void;
+        component?: {
+          setFrozenColumnShadow: (col: number, isRightFrozen?: boolean) => void;
+          setRightFrozenColumnShadow: (col: number) => void;
+        };
+        updateNextFrame?: () => void;
+      };
+    };
+    const scenegraph = host.scenegraph;
     if (!scenegraph?.updateAutoColWidth) return;
     // 勾选列保持原宽
-    for (let col = selectField ? 1 : 0; col < table.colCount; col += 1) {
+    for (let col = selectField ? 1 : 0; col < host.colCount; col += 1) {
       scenegraph.updateAutoColWidth(col);
       // 再调一次 setColWidth，把该列标记为“已手动调整”
       // （VTable 重建单元格时会跳过这些列，否则宽度会被列定义覆盖回去）
       table.setColWidth(col, table.getColWidth(col));
     }
+    // 列宽变了 → 冻结区边界也跟着变。VTable 的双击列边界逻辑
+    // (event/self-event-listener/base-table/dbclick-auto-column-width) 在这之后会重算冻结分割线，
+    // 这里必须补上同样的动作，否则 frozenShadowLine 会停在旧的 x 上：
+    // 表现为冻结分割竖线和内容错位，刷新页面重建场景图才恢复正常。
+    host.stateManager?.checkFrozen?.();
+    scenegraph.component?.setFrozenColumnShadow(host.frozenColCount - 1);
+    scenegraph.component?.setRightFrozenColumnShadow(host.colCount - host.rightFrozenColCount);
+    scenegraph.updateNextFrame?.();
   }, [selectField]);
 
   // 创建实例（仅一次），后续数据/列变化通过 API 增量更新
