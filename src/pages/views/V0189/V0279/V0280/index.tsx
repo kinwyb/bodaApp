@@ -35,7 +35,7 @@ const PreorderPage: React.FC<ViewPageProps> = ({view, trail}) => {
     const [dataSource, setDataSource] = useState<YupaiOrder[]>([]);
     const [loading, setLoading] = useState(false);
     const [total, setTotal] = useState(0);
-    const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
+    /** 选中的行数：只用来驱动按钮 disabled，行数据本身一律向表格要（见 getActiveRows） */
     const [activeRowCount, setActiveRowCount] = useState(0);
     const [query, setQuery] = useState<YupaiOrderQuery>({});
     const [changedCells, setChangedCells] = useState<Record<string, string[]>>({});
@@ -48,10 +48,8 @@ const PreorderPage: React.FC<ViewPageProps> = ({view, trail}) => {
 
     const loadData = useCallback(
         async (params: YupaiOrderQuery) => {
-            // 清空选择状态信息，重新加载数据
+            // 重新加载前先清掉选中：clearSelection 会回调 rowCount 归零，不用自己再置 state
             tableRef.current?.clearSelection();
-            setSelectedKeys([]);
-            setActiveRowCount(0);
             setLoading(true);
             try {
                 const res = await yupaiOrderService.list(params);
@@ -63,7 +61,7 @@ const PreorderPage: React.FC<ViewPageProps> = ({view, trail}) => {
                 setLoading(false);
             }
         },
-        [setSelectedKeys, message, tableRef, setActiveRowCount, setLoading],
+        [message, tableRef, setLoading],
     );
 
     useEffect(() => {
@@ -107,37 +105,29 @@ const PreorderPage: React.FC<ViewPageProps> = ({view, trail}) => {
         tableRef.current?.repaint();
     }, [changedCells]);
 
-    const hasSelection = selectedKeys.length > 0 || activeRowCount > 0;
+    /** 是否有选中行，只用来驱动按钮的 disabled —— 行数由表格回调（见 onActiveSelectionChange） */
+    const hasSelection = activeRowCount > 0;
 
-    /** VTable 原生选中的行（点击 / 框选），过滤掉不属于当前页数据的行 */
+    /** 选中的行：勾选与点选/框选/Ctrl 在表格里已同步成同一套，直接取表格的原生选中即可 */
     const getActiveRows = useCallback((): YupaiOrder[] => {
         const rows = tableRef.current?.getSelection().rows ?? [];
+        // 过滤掉不属于当前页数据的行（统计行不在 dataSource 里，一并剔掉）
         return rows.filter((row) =>
             dataSource.some((d) => d.ID === (row as YupaiOrder).ID),
         ) as YupaiOrder[];
     }, [dataSource, tableRef]);
 
-    // 获取目标行（单选语义：优先「恰好勾选的那一行」，否则当前点选的第一行）
-    const getSelectedTarget = useCallback((): YupaiOrder | undefined => {
-        const checked =
-            selectedKeys.length > 0
-                ? dataSource.find((r) => r.ID === selectedKeys[0])
-                : undefined;
-        return checked ?? getActiveRows()[0];
-    }, [selectedKeys, dataSource, getActiveRows]);
+    // 单条操作的目标行：取选中的第一条
+    const getSelectedTarget = useCallback(
+        (): YupaiOrder | undefined => getActiveRows()[0],
+        [getActiveRows],
+    );
 
-    /**
-     * 获取所有选中的行：复选框勾选的 + 点击/框选的，按 ID 去重。
-     * 返回值按 dataSource 的顺序排列（和表格里看到的顺序一致），
-     * 不在当前页数据里的勾选 key 会被自动忽略。
-     */
-    const getSelectedTargets = useCallback((): YupaiOrder[] => {
-        const ids = new Set(selectedKeys);
-        if (ids.size === 0) {
-            getActiveRows().forEach((row) => ids.add(row.ID));
-        }
-        return dataSource.filter((row) => ids.has(row.ID));
-    }, [selectedKeys, dataSource, getActiveRows]);
+    /** 批量操作的目标行：就是当前选中的全部行 */
+    const getSelectedTargets = useCallback(
+        (): YupaiOrder[] => getActiveRows(),
+        [getActiveRows],
+    );
 
     // 编辑按钮
     const editCmd = useCallback(() => {
@@ -343,7 +333,7 @@ const PreorderPage: React.FC<ViewPageProps> = ({view, trail}) => {
             permission: '权限管理',
             onClick: () => message.info('权限（演示）')
         },
-    ], [hasSelection, selectedKeys, dataSource, message, query, loadData, editCmd, delCmd, exportCmd, submitCmd]);
+    ], [hasSelection, message, query, loadData, editCmd, delCmd, exportCmd, submitCmd]);
 
     const columns = useMemo(() => buildPreorderColumns(), []);
 
@@ -441,7 +431,6 @@ const PreorderPage: React.FC<ViewPageProps> = ({view, trail}) => {
                         setActiveRowCount(0);
                         setQuery((prev) => ({...prev, page, pageSize}));
                     }}
-                    onSelectionChange={setSelectedKeys}
                     onActiveSelectionChange={(info) => setActiveRowCount(info.rowCount)}
                     onCellDblClick={(info) => {
                         // 统计行不是真实单据，不打开详情
@@ -463,7 +452,7 @@ const PreorderPage: React.FC<ViewPageProps> = ({view, trail}) => {
                 onCancel={() => setFormOpen(false)}
                 onSaved={() => {
                     setFormOpen(false);
-                    setSelectedKeys([]);
+                    tableRef.current?.clearSelection();
                     if (formMode === 'add') setQuery((prev) => ({...prev, page: 1}));
                     else void loadData(query);
                 }}
