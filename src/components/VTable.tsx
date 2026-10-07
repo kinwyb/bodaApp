@@ -138,6 +138,77 @@ export interface VTableSelection {
   activeCell: VTableCellSelection | null;
 }
 
+/**
+ * 菜单项。
+ * VTable 未从包根导出 MenuListItem，这里按官方 ts-types/menu.d.ts 的 MenuListItem 声明，
+ * 保证页面写 `menu.contextMenuItems` 时拿到的就是原生形态（直接透传，不做二次转换）。
+ *
+ * - 字符串：普通菜单项，文本与 menuKey 都等于该字符串
+ * - `{ type: 'split' }`：分隔线（注意不是字符串 '-'，写 '-' 会渲染成一个文本项）
+ * - `{ type: 'title' }`：分组标题
+ * - `children`：二级子菜单
+ */
+export type VTableMenuItem =
+  | string
+  | {
+      text?: string;
+      type?: 'title' | 'item' | 'split';
+      /** 菜单项标识，点击回调里用它区分；不传时等于 text */
+      menuKey?: string;
+      icon?: { width?: number; height?: number; svg?: string };
+      children?: VTableMenuItem[];
+      disabled?: boolean;
+    };
+
+/** 生成菜单项时的上下文：页面据此决定这一格显示哪些菜单 */
+export interface VTableMenuContext {
+  /** 列号（含勾选列） */
+  col: number;
+  /** 行号（含表头行） */
+  row: number;
+  /** 列字段名 */
+  field?: string;
+  /** 数据行索引（不含表头）；表头行为 -1 */
+  rowIndex: number;
+  /** 该单元格所在行的原始记录；表头行 / 画布空白处为 undefined */
+  record?: Record<string, unknown>;
+  /** 是否底部统计行 */
+  isSummaryRow: boolean;
+}
+
+/** 菜单项被点击时回传的信息 */
+export interface VTableMenuClickInfo extends VTableMenuContext {
+  /** 菜单项标识（未配 menuKey 时等于菜单文本） */
+  menuKey: string;
+  /** 菜单项文本 */
+  text: string;
+  /** 该单元格显示值 */
+  value?: unknown;
+  /** 该单元格原始值 */
+  dataValue?: unknown;
+}
+
+/** 右键菜单 / 表头下拉菜单配置 */
+export interface VTableMenuConfig {
+  /**
+   * 单元格右键菜单。
+   * 传数组为固定菜单；传函数可按行列动态返回（返回空数组表示这一格不弹菜单）。
+   */
+  contextMenuItems?: VTableMenuItem[] | ((ctx: VTableMenuContext) => VTableMenuItem[]);
+  /** 表头下拉菜单（表头右侧的小三角）。不传则表头没有下拉菜单，与 VTable 默认一致 */
+  headerMenuItems?: VTableMenuItem[] | ((ctx: VTableMenuContext) => VTableMenuItem[]);
+  /** 渲染模式，默认 'html'（'canvas' 更轻，但对菜单外观的控制有限） */
+  renderMode?: 'canvas' | 'html';
+  /**
+   * 是否只在单元格 / 表头上响应右键。
+   * VTable 内部只有 `contextMenuWorkOnlyCell === false` 时才额外绑定「画布空白处」的右键，
+   * 所以不传（或传 true）时就只有单元格和表头能弹出菜单。
+   */
+  workOnlyCell?: boolean;
+  /** 菜单项点击回调（右键菜单与表头下拉菜单共用） */
+  onClick?: (info: VTableMenuClickInfo) => void;
+}
+
 /** 表格实例对外暴露的方法 */
 export interface VTableApi {
   /** 按内容自适应所有列宽（与双击列边界的效果一致） */
@@ -178,6 +249,8 @@ export interface VTableProps {
   rowHeight?: number;
   headerRowHeight?: number;
   emptyTip?: string;
+  /** 右键菜单 / 表头菜单配置；不传则保持 VTable 默认（没有菜单） */
+  menu?: VTableMenuConfig;
   onCellClick?: (info: VTableCellInfo) => void;
   onCellDblClick?: (info: VTableCellInfo) => void;
   /** 勾选变化时回传全部选中行的主键 */
@@ -245,6 +318,7 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
   rowHeight = 28,
   headerRowHeight = 32,
   emptyTip,
+  menu,
   onCellClick,
   onCellDblClick,
   onSelectionChange,
@@ -266,6 +340,9 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
   recordsRef.current = records;
   const summaryRef = useRef(summary);
   summaryRef.current = summary;
+  /** 菜单配置：菜单项与回调都从 ref 实时读取，所以页面改菜单内容不用重建表格实例 */
+  const menuRef = useRef(menu);
+  menuRef.current = menu;
 
   const baseColumns = useMemo<ColumnsDefine>(() => {
     if (!selectField) return columns;
@@ -419,6 +496,73 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     scenegraph.updateNextFrame?.();
   }, [selectField]);
 
+  /**
+   * 菜单项解析：把业务上下文补齐后交给页面配置的函数。
+   * 页面只需要关心 field / record / isSummaryRow，不用自己换算表头偏移。
+   */
+  const resolveMenuItems = useCallback(
+    (
+      source: VTableMenuConfig['contextMenuItems'],
+      table: ListTable,
+      col: number,
+      row: number,
+      field?: string,
+    ): VTableMenuItem[] => {
+      if (!source) return [];
+      if (Array.isArray(source)) return source;
+      const headerLevel = table.columnHeaderLevelCount;
+      // row < headerLevel 是表头行；col / row 为 -1 是画布空白处的右键
+      const inBody = col >= 0 && row >= headerLevel;
+      return source({
+        col,
+        row,
+        field,
+        rowIndex: inBody ? row - headerLevel : -1,
+        record: inBody
+          ? (table.getCellOriginRecord(col, row) as Record<string, unknown> | undefined)
+          : undefined,
+        isSummaryRow: inBody && isSummaryRowRef.current(row, headerLevel),
+      });
+    },
+    [],
+  );
+
+  /**
+   * 构造 VTable 的 menu 配置。
+   *
+   * 一律以「函数形态」注册：VTable 是在每次弹菜单时才调用它，所以菜单项与 onClick
+   * 始终读到最新配置，页面改菜单内容不需要重建表格实例。
+   *
+   * 注意两处 VTable 内部行为：
+   * 1. 空数组是 truthy，会弹出一个空的菜单框，所以这里把空数组统一转成 undefined（= 不弹菜单）；
+   * 2. renderMode / workOnlyCell 在 VTable 里只在建图时读取，改这两个值需重挂载组件。
+   */
+  const buildMenuOptions = useCallback((): ListTableConstructorOptions['menu'] => {
+    const toContent = (items: VTableMenuItem[] | undefined) =>
+      (items && items.length > 0 ? items : undefined) as unknown as VTableMenuItem[];
+    return {
+      renderMode: menuRef.current?.renderMode ?? 'html',
+      contextMenuWorkOnlyCell: menuRef.current?.workOnlyCell,
+      contextMenuItems: (field, row, col, table) =>
+        toContent(
+          resolveMenuItems(
+            menuRef.current?.contextMenuItems,
+            table as unknown as ListTable,
+            col,
+            row,
+            field === undefined ? undefined : String(field),
+          ),
+        ),
+      defaultHeaderMenuItems: (args) => {
+        const source = menuRef.current?.headerMenuItems;
+        if (!source) return toContent([]);
+        return toContent(
+          resolveMenuItems(source, args.table as unknown as ListTable, args.col, args.row),
+        );
+      },
+    };
+  }, [resolveMenuItems]);
+
   // 创建实例（仅一次），后续数据/列变化通过 API 增量更新
   useEffect(() => {
     const container = containerRef.current;
@@ -449,6 +593,8 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
       },
       ...(editableFields ? { editCellTrigger } : {}),
       ...(emptyTip ? { emptyTip: { text: emptyTip } } : {}),
+      // 始终注册函数形态的 menu：配置文件在组件里，菜单内容在弹菜单时实时解析
+      menu: buildMenuOptions(),
     };
     optionsRef.current = options;
     const table = new ListTable(container, options);
@@ -466,6 +612,35 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     // 选中高亮交给 VTable 原生 select（样式取自 theme.bodyStyle.select），这里只透传点击事件
     table.on('click_cell', (args) => handlers.current.onCellClick?.(toInfo(args)));
     table.on('dblclick_cell', (args) => handlers.current.onCellDblClick?.(toInfo(args)));
+
+    /**
+     * 右键菜单 / 表头下拉菜单的点击。
+     * VTable 只给「行列号 + menuKey」，这里补上页面真正需要的字段名、记录、单元格值，
+     * 页面就不用再去查记录、也不用管表头占了几行。
+     * 画布空白处的右键（col/row 为 -1）也会走到这里，此时 record / 值为 undefined。
+     */
+    table.on('dropdown_menu_click', (args) => {
+      const onClick = menuRef.current?.onClick;
+      if (!onClick) return;
+      const { col, row } = args;
+      const headerLevel = table.columnHeaderLevelCount;
+      const inTable = col >= 0 && row >= 0;
+      const inBody = col >= 0 && row >= headerLevel;
+      onClick({
+        col,
+        row,
+        rowIndex: inBody ? row - headerLevel : -1,
+        field: args.field === undefined ? undefined : String(args.field),
+        record: inBody
+          ? (table.getCellOriginRecord(col, row) as Record<string, unknown> | undefined)
+          : undefined,
+        isSummaryRow: inBody && isSummaryRowRef.current(row, headerLevel),
+        menuKey: String(args.menuKey ?? ''),
+        text: String(args.text ?? ''),
+        value: inTable ? table.getCellValue(col, row) : undefined,
+        dataValue: inTable ? table.getCellOriginValue(col, row) : undefined,
+      });
+    });
 
     // 原生选中变化：点击 / 框选单元格时通知外部
     table.on('selected_cell', () => {

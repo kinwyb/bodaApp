@@ -8,6 +8,7 @@ import {
   type VTableApi,
   type VTableCellInfo,
   type VTableCellStyleHook,
+  type VTableMenuConfig,
 } from './VTable';
 
 const DEFAULT_PAGE_SIZE = 30;
@@ -40,6 +41,8 @@ export interface FilterTableProps {
   headerRowHeight?: number;
   /** 空数据提示 */
   emptyTip?: string;
+  /** 右键菜单 / 表头菜单配置 */
+  menu?: VTableMenuConfig;
   /** 是否加载中 */
   loading?: boolean;
 
@@ -100,6 +103,7 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
       rowHeight,
       headerRowHeight,
       emptyTip,
+      menu,
       loading,
       total,
       page = 1,
@@ -291,6 +295,7 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
             rowHeight={rowHeight}
             headerRowHeight={headerRowHeight}
             emptyTip={loading ? '加载中…' : emptyTip ?? '暂无数据'}
+            menu={menu}
             onSelectionChange={handleSelectionChange}
             onActiveSelectionChange={onActiveSelectionChange}
             onCellClick={onCellClick}
