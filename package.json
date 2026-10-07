@@ -17,6 +17,7 @@
   "dependencies": {
     "@ant-design/icons": "^6.3.4",
     "@visactor/vtable": "^1.26.8",
+    "@visactor/vtable-plugins": "^1.26.8",
     "@visactor/vtable-search": "^1.26.8",
     "antd": "^6.6.5",
     "dayjs": "^1.11.23",

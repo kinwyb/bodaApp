@@ -5,6 +5,7 @@ import { SearchComponent } from '@visactor/vtable-search';
 import { TableFilter, type FilterField, type FilterModel } from './TableFilter';
 import {
   VTable,
+  type TableExportPluginOptions,
   type VTableApi,
   type VTableCellInfo,
   type VTableCellStyleHook,
@@ -56,6 +57,8 @@ export interface FilterTableProps {
   loading?: boolean;
   /** 加载遮罩文案，默认「数据加载中…」；不传则用 VTable 的默认值 */
   loadingTip?: string;
+  /** 导出配置，透传给 VTable 的 TableExportPlugin（不传也能导出） */
+  exportOptions?: TableExportPluginOptions;
 
   /** 分页总数（后端返回） */
   total: number;
@@ -120,6 +123,7 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
       menu,
       loading,
       loadingTip,
+      exportOptions,
       total,
       page = 1,
       pageSize = DEFAULT_PAGE_SIZE,
@@ -268,6 +272,9 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
           getSelection: () =>
             tableRef.current?.getSelection() ?? { rows: [], cells: [], activeCell: null },
           getTable: () => tableRef.current?.getTable() ?? null,
+          // 导出是 VTable 内部 TableExportPlugin 的能力，这里一并转发出去
+          exportExcel: (fileName?: string) => tableRef.current?.exportExcel(fileName),
+          exportCsv: (fileName?: string) => tableRef.current?.exportCsv(fileName),
         }) as VTableApi,
       [],
     );
@@ -315,6 +322,7 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
             emptyTip={emptyTip ?? '暂无数据'}
             loading={loading}
             loadingTip={loadingTip}
+            exportOptions={exportOptions}
             menu={menu}
             onSelectionChange={handleSelectionChange}
             onActiveSelectionChange={onActiveSelectionChange}

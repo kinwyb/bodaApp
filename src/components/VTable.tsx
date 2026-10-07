@@ -10,6 +10,17 @@ import React, {
 import { Spin } from 'antd';
 import { ListTable,themes } from '@visactor/vtable';
 import type { ColumnsDefine, ListTableConstructorOptions } from '@visactor/vtable';
+import { TableExportPlugin } from '@visactor/vtable-plugins';
+import type { TableExportPluginOptions } from '@visactor/vtable-plugins';
+
+/**
+ * 插件包只从根导出了 TableExportPluginOptions，没导出下面这两个子类型
+ * （它们在 es/table-export/index 里，而 package.json 的 exports 字段只放开了 "." 和 "./gantt-extensions"，
+ * 深路径导入会被拦），所以从 TableExportPluginOptions 上取。
+ */
+export type VTableExportExcelOptions = NonNullable<TableExportPluginOptions['exportExcelOptions']>;
+export type VTableExportCsvOptions = NonNullable<TableExportPluginOptions['exportCsvOptions']>;
+export type { TableExportPluginOptions };
 
 /** 样式回调参数（VTable 未从包根导出该类型，这里按官方定义声明） */
 interface StyleArgs {
@@ -232,6 +243,13 @@ export interface VTableApi {
   getSelection: () => VTableSelection;
   /** 获取内部 ListTable 实例（供 SearchComponent 等外部工具使用） */
   getTable: () => ListTable | null;
+  /**
+   * 导出 Excel（走 @visactor/vtable-plugins 的 TableExportPlugin，默认直接下载文件）。
+   * 传 fileName 会覆盖 exportOptions 里配的文件名；返回插件的原始结果（配了 downloadFile: false 时是文件内容）。
+   */
+  exportExcel: (fileName?: string) => Promise<unknown>;
+  /** 导出 CSV，规则同 exportExcel */
+  exportCsv: (fileName?: string) => Promise<unknown>;
 }
 
 export interface VTableProps {
@@ -293,6 +311,13 @@ export interface VTableProps {
   loading?: boolean;
   /** 加载遮罩上的文案，默认「数据加载中…」 */
   loadingTip?: string;
+  /**
+   * 导出配置，透传给 @visactor/vtable-plugins 的 TableExportPlugin。
+   * 不传也能导出（默认：当前页数据、自动下载、文件名 export）。
+   * 注意插件内部是 Object.assign 浅合并，只写 exportExcelOptions.fileName 会把默认的
+   * downloadFile: true 整个替换掉（变成只返回内容不下载）—— 组件里已经显式补上了 downloadFile。
+   */
+  exportOptions?: TableExportPluginOptions;
   /** 右键菜单 / 表头菜单配置；不传则保持 VTable 默认（没有菜单） */
   menu?: VTableMenuConfig;
   onCellClick?: (info: VTableCellInfo) => void;
@@ -367,6 +392,7 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
   emptyTip,
   loading,
   loadingTip = '数据加载中…',
+  exportOptions,
   menu,
   onCellClick,
   onCellDblClick,
@@ -383,6 +409,38 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
   handlers.current = { onCellClick, onCellDblClick, onSelectionChange, onCellValueChange, onActiveSelectionChange };
   /** 当前排序状态（由表头排序图标驱动，排序在本地完成，统计行不参与） */
   const [sortState, setSortState] = useState<VTableSortState | null>(null);
+
+  /**
+   * 导出插件的两个配置对象。
+   *
+   * 刻意用 ref 持有、并把「对象本身」交给插件：TableExportPlugin 内部是 Object.assign 浅合并，
+   * 拿到的是同一个引用，而且每次导出都现读一遍 —— 所以调用导出前改它的 fileName 就能生效。
+   * 这是该插件唯一支持「动态改文件名」的口子：它挂在 table 实例上的 exportToExcel() / exportToCsv()
+   * 都不接受参数，配置只在构造插件时读一次。
+   *
+   * downloadFile / fileName 显式写出来：浅合并下只要传了 exportExcelOptions，
+   * 插件自带的 { downloadFile: true, fileName: 'export' } 就会被整个替换掉。
+   */
+  const exportExcelOptionsRef = useRef<VTableExportExcelOptions>({
+    ...exportOptions?.exportExcelOptions,
+    downloadFile: exportOptions?.exportExcelOptions?.downloadFile ?? true,
+    fileName: exportOptions?.exportExcelOptions?.fileName ?? 'export',
+  });
+  const exportCsvOptionsRef = useRef<VTableExportCsvOptions>({
+    ...exportOptions?.exportCsvOptions,
+    downloadFile: exportOptions?.exportCsvOptions?.downloadFile ?? true,
+    fileName: exportOptions?.exportCsvOptions?.fileName ?? 'export',
+  });
+
+  /** 插件只建一次（惰性初始化），构造时传进去的就是上面那两个对象本身 */
+  const [exportPlugin] = useState(
+    () =>
+      new TableExportPlugin({
+        exportExcelOptions: exportExcelOptionsRef.current,
+        exportCsvOptions: exportCsvOptionsRef.current,
+        exportOnIdle: exportOptions?.exportOnIdle ?? false,
+      }),
+  );
   /** 判断某行是否为统计行，供勾选列 / 选中高亮禁用使用 */
   const isSummaryRowRef = useRef<(row: number, headerLevel: number) => boolean>(() => false);
   const recordsRef = useRef(records);
@@ -682,6 +740,8 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
       ...(emptyTip ? { emptyTip: { text: emptyTip } } : {}),
       // 始终注册函数形态的 menu：配置文件在组件里，菜单内容在弹菜单时实时解析
       menu: buildMenuOptions(),
+      // 导出插件：表格 INITIALIZED 时它会把 exportToExcel / exportToCsv 挂到 ListTable 实例上
+      plugins: [exportPlugin],
     };
     optionsRef.current = options;
     const table = new ListTable(container, options);
@@ -891,11 +951,41 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     };
   }, []);
 
+  /**
+   * 统一导出入口，转发给插件挂在 ListTable 实例上的 exportToExcel / exportToCsv。
+   * 这两个方法由 TableExportPlugin 在表格 INITIALIZED 时才挂上，所以必须判空
+   * （表格还没初始化完时静默跳过，而不是抛错）。
+   */
+  const exportExcel = useCallback(async (fileName?: string) => {
+    const table = tableRef.current as
+      | (ListTable & { exportToExcel?: () => Promise<unknown> })
+      | null;
+    if (!table?.exportToExcel) return undefined;
+    if (fileName) exportExcelOptionsRef.current.fileName = fileName;
+    return table.exportToExcel();
+  }, []);
+
+  const exportCsv = useCallback(async (fileName?: string) => {
+    const table = tableRef.current as
+      | (ListTable & { exportToCsv?: () => unknown })
+      | null;
+    if (!table?.exportToCsv) return undefined;
+    if (fileName) exportCsvOptionsRef.current.fileName = fileName;
+    return table.exportToCsv();
+  }, []);
+
   // 把方法挂到 ref 上：<VTable ref={tableRef} />，之后用 tableRef.current?.repaint()
   useImperativeHandle(
     ref,
-    () => ({ autoFitColumns, repaint, getSelection, getTable: () => tableRef.current }),
-    [autoFitColumns, repaint, getSelection],
+    () => ({
+      autoFitColumns,
+      repaint,
+      getSelection,
+      getTable: () => tableRef.current,
+      exportExcel,
+      exportCsv,
+    }),
+    [autoFitColumns, repaint, getSelection, exportExcel, exportCsv],
   );
 
   useEffect(() => {

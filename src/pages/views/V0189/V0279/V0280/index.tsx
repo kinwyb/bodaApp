@@ -1,5 +1,6 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {App, Input} from 'antd';
+import dayjs from 'dayjs';
 import {
     ApartmentOutlined,
     CalendarOutlined,
@@ -180,6 +181,19 @@ const PreorderPage: React.FC<ViewPageProps> = ({view, trail}) => {
         });
     }, [getSelectedTarget, message, modal, loadData, query])
 
+    // 导出当前页到 Excel：走 VTable 内部的 TableExportPlugin，文件名不用带 .xlsx（插件会补）
+    const exportCmd = useCallback(async () => {
+        const hide = message.loading('正在导出…', 0);
+        try {
+            await tableRef.current?.exportExcel(`预订单_${dayjs().format('YYYY-MM-DD')}`);
+            message.success('导出成功');
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : '导出失败');
+        } finally {
+            hide();
+        }
+    }, [message]);
+
     const commands: CommandItem[] = useMemo(() => [
         {
             key: 'add', label: '新增', icon: <PlusOutlined/>, permission: '新增',
@@ -272,7 +286,7 @@ const PreorderPage: React.FC<ViewPageProps> = ({view, trail}) => {
             label: '导出',
             icon: <ExportOutlined/>,
             dividerBefore: true,
-            onClick: () => message.info('导出（演示）')
+            onClick: () => void exportCmd()
         },
         {
             key: 'auth',
@@ -281,7 +295,7 @@ const PreorderPage: React.FC<ViewPageProps> = ({view, trail}) => {
             permission: '权限管理',
             onClick: () => message.info('权限（演示）')
         },
-    ], [hasSelection, selectedKeys, dataSource, message, query, loadData, editCmd, delCmd]);
+    ], [hasSelection, selectedKeys, dataSource, message, query, loadData, editCmd, delCmd, exportCmd]);
 
     const columns = useMemo(() => buildPreorderColumns(), []);
 
