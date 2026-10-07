@@ -18,6 +18,13 @@ interface StyleArgs {
   table: { columnHeaderLevelCount: number };
 }
 
+/**
+ * 统计行的主键值。
+ * 组件会自动把它补到 summary 的 rowKey 字段上（summary 里已显式给主键时保留原值），
+ * 所以业务不需要自己塞这个值；要判断统计行，用回调参数里的 isSummaryRow 即可。
+ */
+export const SUMMARY_ROW_KEY = '__summary__';
+
 /** 自定义单元格样式的回调参数 */
 export interface VTableCellStyleInfo {
   /** 表格行号（含表头行） */
@@ -26,8 +33,10 @@ export interface VTableCellStyleInfo {
   rowIndex: number;
   /** 列字段名 */
   field: string;
-  /** 行主键（空白补足行 / 统计行为空串） */
+  /** 行主键（空白补足行为空串，统计行为 SUMMARY_ROW_KEY） */
   rowKey: string;
+  /** 是否底部统计行 */
+  isSummaryRow: boolean;
   /** 该行原始记录 */
   record?: Record<string, unknown>;
   /** 该单元格原始值 */
@@ -108,6 +117,8 @@ export interface VTableCellInfo {
   col: number;
   row: number;
   field?: string;
+  /** 是否底部统计行（统计行的 record 里只有汇总字段，不要当业务数据用） */
+  isSummaryRow: boolean;
   /** 单元格对应的原始记录 */
   record?: Record<string, unknown>;
 }
@@ -249,7 +260,11 @@ export interface VTableProps {
    * 默认 false：只从右侧裁掉超出的列；VTable 原生默认是 true（整块冻结被静默清空，很难排查）。
    */
   unfreezeAllOnExceedsMaxWidth?: boolean;
-  /** 统计行数据：追加为最后一行并固定在表格底部 */
+  /**
+   * 统计行数据：追加为最后一行并固定在表格底部。
+   * 主键不用自己填，组件会自动补成 SUMMARY_ROW_KEY（已显式给主键则保留原值）；
+   * 判断统计行请用 cellStyle / menu / 单元格事件回调里的 isSummaryRow。
+   */
   summary?: Record<string, unknown>;
   /** 选择高亮模式，默认整行高亮 */
   highlightMode?: 'row' | 'column' | 'cell' | 'cross';
@@ -358,8 +373,16 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
   const isSummaryRowRef = useRef<(row: number, headerLevel: number) => boolean>(() => false);
   const recordsRef = useRef(records);
   recordsRef.current = records;
-  const summaryRef = useRef(summary);
-  summaryRef.current = summary;
+  /**
+   * 统计行记录：主键由组件补齐，业务不用自己塞 SUMMARY_ROW_KEY。
+   * summary 里已经显式给了主键时保留原值，便于旧代码平滑过渡。
+   */
+  const summaryRow = useMemo(
+    () => (summary ? { ...summary, [rowKey]: summary[rowKey] ?? SUMMARY_ROW_KEY } : undefined),
+    [summary, rowKey],
+  );
+  const summaryRef = useRef(summaryRow);
+  summaryRef.current = summaryRow;
   /** 菜单配置：菜单项与回调都从 ref 实时读取，所以页面改菜单内容不用重建表格实例 */
   const menuRef = useRef(menu);
   menuRef.current = menu;
@@ -386,8 +409,8 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
   /** 统计行固定在数据行之后（含表头行号） */
   const isSummaryRow = useCallback(
     (row: number, headerLevel: number): boolean =>
-      Boolean(summary) && row >= headerLevel + records.length,
-    [records.length, summary],
+      Boolean(summaryRow) && row >= headerLevel + records.length,
+    [records.length, summaryRow],
   );
 
   isSummaryRowRef.current = isSummaryRow;
@@ -428,7 +451,8 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
               };
             };
             // 统计行：灰底加粗，隐藏勾选框
-            if (isSummaryRow(args.row, headerLevel)) {
+            const isSummary = isSummaryRow(args.row, headerLevel);
+            if (isSummary) {
               return hideCheckbox({ ...base, bgColor: '#fafafa', fontWeight: 'bold' });
             }
             // 页面自定义样式（业务提醒）
@@ -439,6 +463,7 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
               rowIndex: index,
               field: (col as { field?: string }).field ?? '',
               rowKey: rowKeyAt,
+              isSummaryRow: isSummary,
               record: rowsRef.current[index],
               dataValue: args.dataValue,
             });
@@ -460,8 +485,8 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
           return sortState.order === 'desc' ? -result : result;
         })
       : records;
-    return summary ? [...data, summary] : data;
-  }, [records, summary, sortState]);
+    return summaryRow ? [...data, summaryRow] : data;
+  }, [records, summaryRow, sortState]);
 
   /** 表格行号 -> 行主键，供样式回调判断「哪一行」 */
   const rowKeyByIndex = useMemo(
@@ -652,6 +677,7 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
       col: args.col,
       row: args.row,
       field: args.field === undefined ? undefined : String(args.field),
+      isSummaryRow: isSummaryRowRef.current(args.row, table.columnHeaderLevelCount),
       record: table.getCellOriginRecord(args.col, args.row) as
         | Record<string, unknown>
         | undefined,

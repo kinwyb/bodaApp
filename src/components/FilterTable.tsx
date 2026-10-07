@@ -33,7 +33,10 @@ export interface FilterTableProps {
   maxFrozenWidth?: number | string;
   /** 冻结区超宽时是否取消全部冻结，默认 false（只裁减超出的列） */
   unfreezeAllOnExceedsMaxWidth?: boolean;
-  /** 统计行：静态对象或根据过滤后数据计算的函数 */
+  /**
+   * 统计行：静态对象或根据过滤后数据计算的函数。
+   * 主键不用自己填，VTable 会自动补成 SUMMARY_ROW_KEY。
+   */
   summary?: Record<string, unknown> | ((records: Array<Record<string, unknown>>) => Record<string, unknown>);
   /** 单元格样式回调 */
   cellStyle?: VTableCellStyleHook;

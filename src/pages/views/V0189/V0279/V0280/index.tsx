@@ -27,8 +27,6 @@ import type { ViewPageProps } from '@/pages/types';
 import { buildPreorderColumns, preorderFilterFields } from './columns';
 import PreorderFormModal from './PreorderFormModal';
 
-const SELECT_FIELD = '__checked';
-
 /** V0189_V0279_V0280 计划管理 > 预订单 > 预订单管理 */
 const PreorderPage: React.FC<ViewPageProps> = ({ view, trail }) => {
   const { message } = App.useApp();
@@ -81,8 +79,9 @@ const PreorderPage: React.FC<ViewPageProps> = ({ view, trail }) => {
   }, []);
 
   const cellStyle: VTableCellStyleHook = useCallback(
-    ({ rowKey, field, record }) => {
-      if (!rowKey || rowKey === '__summary__') return undefined;
+    ({ rowKey, field, record, isSummaryRow }) => {
+      // 统计行 / 空白补足行不参与业务标记
+      if (!rowKey || isSummaryRow) return undefined;
       const style: Record<string, unknown> = {};
       if (record && (record as YupaiOrder).Status === 0) {
         style.color = '#389e0d';
@@ -195,9 +194,8 @@ const PreorderPage: React.FC<ViewPageProps> = ({ view, trail }) => {
       },
       { qty: 0, number: 0 },
     );
+    // 主键由表格组件统一补齐，这里只给汇总字段
     return {
-      ID: '__summary__',
-      WorkPlace: `合计（${records.length} 行）`,
       Qty: totals.qty,
       Number: totals.number,
     };
@@ -214,7 +212,6 @@ const PreorderPage: React.FC<ViewPageProps> = ({ view, trail }) => {
           columns={columns}
           records={dataSource}
           rowKey="ID"
-          selectField={SELECT_FIELD}
           frozenColCount={8}
           summary={summary}
           cellStyle={cellStyle}
@@ -228,6 +225,8 @@ const PreorderPage: React.FC<ViewPageProps> = ({ view, trail }) => {
           onSelectionChange={setSelectedKeys}
           onActiveSelectionChange={(info) => setActiveRowCount(info.rowCount)}
           onCellDblClick={(info) => {
+            // 统计行不是真实单据，不打开详情
+            if (info.isSummaryRow) return;
             const target = info.record as YupaiOrder | undefined;
             if (!target?.ID) return;
             setFormMode('view');
