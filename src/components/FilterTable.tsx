@@ -25,8 +25,14 @@ export interface FilterTableProps {
   rowKey: string;
   /** 勾选列字段名 */
   selectField?: string;
-  /** 左侧冻结列数 */
+  /** 左侧冻结列数（不含行号列与勾选列，那两个由内部自动加上） */
   frozenColCount?: number;
+  /** 最左侧行号顺序列，默认启用；传 false 关闭 */
+  rowNumber?: boolean | { title?: string; width?: number };
+  /** 冻结区允许的最大宽度，默认 '80%'；冻结列多时需要放宽 */
+  maxFrozenWidth?: number | string;
+  /** 冻结区超宽时是否取消全部冻结，默认 false（只裁减超出的列） */
+  unfreezeAllOnExceedsMaxWidth?: boolean;
   /** 统计行：静态对象或根据过滤后数据计算的函数 */
   summary?: Record<string, unknown> | ((records: Array<Record<string, unknown>>) => Record<string, unknown>);
   /** 单元格样式回调 */
@@ -96,6 +102,9 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
       rowKey,
       selectField,
       frozenColCount,
+      rowNumber,
+      maxFrozenWidth,
+      unfreezeAllOnExceedsMaxWidth,
       summary,
       cellStyle,
       autoFillWidth,
@@ -288,6 +297,9 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
             rowKey={rowKey}
             selectField={selectField}
             frozenColCount={frozenColCount}
+            rowNumber={rowNumber}
+            maxFrozenWidth={maxFrozenWidth}
+            unfreezeAllOnExceedsMaxWidth={unfreezeAllOnExceedsMaxWidth}
             summary={resolvedSummary}
             cellStyle={cellStyle}
             autoFillWidth={autoFillWidth}

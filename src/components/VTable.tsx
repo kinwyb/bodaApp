@@ -230,8 +230,25 @@ export interface VTableProps {
   selectField?: string;
   /** 勾选列表头名称；不传则表头只显示复选框 */
   selectTitle?: string;
-  /** 左侧冻结列数 */
+  /** 左侧冻结列数（不含行号列与勾选列，那两个由组件自动加上） */
   frozenColCount?: number;
+  /**
+   * 最左侧的行号顺序列，**默认启用**。
+   * 用 VTable 原生 rowSeriesNumber 生成，位置在所有 columns 之前（比勾选列还靠左），
+   * 显示 1 起的连续行号（排序后重新编号），统计行显示「汇总」。
+   * 传 false 关闭；传对象可自定义标题 / 宽度。
+   */
+  rowNumber?: boolean | { title?: string; width?: number };
+  /**
+   * 冻结区允许的最大宽度，默认沿用 VTable 的 '80%'。
+   * 冻结列多时必须放宽：一旦冻结区总宽超过该值，VTable 会按下面的开关处理。
+   */
+  maxFrozenWidth?: number | string;
+  /**
+   * 冻结列总宽超过 maxFrozenWidth 时是否取消**全部**冻结。
+   * 默认 false：只从右侧裁掉超出的列；VTable 原生默认是 true（整块冻结被静默清空，很难排查）。
+   */
+  unfreezeAllOnExceedsMaxWidth?: boolean;
   /** 统计行数据：追加为最后一行并固定在表格底部 */
   summary?: Record<string, unknown>;
   /** 选择高亮模式，默认整行高亮 */
@@ -308,6 +325,9 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
   selectField,
   selectTitle = '',
   frozenColCount = 0,
+  rowNumber = true,
+  maxFrozenWidth,
+  unfreezeAllOnExceedsMaxWidth = false,
   summary,
   highlightMode = 'row',
   autoFillWidth = false,
@@ -466,6 +486,8 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     const host = table as unknown as {
       colCount: number;
       frozenColCount: number;
+      /** 左侧行号列数（未配 rowSeriesNumber 时为 0） */
+      leftRowSeriesNumberCount: number;
       rightFrozenColCount: number;
       stateManager?: { checkFrozen?: () => void };
       scenegraph?: {
@@ -479,8 +501,9 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     };
     const scenegraph = host.scenegraph;
     if (!scenegraph?.updateAutoColWidth) return;
-    // 勾选列保持原宽
-    for (let col = selectField ? 1 : 0; col < host.colCount; col += 1) {
+    // 行号列与勾选列保持原宽，只自适应业务列
+    const firstDataCol = (host.leftRowSeriesNumberCount ?? 0) + (selectField ? 1 : 0);
+    for (let col = firstDataCol; col < host.colCount; col += 1) {
       scenegraph.updateAutoColWidth(col);
       // 再调一次 setColWidth，把该列标记为“已手动调整”
       // （VTable 重建单元格时会跳过这些列，否则宽度会被列定义覆盖回去）
@@ -571,8 +594,33 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     const options: ListTableConstructorOptions = {
       columns: finalColumns,
       records: rows,
-      // 勾选列会插到最前，所以冻结列数要把它算进去
-      frozenColCount: frozenColCount + (selectField ? 1 : 0),
+      // 行号列恒占 col 0，勾选列紧随其后，两个都要算进冻结列数
+      frozenColCount: frozenColCount + (selectField ? 1 : 0) + (rowNumber ? 1 : 0),
+      maxFrozenWidth,
+      unfreezeAllOnExceedsMaxWidth,
+      // 行号列：VTable 原生能力，生成的是独立列（不占 columns），位置在所有 columns 之前
+      ...(rowNumber
+        ? {
+            rowSeriesNumber: {
+              title: typeof rowNumber === 'object' && rowNumber.title ? rowNumber.title : '序号',
+              width: typeof rowNumber === 'object' && rowNumber.width ? rowNumber.width : 48,
+              headerStyle: { textAlign: 'center' as const },
+              // 统计行灰底加粗；columns 上的 cellStyle 管不到这一列，必须在这里单独设
+              style: (args: { row: number; table: { columnHeaderLevelCount: number } }) =>
+                isSummaryRowRef.current(args.row, args.table.columnHeaderLevelCount)
+                  ? { bgColor: '#fafafa', fontWeight: 'bold' as const, textAlign: 'center' as const }
+                  : { textAlign: 'center' as const },
+              // 统计行显示「汇总」，其余显示 1 起的连续行号（排序后重新编号）
+              format: (_col?: number, row?: number, table?: { columnHeaderLevelCount: number }) => {
+                const headerLevel = table?.columnHeaderLevelCount ?? 0;
+                const current = row ?? headerLevel;
+                return isSummaryRowRef.current(current, headerLevel)
+                  ? '汇总'
+                  : current - headerLevel + 1;
+              },
+            },
+          }
+        : {}),
       select: {
         highlightMode,
         headerSelectMode: 'inline',
