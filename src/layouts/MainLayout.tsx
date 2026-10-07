@@ -27,6 +27,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../store/auth';
 import { usePermission } from '../store/permission';
+import { TabsContext, type TabsApi } from '../store/tabs';
 import { isNavigableMenu, type DesktopMenu } from '../services';
 import Dashboard from '../pages/Dashboard';
 import { resolveView } from '../pages/registry';
@@ -41,6 +42,8 @@ interface TabMeta {
   key: string;
   label: string;
   trail: ViewTrailItem[];
+  /** 带参数跳转时携带的入参；点菜单打开的是普通标签，没有这个字段 */
+  params?: Record<string, unknown>;
 }
 
 const HOME_TAB: TabMeta = { key: 'dashboard', label: '工作台', trail: [] };
@@ -150,7 +153,17 @@ const MainLayout: React.FC = () => {
 
   const openTab = useCallback(
     (meta: TabMeta) => {
-      setOpenTabs((prev) => (prev.some((tab) => tab.key === meta.key) ? prev : [...prev, meta]));
+      setOpenTabs((prev) => {
+        const index = prev.findIndex((tab) => tab.key === meta.key);
+        if (index < 0) return [...prev, meta];
+        // 已经开着：只有参数变了才替换，否则原样返回（避免无谓的重渲染）
+        if (prev[index].params === meta.params) return prev;
+        // 参数变了，丢掉这个页面的元素缓存，否则会复用带旧参数的旧元素
+        tabInstances.current.delete(meta.key);
+        const next = [...prev];
+        next[index] = meta;
+        return next;
+      });
       setActiveTab(meta.key);
       const ancestors = meta.trail.slice(0, -1).map((item) => item.view);
       if (ancestors.length) {
@@ -158,6 +171,22 @@ const MainLayout: React.FC = () => {
       }
     },
     [],
+  );
+
+  /**
+   * 暴露给业务页面的跳转能力，见 store/tabs.tsx。
+   * 页面只依赖「传 View + 参数」这个抽象，不关心底层的标签页状态怎么存 ——
+   * 所以将来若把标签页改成 URL 驱动，只需换掉这里的实现，页面代码不用动。
+   */
+  const tabsApi = useMemo<TabsApi>(
+    () => ({
+      openView: (view, params) => {
+        // 菜单树里有就用它（标签名、面包屑都在这儿），没有就退化成 View 本身
+        const meta = tabMetaMap.get(view) ?? { key: view, label: view, trail: [] };
+        openTab({ ...meta, params });
+      },
+    }),
+    [openTab, tabMetaMap],
   );
 
   const handleMenuClick = useCallback(
@@ -224,13 +253,16 @@ const MainLayout: React.FC = () => {
           const PageComponent = resolveView(meta.key);
           node = (
             <Suspense
+              // key 带上参数指纹：同一个 View 用不同参数再次打开时强制重建，让页面拿到新参数
+              // （不然 React 会复用组件实例，只更新 props，页面内部的初始状态还是旧的）
+              key={`${meta.key}::${JSON.stringify(meta.params ?? null)}`}
               fallback={
                 <div style={{ textAlign: 'center', padding: '48px 0' }}>
                   <Spin />
                 </div>
               }
             >
-              <PageComponent view={meta.key} trail={meta.trail} />
+              <PageComponent view={meta.key} trail={meta.trail} params={meta.params} />
             </Suspense>
           );
         }
@@ -356,18 +388,21 @@ const MainLayout: React.FC = () => {
           </Dropdown>
         </Header>
         <Content style={{ margin: 4, overflow: 'hidden' }}>
-          <div className="main-content-panel">
-            <Tabs
-              className="main-tabs"
-              type="editable-card"
-              hideAdd
-              activeKey={activeTab}
-              onChange={setActiveTab}
-              onEdit={handleTabEdit}
-              items={tabItems}
-              destroyOnHidden={false}
-            />
-          </div>
+          {/* 页面组件通过 useTabs() 拿跳转能力，所以 Provider 要包住 Tabs 的内容 */}
+          <TabsContext.Provider value={tabsApi}>
+            <div className="main-content-panel">
+              <Tabs
+                className="main-tabs"
+                type="editable-card"
+                hideAdd
+                activeKey={activeTab}
+                onChange={setActiveTab}
+                onEdit={handleTabEdit}
+                items={tabItems}
+                destroyOnHidden={false}
+              />
+            </div>
+          </TabsContext.Provider>
         </Content>
       </Layout>
     </Layout>
