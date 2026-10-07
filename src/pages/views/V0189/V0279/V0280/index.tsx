@@ -48,18 +48,22 @@ const PreorderPage: React.FC<ViewPageProps> = ({view, trail}) => {
 
     const loadData = useCallback(
         async (params: YupaiOrderQuery) => {
+            // 清空选择状态信息，重新加载数据
+            tableRef.current?.clearSelection();
+            setSelectedKeys([]);
+            setActiveRowCount(0);
             setLoading(true);
             try {
                 const res = await yupaiOrderService.list(params);
                 setDataSource(res.data);
                 setTotal(res.page?.total ?? 0);
             } catch (error) {
-                message.error(error instanceof ApiError ? error.message : '加载预订单失败');
+                void message.error(error instanceof ApiError ? error.message : '加载预订单失败');
             } finally {
                 setLoading(false);
             }
         },
-        [message],
+        [setSelectedKeys, message, tableRef, setActiveRowCount, setLoading],
     );
 
     useEffect(() => {
@@ -105,19 +109,35 @@ const PreorderPage: React.FC<ViewPageProps> = ({view, trail}) => {
 
     const hasSelection = selectedKeys.length > 0 || activeRowCount > 0;
 
-    // 获取目标行
+    /** VTable 原生选中的行（点击 / 框选），过滤掉不属于当前页数据的行 */
+    const getActiveRows = useCallback((): YupaiOrder[] => {
+        const rows = tableRef.current?.getSelection().rows ?? [];
+        return rows.filter((row) =>
+            dataSource.some((d) => d.ID === (row as YupaiOrder).ID),
+        ) as YupaiOrder[];
+    }, [dataSource, tableRef]);
+
+    // 获取目标行（单选语义：优先「恰好勾选的那一行」，否则当前点选的第一行）
     const getSelectedTarget = useCallback((): YupaiOrder | undefined => {
         const checked =
-            selectedKeys.length === 1
+            selectedKeys.length > 0
                 ? dataSource.find((r) => r.ID === selectedKeys[0])
                 : undefined;
+        return checked ?? getActiveRows()[0];
+    }, [selectedKeys, dataSource, getActiveRows]);
 
-        const current = (tableRef.current?.getSelection().rows ?? []).find((r) =>
-            dataSource.some((d) => d.ID === (r as YupaiOrder).ID),
-        ) as YupaiOrder | undefined;
-
-        return checked ?? current;
-    }, [selectedKeys, dataSource, tableRef]);
+    /**
+     * 获取所有选中的行：复选框勾选的 + 点击/框选的，按 ID 去重。
+     * 返回值按 dataSource 的顺序排列（和表格里看到的顺序一致），
+     * 不在当前页数据里的勾选 key 会被自动忽略。
+     */
+    const getSelectedTargets = useCallback((): YupaiOrder[] => {
+        const ids = new Set(selectedKeys);
+        if (ids.size === 0) {
+            getActiveRows().forEach((row) => ids.add(row.ID));
+        }
+        return dataSource.filter((row) => ids.has(row.ID));
+    }, [selectedKeys, dataSource, getActiveRows]);
 
     // 编辑按钮
     const editCmd = useCallback(() => {
@@ -133,15 +153,16 @@ const PreorderPage: React.FC<ViewPageProps> = ({view, trail}) => {
 
     // 删除按钮
     const delCmd = useCallback(() => {
-        const target = getSelectedTarget();
-        if (!target) {
-            message.warning("请选择一条数据").then();
+        const targets = getSelectedTargets();
+        if (!targets || targets.length < 1) {
+            message.warning("请选择至少一条数据").then();
             return;
         }
+        const title = targets.length > 1 ? "确定删除选中的订单":`确认删除订单: ${targets[0].OrderCode} 款式: ${targets[0].StyleCode} ？`
         deleteMemoRef.current = '';
         modal.confirm({
-            icon: <ExclamationCircleOutlined />,
-            title: `确认删除订单: ${target.OrderCode} 款式: ${target.StyleCode} ？`,
+            icon: <ExclamationCircleOutlined/>,
+            title: title,
             content: (
                 <div className="delete-confirm-reason">
                     <Input.TextArea
@@ -162,37 +183,64 @@ const PreorderPage: React.FC<ViewPageProps> = ({view, trail}) => {
             onOk: async () => {
                 const memo = deleteMemoRef.current.trim();
                 if (!memo) {
-                    await  message.warning('请填写删除原因');
+                    void message.warning('请填写删除原因');
                     // 返回 rejected promise，弹窗保持打开，不丢已填内容
                     return Promise.reject();
                 }
                 try {
-                    await yupaiOrderService.delete({ID: [target.ID], Memo: memo});
-                    await  message.success('已删除');
-                    setSelectedKeys([]);
-                    setActiveRowCount(0);
+                    await yupaiOrderService.delete({ID: targets.map(o=>o.ID), Memo: memo});
+                    void message.success('已删除');
                     await loadData(query);
                 } catch (error) {
-                    await message.error(error instanceof ApiError ? error.message : '删除失败');
+                    void message.error(error instanceof ApiError ? error.message : '删除失败');
                     // 失败同样保留弹窗，方便改完原因重试
                     return Promise.reject();
                 }
             },
         });
-    }, [getSelectedTarget, message, modal, loadData, query])
+    }, [getSelectedTargets, message, modal, loadData, query])
 
     // 导出当前页到 Excel：走 VTable 内部的 TableExportPlugin，文件名不用带 .xlsx（插件会补）
     const exportCmd = useCallback(async () => {
         const hide = message.loading('正在导出…', 0);
         try {
             await tableRef.current?.exportExcel(`预订单_${dayjs().format('YYYY-MM-DD')}`);
-            message.success('导出成功');
+            void message.success('导出成功');
         } catch (error) {
-            message.error(error instanceof Error ? error.message : '导出失败');
+            void message.error(error instanceof Error ? error.message : '导出失败');
         } finally {
             hide();
         }
     }, [message]);
+
+    // 发布按钮
+    const submitCmd = useCallback(() => {
+        const targets = getSelectedTargets();
+        if (!targets || targets.length === 0) {
+            message.warning("请选择一条数据").then();
+            return;
+        }
+        const title = targets.length > 1 ? "确定要发布选中的这些订单款式,发布后不能取消" : `确定要发布订单:${targets[0].OrderCode} 款号: ${targets[0].StyleCode}`;
+        modal.confirm({
+            icon: <ExclamationCircleOutlined/>,
+            title: "发布确认",
+            content: title,
+            okText: '确认',
+            okButtonProps: {danger: true},
+            mask: {blur: true},
+            onOk: async () => {
+                try {
+                    const succMsg = await yupaiOrderService.submit(targets.map(o => o.ID));
+                    void message.success(succMsg.data);
+                    await loadData(query);
+                } catch (error) {
+                    void message.error(error instanceof ApiError ? error.message : '发布失败');
+                    // 失败同样保留弹窗，方便改完原因重试
+                    return Promise.reject();
+                }
+            },
+        });
+    }, [getSelectedTargets, message, modal, loadData, query]);
 
     const commands: CommandItem[] = useMemo(() => [
         {
@@ -238,7 +286,7 @@ const PreorderPage: React.FC<ViewPageProps> = ({view, trail}) => {
             icon: <SendOutlined/>,
             permission: '发布',
             disabled: !hasSelection,
-            onClick: () => message.info('发布（演示）')
+            onClick: submitCmd
         },
         {key: 'ordered', label: '已下单', icon: <TagOutlined/>, onClick: () => message.info('已下单（演示）')},
         {
@@ -286,7 +334,7 @@ const PreorderPage: React.FC<ViewPageProps> = ({view, trail}) => {
             label: '导出',
             icon: <ExportOutlined/>,
             dividerBefore: true,
-            onClick: () => void exportCmd()
+            onClick: exportCmd
         },
         {
             key: 'auth',
@@ -295,7 +343,7 @@ const PreorderPage: React.FC<ViewPageProps> = ({view, trail}) => {
             permission: '权限管理',
             onClick: () => message.info('权限（演示）')
         },
-    ], [hasSelection, selectedKeys, dataSource, message, query, loadData, editCmd, delCmd, exportCmd]);
+    ], [hasSelection, selectedKeys, dataSource, message, query, loadData, editCmd, delCmd, exportCmd, submitCmd]);
 
     const columns = useMemo(() => buildPreorderColumns(), []);
 
@@ -379,6 +427,7 @@ const PreorderPage: React.FC<ViewPageProps> = ({view, trail}) => {
                     columns={columns}
                     records={dataSource}
                     rowKey="ID"
+                    selectField="__checked"
                     frozenColCount={8}
                     summary={summary}
                     cellStyle={cellStyle}

@@ -144,6 +144,8 @@ export const yupaiOrderService = {
     /** 修改预订单 */
     update: (id: string, payload: Partial<YupaiOrder>) =>
         http.put<YupaiOrder>(`/preorders/${encodeURIComponent(id)}`, payload),
-    /** 删除预订单 %*/
+    /** 删除预订单 */
     delete: (payload: YupaiOrderDel) => http.delete<string>('/plan/yupaiOrder/del', {Memo: payload.Memo}, {"body": payload.ID}),
+    /** 发布预订单 */
+    submit: (ids: string[]) => http.post<string>("/plan/yupaiOrder/submit",ids)
 };
