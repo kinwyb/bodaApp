@@ -17,6 +17,6 @@ export type {
 export { viewService } from './modules/view';
 export type { ViewRow, ViewRowQuery, ViewRowStatus } from './modules/view';
 export { yupaiOrderService,YupaiMachineSizeHeader } from './modules/yupai.ts';
-export type { PreorderQuery, YupaiOrder } from './modules/yupai.ts';
+export type { YupaiOrderQuery, YupaiOrder } from './modules/yupai.ts';
 export { employeeService } from './modules/employee';
 export type { EmployeeQuery, EmployeeRecord } from './modules/employee';

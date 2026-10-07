@@ -124,6 +124,6 @@ export const http = {
     request<T>('PUT', path, { body, ...options }),
   patch: <T = unknown>(path: string, body?: unknown, options?: Omit<RequestOptions, 'body'>) =>
     request<T>('PATCH', path, { body, ...options }),
-  delete: <T = unknown>(path: string, params?: RequestOptions['params'], options?: Omit<RequestOptions, 'params' | 'body'>) =>
+  delete: <T = unknown>(path: string, params?: RequestOptions['params'], options?: Omit<RequestOptions, 'params'>) =>
     request<T>('DELETE', path, { params, ...options }),
 };
