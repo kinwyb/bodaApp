@@ -4,20 +4,20 @@ import {
   ApiError,
   applyMenuPermission,
   buildPermissionIndex,
-  menuService,
+  powerService,
   type MenuActionItem,
-  type MenuNode,
+  type DesktopMenu,
 } from '../services';
 
 export interface PermissionContextValue {
   /** 菜单权限是否加载中 */
   loading: boolean;
   /** 按权限过滤后的可见菜单树 */
-  menu: MenuNode[];
+  menu: DesktopMenu[];
   /** 菜单 View -> 该菜单的按钮权限 */
   actions: Map<string, MenuActionItem[]>;
   /** 系统菜单中的按钮节点：MenuCode -> 节点 */
-  buttons: Map<string, MenuNode>;
+  buttons: Map<string, DesktopMenu>;
   /** 按按钮 MenuCode 判断是否有权限 */
   hasButton: (menuCode: string) => boolean;
   /** 按页面 View 判断菜单权限 */
@@ -37,7 +37,7 @@ export function usePermission(): PermissionContextValue {
 export const PermissionProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { message } = App.useApp();
   const [loading, setLoading] = useState(true);
-  const [system, setSystem] = useState<MenuNode[]>([]);
+  const [system, setSystem] = useState<DesktopMenu[]>([]);
   const [permittedIds, setPermittedIds] = useState<Set<number>>(() => new Set());
 
   useEffect(() => {
@@ -46,8 +46,8 @@ export const PermissionProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setLoading(true);
       try {
         const [systemRes, permissionRes] = await Promise.all([
-          menuService.tree(),
-          menuService.userMenus(),
+          powerService.desktopMenu(),
+          powerService.userMenus(),
         ]);
         if (cancelled) return;
         setSystem(systemRes.data);
@@ -69,11 +69,11 @@ export const PermissionProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     const { tree, actions } = applyMenuPermission(system, { ids: permittedIds });
 
     // MenuCode / View -> 是否授权，授权规则为「权限 id 命中 ViewID」
-    const buttons = new Map<string, MenuNode>();
+    const buttons = new Map<string, DesktopMenu>();
     const allowedByCode = new Map<string, boolean>();
     const allowedByView = new Map<string, boolean>();
 
-    const walk = (nodes: MenuNode[]) => {
+    const walk = (nodes: DesktopMenu[]) => {
       nodes.forEach((node) => {
         allowedByView.set(node.View, permittedIds.has(node.ViewID));
         if (node.IsAction) {

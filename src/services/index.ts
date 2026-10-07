@@ -4,19 +4,21 @@ export {
   applyMenuPermission,
   buildPermissionIndex,
   isNavigableMenu,
-  menuService,
+  powerService,
   splitViewPath,
-} from './modules/menu';
+} from './modules/power.ts';
 export type {
   MenuActionItem,
-  MenuNode,
+  DesktopMenu,
   MenuPermissionResult,
   PermissionIndex,
-  UserMenuPermission,
-} from './modules/menu';
+  UserMenu,
+} from './modules/power.ts';
 export { viewService } from './modules/view';
 export type { ViewRow, ViewRowQuery, ViewRowStatus } from './modules/view';
 export { yupaiOrderService,YupaiMachineSizeHeader } from './modules/yupai.ts';
 export type { YupaiOrderQuery, YupaiOrder } from './modules/yupai.ts';
 export { employeeService } from './modules/employee';
 export type { EmployeeQuery, EmployeeRecord } from './modules/employee';
+export { loginService } from './modules/login';
+export type { UserInfo, LoginParams, LoginResult } from './modules/login';

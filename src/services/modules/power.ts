@@ -1,7 +1,7 @@
 import { http } from '../request';
 
 /** 系统整体菜单节点，对应 /menus 返回结构 */
-export interface MenuNode {
+export interface DesktopMenu {
   MenuCode: string;
   ParentMenuCode: string;
   MenuID: number;
@@ -14,17 +14,17 @@ export interface MenuNode {
   SortIndex: number;
   /** true 表示按钮权限（新增/保存/删除等），不作为导航菜单 */
   IsAction: boolean;
-  Children: MenuNode[] | null;
+  Children: DesktopMenu[] | null;
   UseOrgs: string;
 }
 
 /** 用户权限菜单节点，对应 /user/menus 返回结构 */
-export interface UserMenuPermission {
+export interface UserMenu {
   id: number;
   label: string;
   ParentMenuID: number;
   ParentMenu: string;
-  children: UserMenuPermission[] | null;
+  children: UserMenu[] | null;
   RequestAddress?: string;
   RequestMethod?: string;
   EnableLog?: boolean;
@@ -34,7 +34,7 @@ export interface UserMenuPermission {
 }
 
 /** 菜单是否可作为导航项 */
-export function isNavigableMenu(node: MenuNode): boolean {
+export function isNavigableMenu(node: DesktopMenu): boolean {
   return !node.IsAction && node.Release;
 }
 
@@ -49,9 +49,9 @@ export interface PermissionIndex {
 }
 
 /** 把权限树拍平成 id 索引 */
-export function buildPermissionIndex(nodes: UserMenuPermission[]): PermissionIndex {
+export function buildPermissionIndex(nodes: UserMenu[]): PermissionIndex {
   const ids = new Set<number>();
-  const walk = (list: UserMenuPermission[]) => {
+  const walk = (list: UserMenu[]) => {
     list.forEach((node) => {
       ids.add(node.id);
       if (node.children) walk(node.children);
@@ -62,7 +62,7 @@ export function buildPermissionIndex(nodes: UserMenuPermission[]): PermissionInd
 }
 
 /** 菜单/按钮是否有权限：权限 id 命中 ViewID 即为有权限 */
-function hasPermission(node: MenuNode, index: PermissionIndex): boolean {
+function hasPermission(node: DesktopMenu, index: PermissionIndex): boolean {
   return index.ids.has(node.ViewID);
 }
 
@@ -81,7 +81,7 @@ export interface MenuActionItem {
 
 export interface MenuPermissionResult {
   /** 过滤后的可见菜单树 */
-  tree: MenuNode[];
+  tree: DesktopMenu[];
   /** 菜单 View -> 该菜单下的按钮权限列表 */
   actions: Map<string, MenuActionItem[]>;
 }
@@ -91,11 +91,11 @@ export interface MenuPermissionResult {
  * - 菜单节点：有权限，或存在有权限的子菜单时保留
  * - 按钮节点：同样按 ViewID 命中判断，未命中则不授权
  */
-export function applyMenuPermission(system: MenuNode[], index: PermissionIndex): MenuPermissionResult {
+export function applyMenuPermission(system: DesktopMenu[], index: PermissionIndex): MenuPermissionResult {
   const actions = new Map<string, MenuActionItem[]>();
 
-  const filterNodes = (nodes: MenuNode[]): MenuNode[] => {
-    const result: MenuNode[] = [];
+  const filterNodes = (nodes: DesktopMenu[]): DesktopMenu[] => {
+    const result: DesktopMenu[] = [];
     nodes.forEach((node) => {
       // 按钮节点不进入导航树；它们的权限在上面 actionChildren 处已单独判定
       if (node.IsAction) return;
@@ -124,9 +124,9 @@ export function applyMenuPermission(system: MenuNode[], index: PermissionIndex):
   return { tree: filterNodes(system), actions };
 }
 
-export const menuService = {
+export const powerService = {
   /** 获取系统整体菜单树 */
-  tree: () => http.get<MenuNode[]>('/menus'),
+  desktopMenu: () => http.get<DesktopMenu[]>('/power/desktopMenu'),
   /** 获取当前用户的权限菜单 */
-  userMenus: () => http.get<UserMenuPermission[]>('/user/menus'),
+  userMenus: () => http.get<UserMenu[]>('/power/user/menu'),
 };

@@ -27,7 +27,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../store/auth';
 import { usePermission } from '../store/permission';
-import { isNavigableMenu, type MenuNode } from '../services';
+import { isNavigableMenu, type DesktopMenu } from '../services';
 import Dashboard from '../pages/Dashboard';
 import { resolveView } from '../pages/registry';
 import type { ViewTrailItem } from '../pages/types';
@@ -61,10 +61,10 @@ const iconByMenuName: Record<string, React.ReactNode> = {
 };
 
 /** 按关键字过滤菜单树，命中的节点保留整棵子树，否则只保留匹配的孩子 */
-function filterMenuTree(nodes: MenuNode[], keyword: string): MenuNode[] {
+function filterMenuTree(nodes: DesktopMenu[], keyword: string): DesktopMenu[] {
   const kw = keyword.trim().toLowerCase();
   if (!kw) return nodes;
-  const result: MenuNode[] = [];
+  const result: DesktopMenu[] = [];
   nodes.forEach((node) => {
     if (!isNavigableMenu(node)) return;
     if (node.MenuName.toLowerCase().includes(kw)) {
@@ -79,7 +79,7 @@ function filterMenuTree(nodes: MenuNode[], keyword: string): MenuNode[] {
   return result;
 }
 
-function buildMenuItems(nodes: MenuNode[], depth: number): AntdMenuItems {
+function buildMenuItems(nodes: DesktopMenu[], depth: number): AntdMenuItems {
   return nodes
     .filter(isNavigableMenu)
     .map((node) => {
@@ -100,7 +100,7 @@ function buildMenuItems(nodes: MenuNode[], depth: number): AntdMenuItems {
     });
 }
 
-function collectSubmenuKeys(nodes: MenuNode[], keys: string[] = []): string[] {
+function collectSubmenuKeys(nodes: DesktopMenu[], keys: string[] = []): string[] {
   nodes
     .filter(isNavigableMenu)
     .forEach((node) => {
@@ -114,7 +114,7 @@ function collectSubmenuKeys(nodes: MenuNode[], keys: string[] = []): string[] {
 
 const MainLayout: React.FC = () => {
   const navigate = useNavigate();
-  const { user, logout } = useAuth();
+  const { userInfo, logout } = useAuth();
   const { token: { colorBgContainer } } = theme.useToken();
   const { menu: menuTree, loading: menuLoading } = usePermission();
 
@@ -130,7 +130,7 @@ const MainLayout: React.FC = () => {
   /** View -> Tab 元数据，含从根到当前的层级，用于面包屑 */
   const tabMetaMap = useMemo(() => {
     const map = new Map<string, TabMeta>();
-    const walk = (nodes: MenuNode[], trail: ViewTrailItem[]) => {
+    const walk = (nodes: DesktopMenu[], trail: ViewTrailItem[]) => {
       nodes.forEach((node) => {
         if (node.IsAction) {
           if (node.Children) walk(node.Children, trail);
@@ -351,7 +351,7 @@ const MainLayout: React.FC = () => {
           <Dropdown menu={userMenuItems} placement="bottomRight">
             <div style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}>
               <Avatar size="small" icon={<UserOutlined />} />
-              <Text>{user?.username}</Text>
+              <Text>{userInfo?.EmpName ?? userInfo?.EmpID ?? ''}</Text>
             </div>
           </Dropdown>
         </Header>

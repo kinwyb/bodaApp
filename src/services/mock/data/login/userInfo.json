@@ -1,0 +1,9 @@
+{
+  "EmpID": "10086",
+  "EmpName": "管理员",
+  "IP": "127.0.0.1",
+  "UserID": "u-0001",
+  "RoleDepartmentIDs": ["1", "2", "3"],
+  "RoleDepartmentNos": ["D001", "D002", "D003"],
+  "DepartmentID": "1"
+}
