@@ -462,3 +462,15 @@ body {
 .ant-modal-root .ant-fade-appear {
   animation-timing-function: cubic-bezier(0.215, 0.61, 0.355, 1) !important;
 }
+
+/*
+ * 删除确认弹窗里的原因输入框。
+ *
+ * TextArea 的 showCount 计数器（.ant-input-data-count）是绝对定位在输入框外侧下方
+ * （bottom = fontSize × lineHeight ≈ -22px），不占布局高度，所以在 Modal 里会直接
+ * 压到 footer 的按钮上。这里用 padding-bottom 把它那 22px 在文档流里预留出来。
+ */
+.delete-confirm-reason {
+  padding-top:10px;
+  padding-bottom: 22px;
+}
