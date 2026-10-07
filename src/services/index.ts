@@ -21,4 +21,4 @@ export type { YupaiOrderQuery, YupaiOrder } from './modules/yupai.ts';
 export { employeeService } from './modules/employee';
 export type { EmployeeQuery, EmployeeRecord } from './modules/employee';
 export { loginService } from './modules/login';
-export type { UserInfo, LoginParams, LoginResult } from './modules/login';
+export type { UserInfo, LoginParams } from './modules/login';
