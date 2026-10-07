@@ -1,13 +1,20 @@
 import React from 'react';
 import { Card, Col, Row, Statistic } from 'antd';
 import { ShoppingCartOutlined, UserOutlined, FileTextOutlined, RiseOutlined } from '@ant-design/icons';
+import { useTabs } from '@/store/tabs';
 
 const Dashboard: React.FC = () => {
+  const { openView } = useTabs();
+
   return (
     <div style={{ padding: 0 }}>
       <Row gutter={[16, 16]}>
         <Col xs={24} sm={12} lg={6}>
-          <Card>
+          <Card
+            hoverable
+            style={{ cursor: 'pointer' }}
+            onClick={() => openView('V0189_V0279_V0280')}
+          >
             <Statistic
               title="总订单数"
               value={1268}
