@@ -22,7 +22,7 @@ import { CommandBar } from '@/components/CommandBar';
 import type { CommandItem } from '@/components/CommandBar';
 import { FilterTable } from '@/components/FilterTable';
 import { PageBreadcrumb } from '@/components/PageBreadcrumb';
-import type { VTableApi, VTableCellStyleHook } from '@/components/VTable';
+import type { VTableApi, VTableCellStyleHook, VTableMenuConfig } from '@/components/VTable';
 import type { ViewPageProps } from '@/pages/types';
 import { buildPreorderColumns, preorderFilterFields } from './columns';
 import PreorderFormModal from './PreorderFormModal';
@@ -133,6 +133,54 @@ const PreorderPage: React.FC<ViewPageProps> = ({ view, trail }) => {
 
   const columns = useMemo(() => buildPreorderColumns(), []);
 
+  /** 右键菜单：数据行给业务操作，统计行不弹，表头/空白处只给通用项 */
+  const tableMenu = useMemo<VTableMenuConfig>(
+    () => ({
+      contextMenuItems: ({ record, isSummaryRow }) => {
+        if (isSummaryRow) return [];
+        if (record) {
+          return [
+            { text: '查看详情', menuKey: 'detail' },
+            { text: '复制本格内容', menuKey: 'copyCell' },
+            { type: 'split' },
+            { text: '列宽自适应', menuKey: 'autoWidth' },
+          ];
+        }
+        return [
+          { text: '列宽自适应', menuKey: 'autoWidth' },
+          { text: '刷新', menuKey: 'refresh' },
+        ];
+      },
+      onClick: ({ menuKey, record, value }) => {
+        if (menuKey === 'detail') {
+          const target = record as YupaiOrder | undefined;
+          if (!target?.ID) return;
+          setFormMode('view');
+          setEditingRecord(target);
+          setFormOpen(true);
+          return;
+        }
+        if (menuKey === 'copyCell') {
+          if (navigator.clipboard?.writeText) {
+            void navigator.clipboard.writeText(value == null ? '' : String(value));
+            message.success('已复制到剪贴板');
+          } else {
+            message.warning('当前环境不支持剪贴板');
+          }
+          return;
+        }
+        if (menuKey === 'autoWidth') {
+          tableRef.current?.autoFitColumns();
+          return;
+        }
+        if (menuKey === 'refresh') {
+          void loadData(query);
+        }
+      },
+    }),
+    [loadData, message, query],
+  );
+
   const workPlaces = useMemo(
     () => [...new Set(dataSource.map((r) => String(r.WorkPlace ?? '')))].filter(Boolean).sort(),
     [dataSource],
@@ -170,6 +218,7 @@ const PreorderPage: React.FC<ViewPageProps> = ({ view, trail }) => {
           frozenColCount={8}
           summary={summary}
           cellStyle={cellStyle}
+          menu={tableMenu}
           loading={loading}
           total={total}
           page={query.page ?? 1}
