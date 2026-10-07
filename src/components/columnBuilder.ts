@@ -76,9 +76,15 @@ export function buildColumns(defs: AppColumnDef[]): ColumnsDefine {
         base.checked = (args: { dataValue?: unknown }) => Number(args.dataValue) === 1;
         // 展示用：禁用交互，避免用户误以为能改
         base.disable = () => true;
-        base.style = (args: { dataValue?: unknown }) => ({
+        // 可以根据内容配置不同样式
+        // base.style = (args: { dataValue?: unknown }) => ({
+        //   textAlign: 'center' as const,
+        //   bgColor: Number(args.dataValue) ? '#f6ffed' : '#ffffff',
+        //   checkboxStyle: { ...READONLY_CHECKBOX },
+        // });
+        base.style = () => ({
           textAlign: 'center' as const,
-          bgColor: Number(args.dataValue) ? '#f6ffed' : '#ffffff',
+          bgColor: '#ffffff',
           checkboxStyle: { ...READONLY_CHECKBOX },
         });
         // 必须返回布尔值，否则复选框旁边会跟出原始值（0 / 1）
