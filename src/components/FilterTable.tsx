@@ -145,7 +145,12 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
     const tableRef = useRef<VTableApi | null>(null);
     const searchRef = useRef<SearchComponent | null>(null);
     const [filters, setFilters] = useState<FilterModel>({});
-    const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
+    /**
+     * 选中的行数，只用于底部计数。
+     * 取原生选中回传的行数而不是勾选 keys：勾选与点选/框选在表格里已同步成同一套状态，
+     * 行数这一路是全覆盖的（勾选会同步成整行选中并回调）。
+     */
+    const [activeRowCount, setActiveRowCount] = useState(0);
 
     // 从当前 records 自动构建 enum 类型的筛选候选项
     const autoOptions = useMemo(() => {
@@ -248,15 +253,22 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
 
     const handleSelectionChange = useCallback(
       (keys: string[]) => {
-        setSelectedKeys(keys);
         onSelectionChange?.(keys);
       },
       [onSelectionChange],
     );
 
+    const handleActiveSelectionChange = useCallback(
+      (info: { rowCount: number }) => {
+        setActiveRowCount(info.rowCount);
+        onActiveSelectionChange?.(info);
+      },
+      [onActiveSelectionChange],
+    );
+
     const handlePageChange = useCallback(
       (nextPage: number, nextPageSize: number) => {
-        setSelectedKeys([]);
+        setActiveRowCount(0);
         onPageChange?.(nextPage, nextPageSize);
       },
       [onPageChange],
@@ -326,7 +338,7 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
             exportOptions={exportOptions}
             menu={menu}
             onSelectionChange={handleSelectionChange}
-            onActiveSelectionChange={onActiveSelectionChange}
+            onActiveSelectionChange={handleActiveSelectionChange}
             onCellClick={onCellClick}
             onCellDblClick={onCellDblClick}
           />
@@ -334,7 +346,7 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
 
         {showPagination && total > 0 && (
           <div className="grid-footer">
-            {showCount && <span>计数 = {selectedKeys.length}</span>}
+            {showCount && <span>计数 = {activeRowCount}</span>}
             <Pagination
               size="small"
               current={page}
