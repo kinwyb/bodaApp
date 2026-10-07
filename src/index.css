@@ -430,3 +430,35 @@ body {
   user-select: none;
   background: #fafafa;
 }
+
+/*
+ * 弹窗统一从自身中心缩放，而不是从鼠标点击位置展开。
+ *
+ * antd 的 Modal 默认带「从点击处展开」特性：rc-dialog 会把 transform-origin
+ * 设成点击坐标相对弹窗的偏移（写在内联样式上）。触发按钮位于页面角落时，
+ * 弹窗就会从那个角落斜着放大出来，观感很跳。
+ * 这里固定回 center 即常规的居中缩放；内联样式只能用 !important 压过。
+ */
+.ant-modal {
+  transform-origin: center center !important;
+}
+
+/*
+ * 遮罩（.ant-modal-mask）与弹窗内容用同一节奏淡入。
+ *
+ * antd 给遮罩用的是 motionDurationMid（0.2s），而弹窗内容是 motionDurationSlow（0.3s），
+ * 遮罩会比内容早 0.1s 结束；加上 antd 把遮罩的缓动写死成 linear，收尾是匀速急停，
+ * 视觉上就成了「内容还在放大，背景却啪地一下压满」。
+ * 这里把遮罩的时长对齐到 0.3s，并改成缓出曲线，让渐变可见、收尾平顺。
+ * （淡出保持 linear，那是收暗，快了反而利落）
+ */
+.ant-modal-root .ant-fade-enter,
+.ant-modal-root .ant-fade-appear,
+.ant-modal-root .ant-fade-leave {
+  animation-duration: 0.3s !important;
+}
+
+.ant-modal-root .ant-fade-enter,
+.ant-modal-root .ant-fade-appear {
+  animation-timing-function: cubic-bezier(0.215, 0.61, 0.355, 1) !important;
+}
