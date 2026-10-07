@@ -10,6 +10,29 @@ html, body, #root {
     'Noto Sans', sans-serif;
 }
 
+/*
+ * 关掉「左右滑动过头 → 浏览器前进/后退」的手势（触控板双指横滑、触摸屏边缘滑动）。
+ *
+ * 表格是 canvas 自绘的横向滚动，浏览器看不到 VTable 内部的滚动容器，
+ * 于是横向手势一路冒泡到根滚动条，滚到边界后被识别成历史导航，
+ * 用户一不小心就被带回上一页、页面状态全丢。
+ *
+ * overscroll-behavior-x: none 作用在根元素上即可关闭该手势；
+ * 应用内的滚动容器也补齐，避免滚动「链」从子容器传到根元素。
+ */
+html,
+body {
+  overscroll-behavior-x: none;
+}
+
+.main-sider-menu,
+.main-tabs > .ant-tabs-body-holder,
+.vtable-host,
+.quick-select-table,
+.preorder-detail-grid {
+  overscroll-behavior-x: none;
+}
+
 /* antd <App> 会渲染一层 .ant-app，需要给它高度，
    否则内部 Layout 的 height:100% 会退化成自适应高度 */
 #root > .ant-app {
