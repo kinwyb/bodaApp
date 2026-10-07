@@ -52,8 +52,10 @@ export interface FilterTableProps {
   emptyTip?: string;
   /** 右键菜单 / 表头菜单配置 */
   menu?: VTableMenuConfig;
-  /** 是否加载中 */
+  /** 是否加载中，透传给 VTable 的加载遮罩 */
   loading?: boolean;
+  /** 加载遮罩文案，默认「数据加载中…」；不传则用 VTable 的默认值 */
+  loadingTip?: string;
 
   /** 分页总数（后端返回） */
   total: number;
@@ -117,6 +119,7 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
       emptyTip,
       menu,
       loading,
+      loadingTip,
       total,
       page = 1,
       pageSize = DEFAULT_PAGE_SIZE,
@@ -211,7 +214,7 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
 
     // 根据过滤后的数据计算汇总
     const resolvedSummary = useMemo(() => {
-      if (!showSummary || !summary) return undefined;
+      if (!showSummary || !summary || filteredRecords.length < 1 ) return undefined;
       if (typeof summary === 'function') return summary(filteredRecords);
       return summary;
     }, [summary, filteredRecords, showSummary]);
@@ -309,7 +312,9 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
             editableFields={editableFields}
             rowHeight={rowHeight}
             headerRowHeight={headerRowHeight}
-            emptyTip={loading ? '加载中…' : emptyTip ?? '暂无数据'}
+            emptyTip={emptyTip ?? '暂无数据'}
+            loading={loading}
+            loadingTip={loadingTip}
             menu={menu}
             onSelectionChange={handleSelectionChange}
             onActiveSelectionChange={onActiveSelectionChange}

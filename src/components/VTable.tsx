@@ -2,10 +2,12 @@ import React, {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from 'react';
+import { Spin } from 'antd';
 import { ListTable,themes } from '@visactor/vtable';
 import type { ColumnsDefine, ListTableConstructorOptions } from '@visactor/vtable';
 
@@ -281,6 +283,16 @@ export interface VTableProps {
   rowHeight?: number;
   headerRowHeight?: number;
   emptyTip?: string;
+  /**
+   * 是否加载中：为 true 时在表格上盖一层不透明的加载遮罩。
+   * 不传则永远不显示，对现有调用方没有影响。
+   *
+   * 遮罩刻意做成不透明：表格的 emptyTip（「暂无数据」的图标和文字）是 VTable 用 canvas
+   * 画在画布上的，不是独立 DOM，z-index 压不下去 —— 半透明遮罩会让它透出来和遮罩文案叠成一团。
+   */
+  loading?: boolean;
+  /** 加载遮罩上的文案，默认「数据加载中…」 */
+  loadingTip?: string;
   /** 右键菜单 / 表头菜单配置；不传则保持 VTable 默认（没有菜单） */
   menu?: VTableMenuConfig;
   onCellClick?: (info: VTableCellInfo) => void;
@@ -353,6 +365,8 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
   rowHeight = 28,
   headerRowHeight = 32,
   emptyTip,
+  loading,
+  loadingTip = '数据加载中…',
   menu,
   onCellClick,
   onCellDblClick,
@@ -795,7 +809,16 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
+  /**
+   * 数据变化后重建表格。
+   *
+   * 用 useLayoutEffect 而不是 useEffect：useEffect 要等浏览器绘制完才执行，于是
+   * 「这次 commit 移除了加载遮罩」和「setRecords 把数据画进 canvas」这两件事会落在不同的帧上 ——
+   * 表现就是遮罩消失后先闪出一屏空表格，数据这才补上来。
+   * setRecords 本身是同步的（clearCells → createSceneGraph → render），放进 layout effect 里
+   * 就在同一次绘制之前完成，遮罩的消失与数据的出现变成原子的，中间不会露馅。
+   */
+  useLayoutEffect(() => {
     const table = tableRef.current;
     if (!table) return;
     const sortState = table.sortState;
@@ -887,7 +910,18 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     void table.updateOption(next);
   }, [finalColumns, autoFillWidth]);
 
-  return <div ref={containerRef} style={{ width: '100%', height: '100%', minHeight: 0 }} />;
+  return (
+    <div style={{ position: 'relative', width: '100%', height: '100%', minHeight: 0 }}>
+      <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+      {/* 加载遮罩：不透明盖住整张表，避免空表格被误读成「确实没有数据」 */}
+      {loading ? (
+        <div className="vtable-loading">
+          <Spin size="large" />
+          <span>{loadingTip}</span>
+        </div>
+      ) : null}
+    </div>
+  );
 });
 
 VTable.displayName = 'VTable';

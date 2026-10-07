@@ -384,6 +384,35 @@ body {
   background: rgba(255, 255, 255, 0.6);
 }
 
+/*
+  表格加载遮罩（VTable 组件的 loading prop）：必须不透明。
+  表格的 emptyTip（「暂无数据」的图标和文字）是 VTable 用 canvas 画在画布上的，不是独立 DOM，
+  z-index 压不下去 —— 半透明遮罩会让它透出来和这里的文案叠成一团，两个都看不清。
+  分隔线与定位在 VTable 组件里（那层 wrapper 自己就是 position: relative）。
+*/
+.vtable-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: #fff;
+  color: rgba(0, 0, 0, 0.65);
+  font-size: 14px;
+}
+
+/*
+  转圈再放大一档：antd 的圆点尺寸存在这个变量里（默认 20px，size="large" 是 32px）。
+  这里特异性比 antd 自己的 `.ant-spin-lg` 高，所以能盖过 size="large" 的值；
+  万一将来变量改名失效，也还有 size="large" 的 32px 兜底，不会退回原来那个小圈。
+*/
+.vtable-loading .ant-spin {
+  --ant-spin-dot-holder-size: 40px;
+}
+
 /* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 6px;
