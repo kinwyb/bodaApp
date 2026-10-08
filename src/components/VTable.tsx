@@ -159,6 +159,18 @@ function defaultCompare(a: unknown, b: unknown): number {
   return String(a) > String(b) ? 1 : -1;
 }
 
+/** 浅比较两条记录（统计行的值都是原始类型，浅比较足够） */
+function shallowEqualRecord(
+  a: Record<string, unknown> | undefined,
+  b: Record<string, unknown> | undefined,
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  const aKeys = Object.keys(a);
+  if (aKeys.length !== Object.keys(b).length) return false;
+  return aKeys.every((key) => a[key] === b[key]);
+}
+
 /**
  * VTable 1.26 的 bottomFrozenRowCount 不从构造参数读取，只认 internalProps，
  * 且只能在场景 clear 状态下写入，并且 setRecords 会把它重置为 0。
@@ -529,25 +541,12 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
       styleRegisteredRef.current = true;
     }
 
-    // 选中范围可能跨行（框选），把覆盖到的行都算进来
+    // 选中范围可能跨行（框选），把覆盖到的行都算进来（与 Ctrl 点击的基准用同一套展开规则）
     const ranges = (table.stateManager?.select?.ranges ?? []) as Array<{
       start: { row: number };
       end: { row: number };
     }>;
-    const headerLevel = table.columnHeaderLevelCount;
-    const nextRows: number[] = [];
-    const selected = new Set<number>();
-    ranges.forEach((range) => {
-      const from = Math.min(range.start.row, range.end.row);
-      const to = Math.max(range.start.row, range.end.row);
-      // 表头行不参与
-      for (let row = Math.max(from, headerLevel); row <= to; row += 1) {
-        if (!selected.has(row)) {
-          selected.add(row);
-          nextRows.push(row);
-        }
-      }
-    });
+    const nextRows = Array.from(collectRowIndexes(ranges, table.columnHeaderLevelCount));
 
     // arrangeCustomCellStyle 收的是 cellPosition（col / row / range 三选一），整行用 range 表达。
     // 连续行合并成一段：逐行 arrange 每行都会走一遍 updateCellContent + updateNextFrame，全选时很亏。
@@ -703,8 +702,6 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
         exportOnIdle: exportOptions?.exportOnIdle ?? false,
       }),
   );
-  /** 判断某行是否为统计行，供勾选列 / 选中高亮禁用使用 */
-  const isSummaryRowRef = useRef<(row: number, headerLevel: number) => boolean>(() => false);
   const recordsRef = useRef(records);
   recordsRef.current = records;
   /**
@@ -715,22 +712,39 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     () => (summary ? { ...summary, [rowKey]: summary[rowKey] ?? SUMMARY_ROW_KEY } : undefined),
     [summary, rowKey],
   );
+  /**
+   * 内容没变就复用上一次的引用：页面常用内联对象写 summary（每次渲染都是新引用），
+   * 不复用的话 rows 会跟着失效，父组件每次重渲染都会全量 setRecords 一次。
+   */
+  const stableSummaryRef = useRef(summaryRow);
+  if (!shallowEqualRecord(stableSummaryRef.current, summaryRow)) {
+    stableSummaryRef.current = summaryRow;
+  }
+  const stableSummaryRow = stableSummaryRef.current;
   const summaryRef = useRef(summaryRow);
-  summaryRef.current = summaryRow;
+  summaryRef.current = stableSummaryRow;
   /** 菜单配置：菜单项与回调都从 ref 实时读取，所以页面改菜单内容不用重建表格实例 */
   const menuRef = useRef(menu);
   menuRef.current = menu;
 
-  /** 统计行固定在数据行之后（含表头行号） */
+  /**
+   * 统计行固定在数据行之后（含表头行号）。
+   * 只从 ref 读数据，保证引用稳定：cellStyle / rowSeriesNumber / disableSelect 等回调
+   * 都挂在这个函数上，它一旦变化整份列配置就要重建、表格要 updateOption 一次。
+   */
   const isSummaryRow = useCallback(
     (row: number, headerLevel: number): boolean =>
-      Boolean(summaryRow) && row >= headerLevel + records.length,
-    [records.length, summaryRow],
+      Boolean(summaryRef.current) && row >= headerLevel + recordsRef.current.length,
+    [],
   );
 
-  isSummaryRowRef.current = isSummaryRow;
-
+  // 只看「有没有」，用于决定是否要包装列配置；包装后的回调内部都从 ref 读最新值
+  const hasCellStyle = Boolean(cellStyle);
+  const hasSummary = Boolean(stableSummaryRow);
   const finalColumns = useMemo<ColumnsDefine>(() => {
+    // 没有任何要注入的能力时直接用原列配置：少一层逐单元格的包装函数，
+    // 引用也保持等于 columns，下游 updateOption 不会跟着空转
+    if (!editableFields && !hasCellStyle && !hasSummary) return columns;
     const decorate = (cols: ColumnsDefine): ColumnsDefine =>
       cols.map((col) => {
         const grouped = col as { columns?: ColumnsDefine };
@@ -775,7 +789,7 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
         } as unknown as (typeof cols)[number];
       });
     return decorate(columns);
-  }, [columns, editableFields, isSummaryRow]);
+  }, [columns, editableFields, hasCellStyle, hasSummary, isSummaryRow]);
 
   /** 排序只作用于真实数据行，统计行永远追加在最后 */
   const rows = useMemo(() => {
@@ -785,8 +799,8 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
           return sortState.order === 'desc' ? -result : result;
         })
       : records;
-    return summaryRow ? [...data, summaryRow] : data;
-  }, [records, summaryRow, sortState]);
+    return stableSummaryRow ? [...data, stableSummaryRow] : data;
+  }, [records, stableSummaryRow, sortState]);
 
   /** 表格行号 -> 行主键，供样式回调判断「哪一行」 */
   const rowKeyByIndex = useMemo(
@@ -869,10 +883,10 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
         record: inBody
           ? (table.getCellOriginRecord(col, row) as Record<string, unknown> | undefined)
           : undefined,
-        isSummaryRow: inBody && isSummaryRowRef.current(row, headerLevel),
+        isSummaryRow: inBody && isSummaryRow(row, headerLevel),
       });
     },
-    [],
+    [isSummaryRow],
   );
 
   /**
@@ -932,14 +946,14 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
               headerStyle: { textAlign: 'center' as const },
               // 统计行灰底加粗；columns 上的 cellStyle 管不到这一列，必须在这里单独设
               style: (args: { row: number; table: { columnHeaderLevelCount: number } }) =>
-                isSummaryRowRef.current(args.row, args.table.columnHeaderLevelCount)
+                isSummaryRow(args.row, args.table.columnHeaderLevelCount)
                   ? { bgColor: '#fafafa', fontWeight: 'bold' as const, textAlign: 'center' as const }
                   : { textAlign: 'center' as const },
               // 统计行显示「汇总」，其余显示 1 起的连续行号（排序后重新编号）
               format: (_col?: number, row?: number, table?: { columnHeaderLevelCount: number }) => {
                 const headerLevel = table?.columnHeaderLevelCount ?? 0;
                 const current = row ?? headerLevel;
-                return isSummaryRowRef.current(current, headerLevel)
+                return isSummaryRow(current, headerLevel)
                   ? '汇总'
                   : current - headerLevel + 1;
               },
@@ -954,7 +968,7 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
         blankAreaClickDeselect: true,
         // 统计行不参与选中高亮
         disableSelect: (_col: number, row: number, inner: { columnHeaderLevelCount: number }) =>
-          isSummaryRowRef.current(row, inner.columnHeaderLevelCount),
+          isSummaryRow(row, inner.columnHeaderLevelCount),
       },
       defaultRowHeight: rowHeight,
       defaultHeaderRowHeight: headerRowHeight,
@@ -988,7 +1002,7 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
       col: args.col,
       row: args.row,
       field: args.field === undefined ? undefined : String(args.field),
-      isSummaryRow: isSummaryRowRef.current(args.row, table.columnHeaderLevelCount),
+      isSummaryRow: isSummaryRow(args.row, table.columnHeaderLevelCount),
       record: table.getCellOriginRecord(args.col, args.row) as
         | Record<string, unknown>
         | undefined,
@@ -1073,7 +1087,7 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
         record: inBody
           ? (table.getCellOriginRecord(col, row) as Record<string, unknown> | undefined)
           : undefined,
-        isSummaryRow: inBody && isSummaryRowRef.current(row, headerLevel),
+        isSummaryRow: inBody && isSummaryRow(row, headerLevel),
         menuKey: String(args.menuKey ?? ''),
         text: String(args.text ?? ''),
         value: inTable ? table.getCellValue(col, row) : undefined,
@@ -1085,14 +1099,15 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     table.on('selected_cell', () => {
       paintSelectedRows();
       if (!handlers.current.onActiveSelectionChange) return;
-      const infos = table.getSelectedCellInfos();
-      if (!infos || infos.length === 0) {
-        handlers.current.onActiveSelectionChange({ rowCount: 0 });
-        return;
-      }
-      const rows = new Set<number>();
-      infos.forEach((group) => group.forEach((cell) => rows.add(cell.row)));
-      handlers.current.onActiveSelectionChange({ rowCount: rows.size });
+      // 直接按选中范围算行数：getSelectedCellInfos 会把每个格子的信息都构造出来，
+      // Ctrl+A 全选时是 O(行×列) 的对象分配，而 ranges 只有几段
+      const ranges = (table.stateManager?.select?.ranges ?? []) as Array<{
+        start: { row: number };
+        end: { row: number };
+      }>;
+      handlers.current.onActiveSelectionChange({
+        rowCount: collectRowIndexes(ranges, table.columnHeaderLevelCount).size,
+      });
     });
 
     // 选中被清空（点画布空白处等）：底色一并撤掉，否则会留在那儿
@@ -1165,13 +1180,15 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     table.clearSelected();
     // setRecords 会重置排序状态（表头图标会消失），这里还原状态但不再执行排序
     if (sortState) table.updateSortState(sortState, false);
-    scheduleBottomFrozen(table, summary ? 1 : 0);
+    scheduleBottomFrozen(table, summaryRef.current ? 1 : 0);
     // 换页 / 换数据后重置选中：铺过的底色一并撤掉（行号在新数据里已经没意义了）
     clearPaintedRows();
     // 主动通知外部归零：clearSelected() 不一定触发 selected_clear（它只在框选结束时触发），
     // 不回调的话页面那边的「选中行数」会停在旧值上
     handlers.current.onActiveSelectionChange?.({ rowCount: 0 });
-  }, [rows, summary, clearPaintedRows]);
+    // 不依赖 summary：统计行内容没变时 stableSummaryRow 复用旧引用，rows 不失效，
+    // 父组件重渲染就不会再触发一次全量 setRecords
+  }, [rows, clearPaintedRows]);
 
   /** 重绘：异步拿到业务标记（如变更明细）后调用，让 cellStyle 生效 */
   const repaint = useCallback(() => {
@@ -1281,7 +1298,16 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     [autoFitColumns, repaint, getSelection, exportExcel, exportCsv, clearSelection],
   );
 
+  /**
+   * 列配置变化后同步给表格。
+   * 跳过首次执行：表格就是拿这份配置建的，再 updateOption 一次等于白重建一遍场景。
+   */
+  const skipInitialOptionSyncRef = useRef(true);
   useEffect(() => {
+    if (skipInitialOptionSyncRef.current) {
+      skipInitialOptionSyncRef.current = false;
+      return;
+    }
     const table = tableRef.current;
     const base = optionsRef.current;
     if (!table || !base) return;
