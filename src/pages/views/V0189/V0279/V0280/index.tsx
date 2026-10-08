@@ -1,13 +1,13 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {App} from 'antd';
-import {ApiError, yupaiOrderApi, type YupaiOrderQuery, type YupaiOrder} from '@/api';
+import {ApiError, yupaiOrderApi, type YupaiOrderQuery, type YupaiOrder, YupaiMachineSizeHeader} from '@/api';
 import {CommandBar} from '@/components/CommandBar';
 import {FilterTable} from '@/components/FilterTable';
 import {PageBreadcrumb} from '@/components/PageBreadcrumb';
 import type {VTableApi, VTableCellStyleHook, VTableMenuConfig} from '@/components/VTable';
 import type {ViewPageProps} from '@/pages/types';
 import {buildPreorderColumns, preorderFilterFields} from './columns';
-import PreorderFormModal from './PreorderFormModal';
+import YupaiOrderEdit from './models/yupaiOrderEdit';
 import {usePreorderCommands} from './command';
 import type {PreorderCommandContext} from './command';
 
@@ -179,16 +179,21 @@ const PreorderPage: React.FC<ViewPageProps> = ({view, trail}) => {
     );
 
     const summary = useCallback((records: Array<Record<string, unknown>>): Record<string, unknown> => {
-        const totals = records.reduce<{ qty: number; number: number }>(
+        const totals = records.reduce<Record<string, number>>(
             (acc, row) => {
                 acc.qty += Number(row.Qty) || 0;
                 acc.number += Number(row.Number) || 0;
+                YupaiMachineSizeHeader.forEach((_, index) => {
+                    const field = `MCSize${index + 1}`
+                    acc[field] = (acc[field] ?? 0) + (Number(row[field]) || 0);
+                });
                 return acc;
             },
             {qty: 0, number: 0},
         );
         // 主键由表格组件统一补齐，这里只给汇总字段
         return {
+            ...totals,
             Qty: totals.qty,
             Number: totals.number,
         };
@@ -230,7 +235,7 @@ const PreorderPage: React.FC<ViewPageProps> = ({view, trail}) => {
                 />
             </div>
 
-            <PreorderFormModal
+            <YupaiOrderEdit
                 open={formOpen}
                 mode={formMode}
                 record={formMode !== 'add' ? editingRecord : null}

@@ -1,20 +1,19 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { App, Button, DatePicker, Form, Input, InputNumber, Modal, Select } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
-import { ApiError, employeeApi, yupaiOrderApi, type YupaiOrder } from '@/api';
+import { ApiError, employeeApi, yupaiOrderApi,YupaiMachineSizeHeader, type YupaiOrder } from '@/api';
 import { VTable } from '@/components/VTable';
 import { EmployeeQuickSelect } from '@/components/quick-select';
 import {
   buildPreorderDetailColumns,
   createDetailRow,
   DETAIL_EDITOR_FIELDS,
-  SIZE_HEADERS,
-  type PreorderDetailRow,
-} from './detailColumns';
+  type yupaiOrderDetailRow,
+} from './yupaiOrderEditColumns.ts';
 
 const DATE_FORMAT = 'YYYY-MM-DD';
 
-interface PreorderFormValues {
+interface yupaiOrderFormValues {
   OrderCode?: string;
   YPDate?: Dayjs;
   Ywy?: string;
@@ -33,7 +32,7 @@ interface PreorderFormValues {
   ZQCheckMemo?: string;
 }
 
-export interface PreorderFormModalProps {
+export interface yupaiOrderFormModalProps {
   open: boolean;
   mode: 'add' | 'edit' | 'view';
   record?: YupaiOrder | null;
@@ -54,7 +53,7 @@ const toDayjs = (value: unknown): Dayjs | undefined => {
 const toDateString = (value: Dayjs | undefined): string =>
   value && dayjs.isDayjs(value) ? value.format(DATE_FORMAT) : '';
 
-const buildValues = (record?: YupaiOrder | null): PreorderFormValues => {
+const buildValues = (record?: YupaiOrder | null): yupaiOrderFormValues => {
   if (!record) {
     return { YPDate: dayjs(), Qty: 0 };
   }
@@ -78,9 +77,9 @@ const buildValues = (record?: YupaiOrder | null): PreorderFormValues => {
   };
 };
 
-const buildDetailRows = (record?: YupaiOrder | null): PreorderDetailRow[] => {
+const buildDetailRows = (record?: YupaiOrder | null): yupaiOrderDetailRow[] => {
   if (!record) return [createDetailRow('__new__')];
-  const row: PreorderDetailRow = {
+  const row: yupaiOrderDetailRow = {
     __id: String(record.ID ?? 'detail-1'),
     StyleCode: String(record.StyleCode ?? ''),
     Number: Number(record.Number) || '',
@@ -92,7 +91,7 @@ const buildDetailRows = (record?: YupaiOrder | null): PreorderDetailRow[] => {
     ZZMTime: '',
     MSewWt: Number(record.MSewWt) || '',
   };
-  SIZE_HEADERS.forEach((_, index) => {
+  YupaiMachineSizeHeader.forEach((_, index) => {
     const field = `MCSize${index + 1}`;
     row[field] = Number(record[field]) || '';
   });
@@ -111,7 +110,7 @@ const Field: React.FC<{
   </div>
 );
 
-const PreorderFormModal: React.FC<PreorderFormModalProps> = ({
+const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
   open,
   mode,
   record,
@@ -121,10 +120,10 @@ const PreorderFormModal: React.FC<PreorderFormModalProps> = ({
   onSaved,
 }) => {
   const { message } = App.useApp();
-  const [form] = Form.useForm<PreorderFormValues>();
+  const [form] = Form.useForm<yupaiOrderFormValues>();
   const [saving, setSaving] = useState(false);
   const [checking, setChecking] = useState(false);
-  const [detailRows, setDetailRows] = useState<PreorderDetailRow[]>([]);
+  const [detailRows, setDetailRows] = useState<yupaiOrderDetailRow[]>([]);
   const [employeeOpen, setEmployeeOpen] = useState(false);
   const [orderChecked, setOrderChecked] = useState(false);
 
@@ -189,7 +188,7 @@ const PreorderFormModal: React.FC<PreorderFormModalProps> = ({
   }, [form, message, record]);
 
   const handleSave = useCallback(async () => {
-    let values: PreorderFormValues;
+    let values: yupaiOrderFormValues;
     try {
       values = await form.validateFields();
     } catch {
@@ -495,4 +494,4 @@ const PreorderFormModal: React.FC<PreorderFormModalProps> = ({
   );
 };
 
-export default PreorderFormModal;
+export default YupaiOrderEdit;

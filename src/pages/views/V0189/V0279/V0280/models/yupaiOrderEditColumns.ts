@@ -2,9 +2,10 @@ import type {ColumnsDefine} from '@visactor/vtable';
 import {register} from '@visactor/vtable';
 import {InputEditor} from '@visactor/vtable-editors';
 import {buildColumns, type AppColumnDef} from '@/components/columnBuilder';
+import {YupaiMachineSizeHeader} from '@/api/modules/yupai'
 
 /** 详情表格的一行：当前一单一款式，编辑时由预订单记录映射而来 */
-export interface PreorderDetailRow {
+export interface yupaiOrderDetailRow {
     __id: string;
     /** 款号 */
     StyleCode: string | number;
@@ -29,28 +30,6 @@ export interface PreorderDetailRow {
     [key: string]: unknown;
 }
 
-/** 尺码列标题，按界面原样展示 */
-export const SIZE_HEADERS = [
-    '12/960',
-    '12/1056',
-    '13/1152',
-    '14/1248',
-    '15/1344',
-    '16/1440',
-    '17/1536',
-    '18/1632',
-    '19/1728',
-    '20/1824',
-    '13/1296',
-    '14/1392',
-    '15/1488',
-    '16/1584',
-    '17/1680',
-    '18/1766',
-    '21/1290',
-    '21/1904'
-];
-
 /** 详情表格的单元格编辑器名，全局注册一次 */
 export const DETAIL_EDITOR_NAME = 'preorder-detail-input';
 register.editor(DETAIL_EDITOR_NAME, new InputEditor());
@@ -65,7 +44,7 @@ const DETAIL_COLUMNS: AppColumnDef[] = [
     {field: 'ZZMWeight', title: '中码下机克重', width: 108, dataType: 'number'},
     {field: 'ZZMTime', title: '中码下机时间', width: 108},
     {field: 'MSewWt', title: '缝制工时', width: 88, dataType: 'number'},
-    ...SIZE_HEADERS.map((title, index) => ({
+    ...YupaiMachineSizeHeader.map((title, index) => ({
         field: `MCSize${index + 1}`,
         title,
         width: 82,
@@ -95,7 +74,7 @@ export function buildPreorderDetailColumns(readonly?: boolean): ColumnsDefine {
 }
 
 /** 新建一行空白明细，供用户直接在表格里输入 */
-export function createDetailRow(id: string): PreorderDetailRow {
+export function createDetailRow(id: string): yupaiOrderDetailRow {
     const row = {
         __id: id,
         StyleCode: '',
@@ -107,8 +86,8 @@ export function createDetailRow(id: string): PreorderDetailRow {
         ZZMWeight: '',
         ZZMTime: '',
         MSewWt: '',
-    } as PreorderDetailRow;
-    SIZE_HEADERS.forEach((_, index) => {
+    } as yupaiOrderDetailRow;
+    YupaiMachineSizeHeader.forEach((_, index) => {
         row[`MCSize${index + 1}`] = '';
     });
     return row;
