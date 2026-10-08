@@ -24,9 +24,7 @@ export interface FilterTableProps {
   records: Array<Record<string, unknown>>;
   /** 行主键字段 */
   rowKey: string;
-  /** 勾选列字段名 */
-  selectField?: string;
-  /** 左侧冻结列数（不含行号列与勾选列，那两个由内部自动加上） */
+  /** 左侧冻结列数（不含行号列，它由内部自动加上） */
   frozenColCount?: number;
   /** 最左侧行号顺序列，默认启用；传 false 关闭 */
   rowNumber?: boolean | { title?: string; width?: number };
@@ -85,9 +83,7 @@ export interface FilterTableProps {
   onFilterChange?: (filters: FilterModel) => void;
   /** 页码变化回调 */
   onPageChange?: (page: number, pageSize: number) => void;
-  /** 勾选变化回调 */
-  onSelectionChange?: (keys: string[]) => void;
-  /** 原生单元格选中变化（点击/框选），回传选中行数 */
+  /** 选中变化（点击/框选/Ctrl+A 全选），回传选中行数 */
   onActiveSelectionChange?: (info: { rowCount: number }) => void;
   /** 单元格点击 */
   onCellClick?: (info: VTableCellInfo) => void;
@@ -108,7 +104,6 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
       columns,
       records,
       rowKey,
-      selectField,
       frozenColCount,
       rowNumber,
       maxFrozenWidth,
@@ -135,7 +130,6 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
       searchWidth = 200,
       onFilterChange,
       onPageChange,
-      onSelectionChange,
       onActiveSelectionChange,
       onCellClick,
       onCellDblClick,
@@ -251,13 +245,6 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
       [ensureSearchComponent],
     );
 
-    const handleSelectionChange = useCallback(
-      (keys: string[]) => {
-        onSelectionChange?.(keys);
-      },
-      [onSelectionChange],
-    );
-
     const handleActiveSelectionChange = useCallback(
       (info: { rowCount: number }) => {
         setActiveRowCount(info.rowCount);
@@ -321,7 +308,6 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
             columns={columns}
             records={filteredRecords}
             rowKey={rowKey}
-            selectField={selectField}
             frozenColCount={frozenColCount}
             rowNumber={rowNumber}
             maxFrozenWidth={maxFrozenWidth}
@@ -337,7 +323,6 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
             loadingTip={loadingTip}
             exportOptions={exportOptions}
             menu={menu}
-            onSelectionChange={handleSelectionChange}
             onActiveSelectionChange={handleActiveSelectionChange}
             onCellClick={onCellClick}
             onCellDblClick={onCellDblClick}

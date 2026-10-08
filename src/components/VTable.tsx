@@ -12,27 +12,6 @@ import { ListTable,themes } from '@visactor/vtable';
 import type { ColumnsDefine, ListTableConstructorOptions } from '@visactor/vtable';
 import { TableExportPlugin } from '@visactor/vtable-plugins';
 import type { TableExportPluginOptions } from '@visactor/vtable-plugins';
-/**
- * 内部 API：把「某一行 → 勾选/取消勾选」写回复选框。
- *
- * 和 TableExportPlugin 那边一样，vtable 没有公开这个能力 —— 公开的只有 getCheckboxState /
- * clearCheckboxState，缺一个 setter。这个函数就是它自己处理勾选时调用的那个，行为完全一致：
- * 写 checkedState → 更新可见复选框的 attribute → 重算表头全选态 → 重绘。
- *
- * 关键：它**不触发 checkbox_state_change**（内部只 setAttribute，不走 _handlePointerUp 那条路），
- * 所以「行选中 → 勾选」这条同步不会和反向同步形成环。
- *
- * 升级 vtable 时需要重新确认函数名、签名（recordIndex, field, checked, table）与所在路径。
- * vtable 的 package.json 没有 exports 字段，深路径导入不会被拦。
- */
-import { setCheckboxStateByRecordIndex } from '@visactor/vtable/es/state/checkbox/checkbox';
-
-/**
- * setCheckboxStateByRecordIndex 第 4 个参数的类型。
- * 直接从签名上取，不用手写：vtable 的 ListTable 与 BaseTableAPI 在 getCopyValue 的返回值上
- * 自相矛盾（string | null vs string），直接传 ListTable 实例会报 TS2345。
- */
-type CheckboxTableTarget = Parameters<typeof setCheckboxStateByRecordIndex>[3];
 
 /**
  * 插件包只从根导出了 TableExportPluginOptions，没导出下面这两个子类型
@@ -79,6 +58,23 @@ function toContinuousSegments(rows: number[]): Array<{ from: number; to: number 
     else segments.push({ from: row, to: row });
   });
   return segments;
+}
+
+/**
+ * 把选中范围展开成「覆盖到的行号」集合（表头行不计）。
+ * Ctrl 点击的基准要在 mousedown 时算、在 click 时用，两个事件里得用同一套展开规则。
+ */
+function collectRowIndexes(
+  ranges: Array<{ start: { row: number }; end: { row: number } }>,
+  headerLevel: number,
+): Set<number> {
+  const rows = new Set<number>();
+  ranges.forEach((range) => {
+    const from = Math.max(Math.min(range.start.row, range.end.row), headerLevel);
+    const to = Math.max(range.start.row, range.end.row);
+    for (let i = from; i <= to; i += 1) rows.add(i);
+  });
+  return rows;
 }
 const SELECTED_ROW_BG = '#e6f4ff';
 
@@ -316,11 +312,11 @@ export interface VTableApi {
   /** 获取内部 ListTable 实例（供 SearchComponent 等外部工具使用） */
   getTable: () => ListTable | null;
   /**
-   * 清空表格的选中态：勾选框（含表头全选）与原生单元格选中一起清，并回调 onSelectionChange([]) /
+   * 清空表格的选中态：原生选中范围与铺过的整行底色一起清，并回调
    * onActiveSelectionChange({ rowCount: 0 })。
    *
-   * 选中态只存在表格这一侧（勾选是 vtable 自己的 state，原生选中是它的 select ranges），
-   * 所以「删除成功后立刻清空」这类场景必须显式调这个方法 —— 光改页面自己的变量不会联动到表格。
+   * 选中态只存在表格这一侧（vtable 的 select ranges），所以「删除成功后立刻清空」这类场景
+   * 必须显式调这个方法 —— 光改页面自己的变量不会联动到表格。
    */
   clearSelection: () => void;
   /**
@@ -335,18 +331,14 @@ export interface VTableApi {
 export interface VTableProps {
   columns: ColumnsDefine;
   records: Array<Record<string, unknown>>;
-  /** 行主键字段，用于回传勾选结果 */
+  /** 行主键字段 */
   rowKey?: string;
-  /** 勾选列的字段名；传入后会在最左侧自动插入一列复选框 */
-  selectField?: string;
-  /** 勾选列表头名称；不传则表头只显示复选框 */
-  selectTitle?: string;
-  /** 左侧冻结列数（不含行号列与勾选列，那两个由组件自动加上） */
+  /** 左侧冻结列数（不含行号列，它由组件自动加上） */
   frozenColCount?: number;
   /**
    * 最左侧的行号顺序列，**默认启用**。
-   * 用 VTable 原生 rowSeriesNumber 生成，位置在所有 columns 之前（比勾选列还靠左），
-   * 显示 1 起的连续行号（排序后重新编号），统计行显示「汇总」。
+   * 用 VTable 原生 rowSeriesNumber 生成，位置在所有 columns 之前，显示 1 起的连续行号
+   * （排序后重新编号），统计行显示「汇总」。
    * 传 false 关闭；传对象可自定义标题 / 宽度。
    */
   rowNumber?: boolean | { title?: string; width?: number };
@@ -417,9 +409,7 @@ export interface VTableProps {
   menu?: VTableMenuConfig;
   onCellClick?: (info: VTableCellInfo) => void;
   onCellDblClick?: (info: VTableCellInfo) => void;
-  /** 勾选变化时回传全部选中行的主键 */
-  onSelectionChange?: (keys: string[]) => void;
-  /** 原生单元格选中变化（点击 / 框选），回传选中行数 */
+  /** 选中变化（点击 / 框选 / Ctrl+A 全选），回传选中的行数 */
   onActiveSelectionChange?: (info: { rowCount: number }) => void;
 }
 
@@ -472,8 +462,6 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
   columns,
   records,
   rowKey = 'id',
-  selectField,
-  selectTitle = '',
   frozenColCount = 0,
   rowNumber = true,
   maxFrozenWidth,
@@ -496,23 +484,14 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
   menu,
   onCellClick,
   onCellDblClick,
-  onSelectionChange,
   onActiveSelectionChange,
 }, ref) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const tableRef = useRef<ListTable | null>(null);
   /** 构造时的完整 options：updateOption 需要完整配置，否则 theme / 行高等会被重置为默认值 */
   const optionsRef = useRef<ListTableConstructorOptions | null>(null);
-  /**
-   * 当前勾选行的主键（VTable 的勾选状态在自己的 state 里，不回写 record）。
-   *
-   * 它同时是「行选中 → 勾选」这条同步的差集基准：那条路径走的是 setCheckboxStateByRecordIndex，
-   * 而它**不会**派发 checkbox_state_change，所以必须在这里手动跟着更新，否则用户接着点复选框时
-   * 会基于一份过期的勾选集合去算整行范围。
-   */
-  const selectedRef = useRef<Set<string>>(new Set());
-  const handlers = useRef({ onCellClick, onCellDblClick, onSelectionChange, onCellValueChange, onActiveSelectionChange });
-  handlers.current = { onCellClick, onCellDblClick, onSelectionChange, onCellValueChange, onActiveSelectionChange };
+  const handlers = useRef({ onCellClick, onCellDblClick, onCellValueChange, onActiveSelectionChange });
+  handlers.current = { onCellClick, onCellDblClick, onCellValueChange, onActiveSelectionChange };
   /**
    * 上一次实际铺过底色的**区间坐标**（不是行号）。
    *
@@ -524,8 +503,9 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
   const paintedSegmentsRef = useRef<Array<{ from: number; to: number }>>([]);
   /** customCellStyle 的样式只需注册一次 */
   const styleRegisteredRef = useRef(false);
-  /** 「行选中 ↔ 勾选」双向同步的重入锁 */
-  const syncingRef = useRef(false);
+  /** 建表 effect 只跑一次会锁住闭包，点击时要读的最新开关统一走 ref */
+  const multiSelectRef = useRef(multiSelect);
+  multiSelectRef.current = multiSelect;
 
   /**
    * 给「当前选中的行」整行铺底色 —— 走 customCellStyle，而不是 VTable 原生的选中高亮。
@@ -613,106 +593,81 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
   }, []);
 
   /**
-   * 行选中 → 勾选：让复选框与「整行选中」保持一致。
+   * 执行一次 Ctrl 点击的整行 toggle（已选中的取消、未选中的加入）。
    *
-   * 选中行直接从 VTable 的选中范围（select.ranges）算，不绕 getSelection() —— 这里只需要
-   * 「行号 → 主键」，rowKeyByIndex 就是现成的映射。
+   * 必须自己接管 —— VTable 原生在 Ctrl 点击时只会「把点中的那一格追加进选中范围」，
+   * 所以全选之后想用 Ctrl 点掉某几行根本做不到。
    *
-   * 只对发生变化的行动手（差集）。原因：setCheckboxStateByRecordIndex 每次都会重算一遍表头
-   * 全选态（内部遍历全部记录），全量刷在大范围框选时是 O(n²)。
+   * baseRows 是「点击前」的选中行号集合，由 mousedown 时算好传进来：
+   * Ctrl 模式下 VTable 会把点中的格子追加进 ranges，到了 click 阶段已经分不清
+   * 「这一行本来就在选中里」还是「刚刚被追加进来的」，所以基准只能在 mousedown 取。
    */
-  const syncCheckboxFromSelection = useCallback(() => {
-    const table = tableRef.current;
-    if (!table || !selectField || syncingRef.current) return;
+  const applyCtrlToggle = useCallback(
+    (row: number, baseRows: number[]) => {
+      const table = tableRef.current;
+      if (!table || row < table.columnHeaderLevelCount) return;
 
-    const ranges = (table.stateManager?.select?.ranges ?? []) as Array<{
-      start: { row: number };
-      end: { row: number };
-    }>;
-    const headerLevel = table.columnHeaderLevelCount;
-    const summaryKey = summaryRef.current ? String(summaryRef.current[rowKey] ?? '') : '';
-    const keys = rowKeyByIndexRef.current;
-    const nextKeys = new Set<string>();
-    ranges.forEach((range) => {
-      const from = Math.min(range.start.row, range.end.row);
-      const to = Math.max(range.start.row, range.end.row);
-      for (let row = from; row <= to; row += 1) {
-        // 表头行不参与（选中列头也会产生 range）
-        if (row < headerLevel) continue;
-        const key = keys[row - headerLevel];
-        // 统计行不是业务数据，不参与勾选
-        if (!key || key === summaryKey) continue;
-        nextKeys.add(key);
-      }
-    });
+      const selected = new Set(baseRows);
+      if (selected.has(row)) selected.delete(row);
+      else selected.add(row);
 
-    const prevKeys = selectedRef.current;
-    const toUncheck = Array.from(prevKeys).filter((key) => !nextKeys.has(key));
-    const toCheck = Array.from(nextKeys).filter((key) => !prevKeys.has(key));
-    if (toUncheck.length === 0 && toCheck.length === 0) return;
+      const nextRanges = toContinuousSegments(Array.from(selected)).map((seg) => ({
+        start: { col: 0, row: seg.from },
+        end: { col: table.colCount - 1, row: seg.to },
+      }));
+      /**
+       * 直接把选中范围写成目标形状，不走 table.selectCells()。
+       *
+       * selectCells 会把每个「多格 range」拆成两步：先 push 起点那一格，再靠 grabing 分支
+       * 把端点拖过去（BaseTable.js 的 selectCells 里，多格走 `updateSelectPos(start)` →
+       * `updateInteractionState(grabing)` → `updateSelectPos(end)`）。第二步一旦没生效，
+       * 范围就停在起点那一格 —— 对单行 range 看不出来（起终点同一行，行号仍然对），
+       * 但对跨行 range 就是灾难：Ctrl+A 后取消一行，剩下两段本该覆盖 1~8 和 10~末行，
+       * 实际只剩第 1 行和第 10 行。
+       *
+       * 只改 ranges、不动 interactionState，pointerup 的 endSelectCells() 照常收尾。
+       */
+      const host = table as unknown as {
+        stateManager: { select: { ranges: typeof nextRanges } };
+        scenegraph: {
+          recreateAllSelectRangeComponents?: () => void;
+          updateNextFrame?: () => void;
+        };
+      };
+      host.stateManager.select.ranges = nextRanges;
+      /**
+       * 按新 ranges 重建选中边框。不能自己 forEach 调 updateCellSelectBorder：
+       * 它每次进来都会清空「选择中」的边框集合，多段时会互相抹掉，最后只剩最后一段有线。
+       * recreateAllSelectRangeComponents 是 VTable 自己的做法 ——
+       * 清空全部 → 逐段 updateCellSelectBorder → 立刻固化到「已选中」集合，
+       * 这样每段都不会被下一段清掉。
+       */
+      host.scenegraph.recreateAllSelectRangeComponents?.();
+      host.scenegraph.updateNextFrame?.();
 
-    // 行主键 → dataSource 索引（查 Map，避免逐个 indexOf 的 O(n) 查找）
-    const indexOf = (key: string) => rowIndexByKeyRef.current.get(key) ?? -1;
-    const target = table as unknown as CheckboxTableTarget;
-    syncingRef.current = true;
-    try {
-      toUncheck.forEach((key) => {
-        const index = indexOf(key);
-        if (index >= 0) setCheckboxStateByRecordIndex(index, selectField, false, target);
-      });
-      toCheck.forEach((key) => {
-        const index = indexOf(key);
-        if (index >= 0) setCheckboxStateByRecordIndex(index, selectField, true, target);
-      });
-    } finally {
-      syncingRef.current = false;
-    }
-    // 记下新集合：它既是「当前勾选态」（供反向同步与表头全选使用），
-    // 也是下一次差集的基准
-    selectedRef.current = nextKeys;
-  }, [rowKey, selectField]);
+      // 改范围不会派发 selected_cell，整行底色与对外行数得自己补一次
+      paintSelectedRows();
+      handlers.current.onActiveSelectionChange?.({ rowCount: selected.size });
+    },
+    [paintSelectedRows],
+  );
+
+  /** 建表 effect 只跑一次会锁住闭包，事件里统一走 ref 取最新实现 */
+  const applyCtrlToggleRef = useRef(applyCtrlToggle);
+  applyCtrlToggleRef.current = applyCtrlToggle;
 
   /**
-   * 勾选 → 行选中：让勾选的行也成为整行选中。
+   * Ctrl 点击的待处理信息：mousedown 时记下「点击前的选中行」与按下坐标，click 时再决定要不要 toggle。
    *
-   * 这样做是为了观感一致 —— 勾选和点选如果只生效一半，用户看不出到底选中了什么。
-   * selectCells 末尾走的是 endSelectCells(false, false)，不会反过来触发 selected_cell，
-   * 所以这条不会和上面那条形成环（锁只是双保险）。
-   *
-   * 行号会先压成连续段再交给 selectCells：它内部对每个 range 都要跑一遍完整选中流程，
-   * 表头全选若逐行一个 range 就是 N 次，去掉「全选慢、取消快」的那个落差（取消走 clearSelected，只有一次）。
+   * 不在 mousedown 里直接执行，是因为那时还分不清用户要「点一下」还是「按住拖选」；
+   * 抢在拖拽前改完 ranges，拖拽过程又会去改端点，整个选择就乱了（Ctrl+拖拽会失效）。
    */
-  const syncSelectionFromCheckbox = useCallback(() => {
-    const table = tableRef.current;
-    if (!table || !selectField || syncingRef.current) return;
-
-    const headerLevel = table.columnHeaderLevelCount;
-    const rows = Array.from(selectedRef.current)
-      .map((key) => rowIndexByKeyRef.current.get(key) ?? -1)
-      .filter((index) => index >= 0)
-      .map((index) => index + headerLevel);
-    const ranges = toContinuousSegments(rows).map((seg) => ({
-      start: { col: 0, row: seg.from },
-      end: { col: table.colCount - 1, row: seg.to },
-    }));
-
-    syncingRef.current = true;
-    try {
-      // 全取消勾选时 ranges 为空数组，而 selectCells([]) 什么都不会做，得走 clearSelected
-      if (ranges.length === 0) table.clearSelected();
-      else table.selectCells(ranges);
-    } finally {
-      syncingRef.current = false;
-    }
-    // selectCells / clearSelected 内部走的是 endSelectCells(false, …)，不会派发 selected_cell，
-    // 所以整行底色与对外行数得在这里自己补一次
-    paintSelectedRows();
-    handlers.current.onActiveSelectionChange?.({ rowCount: selectedRef.current.size });
-  }, [selectField, paintSelectedRows]);
-
-  // 建表 effect 只跑一次，闭包会锁住当时的函数引用；统一走 ref 取最新实现
-  const syncFnsRef = useRef({ syncCheckboxFromSelection, syncSelectionFromCheckbox });
-  syncFnsRef.current = { syncCheckboxFromSelection, syncSelectionFromCheckbox };
+  const pendingCtrlToggleRef = useRef<{
+    row: number;
+    x: number;
+    y: number;
+    rows: number[];
+  } | null>(null);
 
   /** 当前排序状态（由表头排序图标驱动，排序在本地完成，统计行不参与） */
   const [sortState, setSortState] = useState<VTableSortState | null>(null);
@@ -766,25 +721,6 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
   const menuRef = useRef(menu);
   menuRef.current = menu;
 
-  const baseColumns = useMemo<ColumnsDefine>(() => {
-    if (!selectField) return columns;
-    return [
-      {
-        field: selectField,
-        title: selectTitle,
-        width: selectTitle ? 88 : 56,
-        cellType: 'checkbox',
-        headerType: 'checkbox',
-        align: 'center',
-        headerStyle: { textAlign: 'left', padding: [0, 6] },
-        // 统计行禁用勾选，避免用户点击后出现选中态
-        disable: (args: { row: number; table: { columnHeaderLevelCount: number } }) =>
-          isSummaryRowRef.current(args.row, args.table.columnHeaderLevelCount),
-      },
-      ...columns,
-    ] as ColumnsDefine;
-  }, [columns, selectField, selectTitle]);
-
   /** 统计行固定在数据行之后（含表头行号） */
   const isSummaryRow = useCallback(
     (row: number, headerLevel: number): boolean =>
@@ -814,25 +750,10 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
                 ? (previous as (a: StyleArgs) => Record<string, unknown>)(args)
                 : ((previous ?? {}) as Record<string, unknown>);
             const headerLevel = args.table.columnHeaderLevelCount;
-            const isSelectColumn = (col as { field?: string }).field === selectField;
-            // 勾选框在这些行里不显示
-            const hideCheckbox = (style: Record<string, unknown>) => {
-              if (!isSelectColumn) return style;
-              return {
-                ...style,
-                checkboxStyle: {
-                  defaultFill: 'transparent',
-                  defaultStroke: 'transparent',
-                  disableFill: 'transparent',
-                  disableCheckedFill: 'transparent',
-                  disableCheckedStroke: 'transparent',
-                },
-              };
-            };
-            // 统计行：灰底加粗，隐藏勾选框
+            // 统计行：灰底加粗
             const isSummary = isSummaryRow(args.row, headerLevel);
             if (isSummary) {
-              return hideCheckbox({ ...base, bgColor: '#fafafa', fontWeight: 'bold' });
+              return { ...base, bgColor: '#fafafa', fontWeight: 'bold' };
             }
             // 页面自定义样式（业务提醒）
             const index = args.row - headerLevel;
@@ -853,8 +774,8 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
           },
         } as unknown as (typeof cols)[number];
       });
-    return decorate(baseColumns);
-  }, [baseColumns, editableFields, isSummaryRow, selectField]);
+    return decorate(columns);
+  }, [columns, editableFields, isSummaryRow]);
 
   /** 排序只作用于真实数据行，统计行永远追加在最后 */
   const rows = useMemo(() => {
@@ -874,19 +795,6 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
   );
   const rowKeyByIndexRef = useRef(rowKeyByIndex);
   rowKeyByIndexRef.current = rowKeyByIndex;
-  /**
-   * 上面那个数组的反查表：行主键 → dataSource 索引。
-   * 同步选中态时要按主键频繁查索引，用 indexOf 是 O(n) 查找，全选时会退化成 O(n²)。
-   */
-  const rowIndexByKey = useMemo(() => {
-    const map = new Map<string, number>();
-    rowKeyByIndex.forEach((key, index) => {
-      if (key) map.set(key, index);
-    });
-    return map;
-  }, [rowKeyByIndex]);
-  const rowIndexByKeyRef = useRef(rowIndexByKey);
-  rowIndexByKeyRef.current = rowIndexByKey;
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
   const cellStyleRef = useRef(cellStyle);
@@ -918,8 +826,8 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     };
     const scenegraph = host.scenegraph;
     if (!scenegraph?.updateAutoColWidth) return;
-    // 行号列与勾选列保持原宽，只自适应业务列
-    const firstDataCol = (host.leftRowSeriesNumberCount ?? 0) + (selectField ? 1 : 0);
+    // 行号列保持原宽，只自适应业务列
+    const firstDataCol = host.leftRowSeriesNumberCount ?? 0;
     for (let col = firstDataCol; col < host.colCount; col += 1) {
       scenegraph.updateAutoColWidth(col);
       // 再调一次 setColWidth，把该列标记为“已手动调整”
@@ -934,7 +842,7 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     scenegraph.component?.setFrozenColumnShadow(host.frozenColCount - 1);
     scenegraph.component?.setRightFrozenColumnShadow(host.colCount - host.rightFrozenColCount);
     scenegraph.updateNextFrame?.();
-  }, [selectField]);
+  }, []);
 
   /**
    * 菜单项解析：把业务上下文补齐后交给页面配置的函数。
@@ -1011,8 +919,8 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     const options: ListTableConstructorOptions = {
       columns: finalColumns,
       records: rows,
-      // 行号列恒占 col 0，勾选列紧随其后，两个都要算进冻结列数
-      frozenColCount: frozenColCount + (selectField ? 1 : 0) + (rowNumber ? 1 : 0),
+      // 行号列恒占 col 0，也要算进冻结列数
+      frozenColCount: frozenColCount + (rowNumber ? 1 : 0),
       maxFrozenWidth,
       unfreezeAllOnExceedsMaxWidth,
       // 行号列：VTable 原生能力，生成的是独立列（不占 columns），位置在所有 columns 之前
@@ -1060,6 +968,10 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
         // 关掉后 VTable 不再用 Ctrl/Shift 追加选中范围，等于单选
         ctrlMultiSelect: multiSelect,
         shiftMultiSelect: multiSelect,
+        // Ctrl+A 全选。它内部会派发 selected_cell（event.js 的 deelTableSelectAll），
+        // 所以整行底色与对外行数会照常跟上，不需要额外接线。
+        // disableHeaderSelect 让选中范围从第一个数据行开始，不含表头。
+        selectAllOnCtrlA: { disableHeaderSelect: true },
       },
       ...(editableFields ? { editCellTrigger } : {}),
       ...(emptyTip ? { emptyTip: { text: emptyTip } } : {}),
@@ -1082,8 +994,62 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
         | undefined,
     });
 
-    // 选中高亮交给 VTable 原生 select（样式取自 theme.bodyStyle.select），这里只透传点击事件
-    table.on('click_cell', (args) => handlers.current.onCellClick?.(toInfo(args)));
+    /**
+     * Ctrl / Cmd 点击的准备：只记下「点击前的选中行」与按下位置，不在这里改范围。
+     *
+     * 因为 mousedown 阶段还分不清用户是想点一下、还是按住拖选 —— 抢在拖拽前把 ranges 改成
+     * toggle 的结果，拖拽过程又会去改端点，Ctrl+拖拽就废了。真正的 toggle 留到 click，
+     * 那时用坐标比对确认没有拖动过。
+     */
+    table.on('mousedown_cell', (args) => {
+      pendingCtrlToggleRef.current = null;
+      // 断言成 MouseEvent：PointerEvent 继承自它，而 TouchEvent 上没有 ctrlKey / clientX，
+      // 触摸场景下 ctrlKey 本来就是 falsy，下面会直接 return。
+      const event = args.event as MouseEvent | undefined;
+      const row = args.row;
+      if (!multiSelectRef.current || !event) return;
+      if (!(event.ctrlKey || event.metaKey) || event.shiftKey) return;
+      if (row < table.columnHeaderLevelCount) return;
+
+      // Ctrl 模式下 VTable 已经把点中的这一格追加成最后一个 range，基准要把它排除掉；
+      // 若最后那个 range 不是它（比如这次点击被 disableSelect 拦下），就以现有 ranges 为准，
+      // 免得误删一个正经的选中范围。
+      const ranges = (table.stateManager?.select?.ranges ?? []) as Array<{
+        start: { row: number };
+        end: { row: number };
+      }>;
+      const last = ranges[ranges.length - 1];
+      const appended =
+        Boolean(last) &&
+        Math.min(last.start.row, last.end.row) === row &&
+        Math.max(last.start.row, last.end.row) === row;
+      const base = appended ? ranges.slice(0, -1) : ranges;
+
+      pendingCtrlToggleRef.current = {
+        row,
+        x: event.clientX,
+        y: event.clientY,
+        rows: Array.from(collectRowIndexes(base, table.columnHeaderLevelCount)),
+      };
+    });
+
+    /**
+     * 点击单元格。
+     *
+     * 不按修饰键时只透传事件（选中高亮交给 VTable 原生 select，整行底色由 paintSelectedRows 铺）。
+     * Ctrl 点击若确认没有拖动过，就执行整行 toggle；拖动过的交给原生的范围选择，不抢。
+     */
+    table.on('click_cell', (args) => {
+      const pending = pendingCtrlToggleRef.current;
+      pendingCtrlToggleRef.current = null;
+      const event = args.event as MouseEvent | undefined;
+      if (pending && event && pending.row === args.row) {
+        const moved =
+          Math.abs(event.clientX - pending.x) > 3 || Math.abs(event.clientY - pending.y) > 3;
+        if (!moved) applyCtrlToggleRef.current(pending.row, pending.rows);
+      }
+      handlers.current.onCellClick?.(toInfo(args));
+    });
     table.on('dblclick_cell', (args) => handlers.current.onCellDblClick?.(toInfo(args)));
 
     /**
@@ -1115,10 +1081,9 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
       });
     });
 
-    // 原生选中变化：先给选中的行铺整行底色并同步复选框，再通知外部
+    // 原生选中变化：先给选中的行铺整行底色，再通知外部
     table.on('selected_cell', () => {
       paintSelectedRows();
-      syncFnsRef.current.syncCheckboxFromSelection();
       if (!handlers.current.onActiveSelectionChange) return;
       const infos = table.getSelectedCellInfos();
       if (!infos || infos.length === 0) {
@@ -1130,10 +1095,9 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
       handlers.current.onActiveSelectionChange({ rowCount: rows.size });
     });
 
-    // 选中被清空（点画布空白处等）：底色一并撤掉、复选框跟着取消，否则会留在那儿
+    // 选中被清空（点画布空白处等）：底色一并撤掉，否则会留在那儿
     table.on('selected_clear', () => {
       paintSelectedRows();
-      syncFnsRef.current.syncCheckboxFromSelection();
       handlers.current.onActiveSelectionChange?.({ rowCount: 0 });
     });
     // 单元格编辑完成：回传字段、行索引与新值
@@ -1162,29 +1126,6 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
       // 同步表头图标状态，但不触发排序
       table.updateSortState(next, false);
       return false;
-    });
-    table.on('checkbox_state_change', (args) => {
-      if (!selectField) return;
-      const record = table.getCellOriginRecord(args.col, args.row) as
-        | Record<string, unknown>
-        | undefined;
-      const key = record ? String(record[rowKey] ?? '') : '';
-      const summaryKey = summaryRef.current ? String(summaryRef.current[rowKey] ?? '') : '';
-      if (key) {
-        // 统计行不参与勾选
-        if (key === summaryKey) return;
-        if (args.checked) selectedRef.current.add(key);
-        else selectedRef.current.delete(key);
-      } else {
-        // 解析不到记录，说明点的是表头复选框 → 全选 / 取消全选
-        selectedRef.current.clear();
-        if (args.checked) {
-          recordsRef.current.forEach((item) => selectedRef.current.add(String(item?.[rowKey] ?? '')));
-        }
-      }
-      handlers.current.onSelectionChange?.(Array.from(selectedRef.current));
-      // 勾选 → 行选中：让勾上的行也是整行选中态，两种操作观感一致
-      syncFnsRef.current.syncSelectionFromCheckbox();
     });
 
     const observer = new ResizeObserver(() => {
@@ -1225,18 +1166,12 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     // setRecords 会重置排序状态（表头图标会消失），这里还原状态但不再执行排序
     if (sortState) table.updateSortState(sortState, false);
     scheduleBottomFrozen(table, summary ? 1 : 0);
-    // 换页 / 换数据后重置选中：勾选、原生选中、铺过的底色一起清
-    selectedRef.current.clear();
-    // 行号在新数据里已经没意义了，铺过的底色一并撤掉
+    // 换页 / 换数据后重置选中：铺过的底色一并撤掉（行号在新数据里已经没意义了）
     clearPaintedRows();
-    if (selectField) {
-      table.clearCheckboxState(selectField);
-      handlers.current.onSelectionChange?.([]);
-    }
     // 主动通知外部归零：clearSelected() 不一定触发 selected_clear（它只在框选结束时触发），
     // 不回调的话页面那边的「选中行数」会停在旧值上
     handlers.current.onActiveSelectionChange?.({ rowCount: 0 });
-  }, [rows, selectField, summary, clearPaintedRows]);
+  }, [rows, summary, clearPaintedRows]);
 
   /** 重绘：异步拿到业务标记（如变更明细）后调用，让 cellStyle 生效 */
   const repaint = useCallback(() => {
@@ -1319,23 +1254,17 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
 
   /**
    * 清空表格的选中态。
-   * - 勾选：状态在 VTable 自己手里，必须调它的 clearCheckboxState 才能把复选框真的画成未勾选；
-   *   同时清掉组件里那份 selectedRef，否则下次勾选回传的 keys 会混进旧值。
    * - 原生选中：clearSelected() 负责解除高亮，行数这里主动回调归零
    *   （不能指望 selected_clear 事件，它只在框选结束时触发）。
+   * - 铺过的整行底色：clearPaintedRows() 按记录的段坐标逐段撤掉。
    */
   const clearSelection = useCallback(() => {
     const table = tableRef.current;
     if (!table) return;
-    selectedRef.current.clear();
     clearPaintedRows();
-    if (selectField) {
-      table.clearCheckboxState(selectField);
-      handlers.current.onSelectionChange?.([]);
-    }
     table.clearSelected();
     handlers.current.onActiveSelectionChange?.({ rowCount: 0 });
-  }, [selectField, clearPaintedRows]);
+  }, [clearPaintedRows]);
 
   // 把方法挂到 ref 上：<VTable ref={tableRef} />，之后用 tableRef.current?.repaint()
   useImperativeHandle(

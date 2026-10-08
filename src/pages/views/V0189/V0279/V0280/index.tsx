@@ -417,7 +417,6 @@ const PreorderPage: React.FC<ViewPageProps> = ({view, trail}) => {
                     columns={columns}
                     records={dataSource}
                     rowKey="ID"
-                    selectField="__checked"
                     frozenColCount={8}
                     summary={summary}
                     cellStyle={cellStyle}
