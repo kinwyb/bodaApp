@@ -1,6 +1,6 @@
 import {CloseOutlined, ExclamationCircleOutlined} from '@ant-design/icons';
 import {Input} from 'antd';
-import {ApiError, yupaiOrderApi} from '@/api';
+import {ApiError, yupaiApi} from '@/api';
 import type {PreorderCommandFactory} from './types';
 
 /** 取消（删除）订单：支持批量，确认时必须填写删除原因 */
@@ -48,7 +48,7 @@ export const deleteCommand: PreorderCommandFactory = ({message, modal, getSelect
                     return Promise.reject();
                 }
                 try {
-                    await yupaiOrderApi.delete({ID: targets.map((order) => order.ID), Memo: value});
+                    await yupaiApi.delete({ID: targets.map((order) => order.ID), Memo: value});
                     void message.success('已删除');
                     await reload();
                 } catch (error) {

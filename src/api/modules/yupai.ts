@@ -111,6 +111,10 @@ export interface YupaiOrder {
     OtherStep: string;
     /** 状态 */
     Status: number;
+    /**
+     * 部门ID
+     */
+    DepartmentID:string;
     CreateTime: string;
     CreateUser: string;
     UpdateTime: string;
@@ -135,7 +139,7 @@ export interface YupaiOrderDel {
     Memo: string;
 }
 
-export const yupaiOrderApi = {
+export const yupaiApi = {
     list: (query: YupaiOrderQuery = {}) => http.get<YupaiOrder[]>('/plan/yupaiOrder/list', {...query, isDel: 0}),
     /** 最近发生变化的明细 */
     changes: () => http.get<YupaiOrderChange[]>('/plan/yupaiOrder/list/changes'),
@@ -147,5 +151,7 @@ export const yupaiOrderApi = {
     /** 删除预订单 */
     delete: (payload: YupaiOrderDel) => http.delete<string>('/plan/yupaiOrder/del', {Memo: payload.Memo}, {"body": payload.ID}),
     /** 发布预订单 */
-    submit: (ids: string[]) => http.post<string>("/plan/yupaiOrder/submit",ids)
+    submit: (ids: string[]) => http.post<string>("/plan/yupaiOrder/submit",ids),
+    /** 用户预订单权限部门 */
+    userDepartment:()=>http.get<string[]>('/plan/yupaiOrder/department'),
 };

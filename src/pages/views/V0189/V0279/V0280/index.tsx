@@ -1,6 +1,6 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {App} from 'antd';
-import {ApiError, yupaiOrderApi, type YupaiOrderQuery, type YupaiOrder, YupaiMachineSizeHeader} from '@/api';
+import {ApiError, yupaiApi, type YupaiOrderQuery, type YupaiOrder, YupaiMachineSizeHeader} from '@/api';
 import {CommandBar} from '@/components/CommandBar';
 import {FilterTable} from '@/components/FilterTable';
 import {PageBreadcrumb} from '@/components/PageBreadcrumb';
@@ -32,8 +32,8 @@ const PreorderPage: React.FC<ViewPageProps> = ({view, trail}) => {
             tableRef.current?.clearSelection();
             setLoading(true);
             try {
-                const res = await yupaiOrderApi.list(params);
-                setDataSource(res.data);
+                const res = await yupaiApi.list(params);
+                setDataSource(res.data ?? []);
                 setTotal(res.page?.total ?? 0);
             } catch (error) {
                 void message.error(error instanceof ApiError ? error.message : '加载预订单失败');
@@ -51,9 +51,9 @@ const PreorderPage: React.FC<ViewPageProps> = ({view, trail}) => {
     useEffect(() => {
         (async () => {
             try {
-                const res = await yupaiOrderApi.changes();
+                const res = await yupaiApi.changes();
                 const map: Record<string, string[]> = {};
-                res.data.forEach((item) => {
+                res.data?.forEach((item) => {
                     if (!map[item.YupaiOrderID]) map[item.YupaiOrderID] = [];
                     if (item.FieldName) map[item.YupaiOrderID].push(item.FieldName);
                 });

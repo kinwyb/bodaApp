@@ -207,7 +207,7 @@ export function QuickSelectModal<T extends QuickSelectRow = QuickSelectRow>({
       title={title}
       width={width}
       footer={null}
-      maskClosable={false}
+      mask={{ closable: false }}
       destroyOnHidden
       onCancel={onCancel}
       styles={{
