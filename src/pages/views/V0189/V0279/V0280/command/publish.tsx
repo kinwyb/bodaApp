@@ -1,5 +1,5 @@
 import {ExclamationCircleOutlined, SendOutlined} from '@ant-design/icons';
-import {ApiError, yupaiOrderService} from '@/services';
+import {ApiError, yupaiOrderApi} from '@/api';
 import type {PreorderCommandFactory} from './types';
 
 /** 发布订单：发布后不能取消，二次确认后批量提交 */
@@ -27,7 +27,7 @@ export const publishCommand: PreorderCommandFactory = ({message, modal, getSelec
             mask: {blur: true},
             onOk: async () => {
                 try {
-                    const succMsg = await yupaiOrderService.submit(targets.map((order) => order.ID));
+                    const succMsg = await yupaiOrderApi.submit(targets.map((order) => order.ID));
                     void message.success(succMsg.data);
                     await reload();
                 } catch (error) {

@@ -1,6 +1,6 @@
 import type {ColumnsDefine} from '@visactor/vtable';
-import type {YupaiOrder} from '@/services';
-import {YupaiMachineSizeHeader} from '@/services'
+import type {YupaiOrder} from '@/api';
+import {YupaiMachineSizeHeader} from '@/api'
 import type {FilterField} from '@/components/TableFilter';
 import {buildColumns, type AppColumnDef} from '@/components/columnBuilder';
 

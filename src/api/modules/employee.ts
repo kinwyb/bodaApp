@@ -22,6 +22,6 @@ export interface EmployeeRecord {
   [key: string]: unknown;
 }
 
-export const employeeService = {
+export const employeeApi = {
   list: (query: EmployeeQuery = {}) => http.get<EmployeeRecord[]>('/employees', query),
 };

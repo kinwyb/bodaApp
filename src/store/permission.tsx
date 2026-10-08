@@ -1,13 +1,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { App } from 'antd';
-import {
-  ApiError,
-  applyMenuPermission,
-  buildPermissionIndex,
-  powerService,
-  type MenuActionItem,
-  type DesktopMenu,
-} from '../services';
+import { ApiError, powerApi, type DesktopMenu } from '../api';
+import { applyMenuPermission, buildPermissionIndex, type MenuActionItem } from '../services';
 
 export interface PermissionContextValue {
   /** 菜单权限是否加载中 */
@@ -46,8 +40,8 @@ export const PermissionProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setLoading(true);
       try {
         const [systemRes, permissionRes] = await Promise.all([
-          powerService.desktopMenu(),
-          powerService.userMenus(),
+          powerApi.desktopMenu(),
+          powerApi.userMenus(),
         ]);
         if (cancelled) return;
         setSystem(systemRes.data);

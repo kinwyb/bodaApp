@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { App, Button, DatePicker, Form, Input, InputNumber, Modal, Select } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
-import { ApiError, employeeService, yupaiOrderService, type YupaiOrder } from '@/services';
+import { ApiError, employeeApi, yupaiOrderApi, type YupaiOrder } from '@/api';
 import { VTable } from '@/components/VTable';
 import { EmployeeQuickSelect } from '@/components/quick-select';
 import {
@@ -169,7 +169,7 @@ const PreorderFormModal: React.FC<PreorderFormModalProps> = ({
     }
     setChecking(true);
     try {
-      const res = await yupaiOrderService.list({ keyword: code });
+      const res = await yupaiOrderApi.list({ keyword: code });
       const duplicated = res.data.some(
         (item) => String(item.OrderCode) === code && item.ID !== record?.ID,
       );
@@ -228,8 +228,8 @@ const PreorderFormModal: React.FC<PreorderFormModalProps> = ({
 
     setSaving(true);
     try {
-      if (mode === 'edit' && record) await yupaiOrderService.update(record.ID, payload);
-      else await yupaiOrderService.create(payload);
+      if (mode === 'edit' && record) await yupaiOrderApi.update(record.ID, payload);
+      else await yupaiOrderApi.create(payload);
       message.success(mode === 'edit' ? '保存成功' : '新增成功');
       onSaved();
     } catch (error) {
@@ -484,7 +484,7 @@ const PreorderFormModal: React.FC<PreorderFormModalProps> = ({
       <EmployeeQuickSelect
         open={employeeOpen}
         title="快速选择-业务员"
-        loadData={async () => (await employeeService.list()).data}
+        loadData={async () => (await employeeApi.list()).data}
         onSelect={(employee) => {
           form.setFieldValue('Ywy', employee.EmployeeName);
           setEmployeeOpen(false);

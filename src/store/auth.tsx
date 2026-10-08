@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { clearToken, getToken, loginService, setToken, type UserInfo } from '../services';
+import { clearToken, getToken, loginApi, setToken, type UserInfo } from '../api';
 
 /** 用户信息缓存键：刷新页面时先取它渲染，避免首屏空白 */
 const USER_INFO_KEY = 'boda_user';
@@ -65,7 +65,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // 这里不写同步 setState，避免 effect 首次执行时引发级联渲染
     if (!getToken()) return null;
     try {
-      const res = await loginService.userInfo();
+      const res = await loginApi.userInfo();
       applyUserInfo(res.data);
       return res.data;
     } catch {
@@ -77,7 +77,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const login = useCallback(
     async (username: string, password: string): Promise<boolean> => {
       try {
-        const res = await loginService.login({ username, password });
+        const res = await loginApi.login({ username, password });
         const nextToken = res.data ?? '';
         if (!nextToken) return false;
         setToken(nextToken);
@@ -92,7 +92,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   );
 
   const logout = useCallback(() => {
-    void loginService.logout().catch(() => undefined);
+    void loginApi.logout().catch(() => undefined);
     clearToken();
     setTokenState(null);
     applyUserInfo(null);
@@ -104,7 +104,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     if (!getToken()) return;
     let cancelled = false;
-    loginService
+    loginApi
       .userInfo()
       .then((res) => {
         if (!cancelled) applyUserInfo(res.data);

@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { App, Button, Form, Input, Pagination, Space } from 'antd';
 import { PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import type { ColumnsDefine } from '@visactor/vtable';
-import { ApiError, viewService, type ViewRow, type ViewRowQuery, type ViewRowStatus } from '@/services';
+import { ApiError, viewApi, type ViewRow, type ViewRowQuery, type ViewRowStatus } from '@/api';
 import { usePermission } from '@/store/permission';
 import { VTable } from '@/components/VTable';
 import { AuthButton } from '@/components/Permission';
@@ -43,7 +43,7 @@ const DepartmentPage: React.FC<ViewPageProps> = ({ view, trail }) => {
     async (params: ViewRowQuery) => {
       setLoading(true);
       try {
-        const res = await viewService.rows(view, params);
+        const res = await viewApi.rows(view, params);
         setDataSource(res.data);
         setTotal(res.page?.total ?? res.data.length);
       } catch (error) {
@@ -62,7 +62,7 @@ const DepartmentPage: React.FC<ViewPageProps> = ({ view, trail }) => {
   const handleDelete = useCallback(
     async (id: string) => {
       try {
-        await viewService.removeRow(view, id);
+        await viewApi.removeRow(view, id);
         message.success(`已删除 ${id}`);
         await loadData(query);
       } catch (error) {

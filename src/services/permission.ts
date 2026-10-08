@@ -1,37 +1,9 @@
-import { http } from '../request';
+import type {DesktopMenu, UserMenu} from '@/api';
 
-/** 系统整体菜单节点，对应 /menus 返回结构 */
-export interface DesktopMenu {
-  MenuCode: string;
-  ParentMenuCode: string;
-  MenuID: number;
-  /** 页面路径，按 "_" 分割成层级，例如 V0005_V0010_V0214 */
-  View: string;
-  ViewID: number;
-  MenuName: string;
-  Debug: boolean;
-  Release: boolean;
-  SortIndex: number;
-  /** true 表示按钮权限（新增/保存/删除等），不作为导航菜单 */
-  IsAction: boolean;
-  Children: DesktopMenu[] | null;
-  UseOrgs: string;
-}
-
-/** 用户权限菜单节点，对应 /user/menus 返回结构 */
-export interface UserMenu {
-  id: number;
-  label: string;
-  ParentMenuID: number;
-  ParentMenu: string;
-  children: UserMenu[] | null;
-  RequestAddress?: string;
-  RequestMethod?: string;
-  EnableLog?: boolean;
-  Enable?: boolean;
-  IsAction?: boolean;
-  Release?: boolean;
-}
+/**
+ * 菜单权限的业务逻辑层：接口调用在 @/api（powerApi），
+ * 这里只做纯计算 —— 权限树过滤、索引构建、菜单形态判断。
+ */
 
 /** 菜单是否可作为导航项 */
 export function isNavigableMenu(node: DesktopMenu): boolean {
@@ -58,7 +30,7 @@ export function buildPermissionIndex(nodes: UserMenu[]): PermissionIndex {
     });
   };
   walk(nodes);
-  return { ids };
+  return {ids};
 }
 
 /** 菜单/按钮是否有权限：权限 id 命中 ViewID 即为有权限 */
@@ -115,18 +87,11 @@ export function applyMenuPermission(system: DesktopMenu[], index: PermissionInde
       }
       const children = node.Children ? filterNodes(node.Children) : [];
       if (permitted || children.length > 0) {
-        result.push({ ...node, Children: children.length ? children : null });
+        result.push({...node, Children: children.length ? children : null});
       }
     });
     return result;
   };
 
-  return { tree: filterNodes(system), actions };
+  return {tree: filterNodes(system), actions};
 }
-
-export const powerService = {
-  /** 获取系统整体菜单树 */
-  desktopMenu: () => http.get<DesktopMenu[]>('/power/desktopMenu'),
-  /** 获取当前用户的权限菜单 */
-  userMenus: () => http.get<UserMenu[]>('/power/user/menu'),
-};

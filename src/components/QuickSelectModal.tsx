@@ -67,7 +67,7 @@ export interface QuickSelectModalProps<T extends QuickSelectRow = QuickSelectRow
  *   title="快速选择-部门"
  *   columns={columns}
  *   rowKey="id"
- *   loadData={(keyword) => employeeService.list(keyword)}
+ *   loadData={(keyword) => employeeApi.list(keyword)}
  *   onSelect={(record) => { setValue(record); setOpen(false); }}
  *   onCancel={() => setOpen(false)}
  * />

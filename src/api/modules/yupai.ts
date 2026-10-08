@@ -1,5 +1,5 @@
 import {http} from '../request';
-import type {PageQuery} from "@/services";
+import type {PageQuery} from '../types';
 
 /** 尺码列标题，按界面原样展示 */
 export const YupaiMachineSizeHeader = [
@@ -135,7 +135,7 @@ export interface YupaiOrderDel {
     Memo: string;
 }
 
-export const yupaiOrderService = {
+export const yupaiOrderApi = {
     list: (query: YupaiOrderQuery = {}) => http.get<YupaiOrder[]>('/plan/yupaiOrder/list', {...query, isDel: 0}),
     /** 最近发生变化的明细 */
     changes: () => http.get<YupaiOrderChange[]>('/plan/yupaiOrder/list/changes'),

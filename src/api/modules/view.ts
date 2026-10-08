@@ -18,7 +18,7 @@ export interface ViewRowQuery extends PageQuery {
 }
 
 /** 通用页面数据服务，按 View 路径取列表 */
-export const viewService = {
+export const viewApi = {
   rows: (view: string, query: ViewRowQuery = {}) =>
     http.get<ViewRow[]>(`/views/${encodeURIComponent(view)}/rows`, query),
   removeRow: (view: string, id: string) =>

@@ -27,7 +27,7 @@ export interface LoginParams {
   password: string;
 }
 
-export const loginService = {
+export const loginApi = {
   /** 登录，成功返回 token 等凭证 */
   login: (payload: LoginParams) => http.post<string>('/login', payload),
   /** 获取当前登录用户信息，凭证由请求头 Authorization 携带 */

@@ -1,10 +1,10 @@
 import React, { useMemo } from 'react';
 import type { ColumnsDefine } from '@visactor/vtable';
-import type { EmployeeRecord } from '@/services';
+import type { EmployeeRecord } from '@/api';
 import { QuickSelectModal } from '../QuickSelectModal';
 import { buildColumns, type AppColumnDef } from '../columnBuilder';
 
-export type { EmployeeRecord } from '@/services';
+export type { EmployeeRecord } from '@/api';
 
 /** 弹窗展示的三列：工号、姓名、部门 */
 const EMPLOYEE_COLUMNS: AppColumnDef[] = [
@@ -48,7 +48,7 @@ export interface EmployeeQuickSelectProps {
  *
  * <EmployeeQuickSelect
  *   open={open}
- *   loadData={async () => (await employeeService.list()).data}
+ *   loadData={async () => (await employeeApi.list()).data}
  *   onSelect={(employee) => { setYwy(employee.EmployeeName); setOpen(false); }}
  *   onCancel={() => setOpen(false)}
  * />

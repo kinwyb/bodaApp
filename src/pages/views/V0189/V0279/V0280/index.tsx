@@ -1,6 +1,6 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {App} from 'antd';
-import {ApiError, yupaiOrderService, type YupaiOrderQuery, type YupaiOrder} from '@/services';
+import {ApiError, yupaiOrderApi, type YupaiOrderQuery, type YupaiOrder} from '@/api';
 import {CommandBar} from '@/components/CommandBar';
 import {FilterTable} from '@/components/FilterTable';
 import {PageBreadcrumb} from '@/components/PageBreadcrumb';
@@ -32,7 +32,7 @@ const PreorderPage: React.FC<ViewPageProps> = ({view, trail}) => {
             tableRef.current?.clearSelection();
             setLoading(true);
             try {
-                const res = await yupaiOrderService.list(params);
+                const res = await yupaiOrderApi.list(params);
                 setDataSource(res.data);
                 setTotal(res.page?.total ?? 0);
             } catch (error) {
@@ -51,7 +51,7 @@ const PreorderPage: React.FC<ViewPageProps> = ({view, trail}) => {
     useEffect(() => {
         (async () => {
             try {
-                const res = await yupaiOrderService.changes();
+                const res = await yupaiOrderApi.changes();
                 const map: Record<string, string[]> = {};
                 res.data.forEach((item) => {
                     if (!map[item.YupaiOrderID]) map[item.YupaiOrderID] = [];
