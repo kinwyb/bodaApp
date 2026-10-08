@@ -942,7 +942,7 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
       ...(rowNumber
         ? {
             rowSeriesNumber: {
-              title: typeof rowNumber === 'object' && rowNumber.title ? rowNumber.title : '序号',
+              title: typeof rowNumber === 'object' && rowNumber.title ? rowNumber.title : '',
               width: typeof rowNumber === 'object' && rowNumber.width ? rowNumber.width : 48,
               headerStyle: { textAlign: 'center' as const },
               // 统计行灰底加粗；columns 上的 cellStyle 管不到这一列，必须在这里单独设
