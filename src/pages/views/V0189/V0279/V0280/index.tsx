@@ -1,33 +1,15 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {App, Input} from 'antd';
-import dayjs from 'dayjs';
-import {
-    ApartmentOutlined,
-    CalendarOutlined,
-    CloseOutlined,
-    ColumnWidthOutlined,
-    CopyOutlined,
-    EditOutlined,
-    ExportOutlined,
-    FieldTimeOutlined,
-    PlusOutlined,
-    ReloadOutlined,
-    SafetyCertificateOutlined,
-    SendOutlined,
-    SettingOutlined,
-    ShopOutlined,
-    TagOutlined,
-    ExclamationCircleOutlined,
-} from '@ant-design/icons';
+import {App} from 'antd';
 import {ApiError, yupaiOrderService, type YupaiOrderQuery, type YupaiOrder} from '@/services';
 import {CommandBar} from '@/components/CommandBar';
-import type {CommandItem} from '@/components/CommandBar';
 import {FilterTable} from '@/components/FilterTable';
 import {PageBreadcrumb} from '@/components/PageBreadcrumb';
 import type {VTableApi, VTableCellStyleHook, VTableMenuConfig} from '@/components/VTable';
 import type {ViewPageProps} from '@/pages/types';
 import {buildPreorderColumns, preorderFilterFields} from './columns';
 import PreorderFormModal from './PreorderFormModal';
+import {usePreorderCommands} from './command';
+import type {PreorderCommandContext} from './command';
 
 /** V0189_V0279_V0280 计划管理 > 预订单 > 预订单管理 */
 const PreorderPage: React.FC<ViewPageProps> = ({view, trail}) => {
@@ -43,8 +25,6 @@ const PreorderPage: React.FC<ViewPageProps> = ({view, trail}) => {
     const [formMode, setFormMode] = useState<'add' | 'edit' | 'view'>('add');
     const [editingRecord, setEditingRecord] = useState<YupaiOrder | null>(null);
     const tableRef = useRef<VTableApi | null>(null);
-    /** 删除原因：confirm 是命令式调用，外部拿不到输入框的 state，用 ref 带出提交值 */
-    const deleteMemoRef = useRef('');
 
     const loadData = useCallback(
         async (params: YupaiOrderQuery) => {
@@ -117,223 +97,33 @@ const PreorderPage: React.FC<ViewPageProps> = ({view, trail}) => {
         ) as YupaiOrder[];
     }, [dataSource, tableRef]);
 
-    // 单条操作的目标行：取选中的第一条
-    const getSelectedTarget = useCallback(
-        (): YupaiOrder | undefined => getActiveRows()[0],
-        [getActiveRows],
-    );
-
-    /** 批量操作的目标行：就是当前选中的全部行 */
-    const getSelectedTargets = useCallback(
-        (): YupaiOrder[] => getActiveRows(),
-        [getActiveRows],
-    );
-
-    // 编辑按钮
-    const editCmd = useCallback(() => {
-        const target = getSelectedTarget();
-        if (!target) {
-            message.warning('请选择一条数据再修改').then();
-            return;
-        }
-        setFormMode('edit');
-        setEditingRecord(target);
+    /** 打开表单弹窗：命令按钮 / 右键菜单 / 双击行共用一个入口 */
+    const openForm = useCallback((mode: 'add' | 'edit' | 'view', record: YupaiOrder | null) => {
+        setFormMode(mode);
+        setEditingRecord(record);
         setFormOpen(true);
-    }, [getSelectedTarget, message, setFormMode, setEditingRecord, setFormOpen])
+    }, []);
 
-    // 删除按钮
-    const delCmd = useCallback(() => {
-        const targets = getSelectedTargets();
-        if (!targets || targets.length < 1) {
-            message.warning("请选择至少一条数据").then();
-            return;
-        }
-        const title = targets.length > 1 ? "确定删除选中的订单":`确认删除订单: ${targets[0].OrderCode} 款式: ${targets[0].StyleCode} ？`
-        deleteMemoRef.current = '';
-        modal.confirm({
-            icon: <ExclamationCircleOutlined/>,
-            title: title,
-            content: (
-                <div className="delete-confirm-reason">
-                    <Input.TextArea
-                        rows={4}
-                        autoFocus
-                        maxLength={200}
-                        showCount
-                        placeholder="请填写删除原因"
-                        onChange={(event) => {
-                            deleteMemoRef.current = event.target.value;
-                        }}
-                    />
-                </div>
-            ),
-            okText: '确认删除',
-            okButtonProps: {danger: true},
-            mask: {blur: true},
-            onOk: async () => {
-                const memo = deleteMemoRef.current.trim();
-                if (!memo) {
-                    void message.warning('请填写删除原因');
-                    // 返回 rejected promise，弹窗保持打开，不丢已填内容
-                    return Promise.reject();
-                }
-                try {
-                    await yupaiOrderService.delete({ID: targets.map(o=>o.ID), Memo: memo});
-                    void message.success('已删除');
-                    await loadData(query);
-                } catch (error) {
-                    void message.error(error instanceof ApiError ? error.message : '删除失败');
-                    // 失败同样保留弹窗，方便改完原因重试
-                    return Promise.reject();
-                }
-            },
-        });
-    }, [getSelectedTargets, message, modal, loadData, query])
+    /** 按当前条件重新加载（command/ 里的命令统一走它） */
+    const reload = useCallback(async () => {
+        await loadData(query);
+    }, [loadData, query]);
 
-    // 导出当前页到 Excel：走 VTable 内部的 TableExportPlugin，文件名不用带 .xlsx（插件会补）
-    const exportCmd = useCallback(async () => {
-        const hide = message.loading('正在导出…', 0);
-        try {
-            await tableRef.current?.exportExcel(`预订单_${dayjs().format('YYYY-MM-DD')}`);
-            void message.success('导出成功');
-        } catch (error) {
-            void message.error(error instanceof Error ? error.message : '导出失败');
-        } finally {
-            hide();
-        }
-    }, [message]);
-
-    // 发布按钮
-    const submitCmd = useCallback(() => {
-        const targets = getSelectedTargets();
-        if (!targets || targets.length === 0) {
-            message.warning("请选择一条数据").then();
-            return;
-        }
-        const title = targets.length > 1 ? "确定要发布选中的这些订单款式,发布后不能取消" : `确定要发布订单:${targets[0].OrderCode} 款号: ${targets[0].StyleCode}`;
-        modal.confirm({
-            icon: <ExclamationCircleOutlined/>,
-            title: "发布确认",
-            content: title,
-            okText: '确认',
-            okButtonProps: {danger: true},
-            mask: {blur: true},
-            onOk: async () => {
-                try {
-                    const succMsg = await yupaiOrderService.submit(targets.map(o => o.ID));
-                    void message.success(succMsg.data);
-                    await loadData(query);
-                } catch (error) {
-                    void message.error(error instanceof ApiError ? error.message : '发布失败');
-                    // 失败同样保留弹窗，方便改完原因重试
-                    return Promise.reject();
-                }
-            },
-        });
-    }, [getSelectedTargets, message, modal, loadData, query]);
-
-    const commands: CommandItem[] = useMemo(() => [
-        {
-            key: 'add', label: '新增', icon: <PlusOutlined/>, permission: '新增',
-            onClick: () => {
-                setFormMode('add');
-                setEditingRecord(null);
-                setFormOpen(true);
-            }
-        },
-        {
-            key: 'edit', label: '修改', icon: <EditOutlined/>, permission: '编辑', disabled: !hasSelection,
-            onClick: editCmd
-        },
-        {
-            key: 'cancel',
-            label: '取消',
-            icon: <CloseOutlined/>,
-            disabled: !hasSelection,
-            onClick: delCmd
-        },
-        {
-            key: 'copy',
-            label: '复制',
-            icon: <CopyOutlined/>,
-            dividerBefore: true,
-            onClick: () => message.info('复制（演示）')
-        },
-        {
-            key: 'copyOrdered', label: '已下订单复制', icon: <CopyOutlined/>, disabled: true, onClick: () => {
-            }
-        },
-        {
-            key: 'changeDate',
-            label: '变更日志',
-            icon: <CalendarOutlined/>,
-            dividerBefore: true,
-            onClick: () => message.info('变更日志（演示）')
-        },
-        {
-            key: 'publish',
-            label: '发布',
-            icon: <SendOutlined/>,
-            permission: '发布',
-            disabled: !hasSelection,
-            onClick: submitCmd
-        },
-        {key: 'ordered', label: '已下单', icon: <TagOutlined/>, onClick: () => message.info('已下单（演示）')},
-        {
-            key: 'assign',
-            label: '分批',
-            icon: <ApartmentOutlined/>,
-            dividerBefore: true,
-            onClick: () => message.info('分批（演示）')
-        },
-        {
-            key: 'stage',
-            label: '预订的阶段',
-            icon: <FieldTimeOutlined/>,
-            onClick: () => message.info('预订的阶段（演示）')
-        },
-        {
-            key: 'origin',
-            label: '工段产地',
-            icon: <ShopOutlined/>,
-            permission: '产地设置',
-            onClick: () => message.info('工段产地（演示）')
-        },
-        {
-            key: 'plan',
-            label: '计划部设定',
-            icon: <SettingOutlined/>,
-            permission: 'PMC设置',
-            onClick: () => message.info('计划部设定（演示）')
-        },
-        {
-            key: 'refresh',
-            label: '刷新',
-            icon: <ReloadOutlined/>,
-            dividerBefore: true,
-            onClick: () => void loadData(query)
-        },
-        {
-            key: 'autoWidth',
-            label: '列宽自适应',
-            icon: <ColumnWidthOutlined/>,
-            onClick: () => tableRef.current?.autoFitColumns()
-        },
-        {
-            key: 'export',
-            label: '导出',
-            icon: <ExportOutlined/>,
-            dividerBefore: true,
-            onClick: exportCmd
-        },
-        {
-            key: 'auth',
-            label: '权限',
-            icon: <SafetyCertificateOutlined/>,
-            permission: '权限管理',
-            onClick: () => message.info('权限（演示）')
-        },
-    ], [hasSelection, message, query, loadData, editCmd, delCmd, exportCmd, submitCmd]);
+    /** 命令的公共依赖：业务动作全部在 command/ 目录，页面只负责装配状态 */
+    const commandContext = useMemo<PreorderCommandContext>(
+        () => ({
+            message,
+            modal,
+            tableRef,
+            getSelectedRows: getActiveRows,
+            hasSelection,
+            query,
+            reload,
+            openForm,
+        }),
+        [message, modal, tableRef, getActiveRows, hasSelection, query, reload, openForm],
+    );
+    const commands = usePreorderCommands(commandContext);
 
     const columns = useMemo(() => buildPreorderColumns(), []);
 
@@ -359,9 +149,7 @@ const PreorderPage: React.FC<ViewPageProps> = ({view, trail}) => {
                 if (menuKey === 'detail') {
                     const target = record as YupaiOrder | undefined;
                     if (!target?.ID) return;
-                    setFormMode('view');
-                    setEditingRecord(target);
-                    setFormOpen(true);
+                    openForm('view', target);
                     return;
                 }
                 if (menuKey === 'copyCell') {
@@ -378,11 +166,11 @@ const PreorderPage: React.FC<ViewPageProps> = ({view, trail}) => {
                     return;
                 }
                 if (menuKey === 'refresh') {
-                    void loadData(query);
+                    void reload();
                 }
             },
         }),
-        [loadData, message, query],
+        [openForm, message, reload],
     );
 
     const workPlaces = useMemo(
@@ -437,9 +225,7 @@ const PreorderPage: React.FC<ViewPageProps> = ({view, trail}) => {
                         if (info.isSummaryRow) return;
                         const target = info.record as YupaiOrder | undefined;
                         if (!target?.ID) return;
-                        setFormMode('view');
-                        setEditingRecord(target);
-                        setFormOpen(true);
+                        openForm('view', target);
                     }}
                 />
             </div>
