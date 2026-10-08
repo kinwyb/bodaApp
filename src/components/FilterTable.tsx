@@ -5,10 +5,12 @@ import { SearchComponent } from '@visactor/vtable-search';
 import { TableFilter, type FilterField, type FilterModel } from './TableFilter';
 import {
   VTable,
+  type EditCellTrigger,
   type TableExportPluginOptions,
   type VTableApi,
   type VTableCellInfo,
   type VTableCellStyleHook,
+  type VTableCellValueChangeInfo,
   type VTableMenuConfig,
 } from './VTable';
 
@@ -37,12 +39,22 @@ export interface FilterTableProps {
    * 主键不用自己填，VTable 会自动补成 SUMMARY_ROW_KEY。
    */
   summary?: Record<string, unknown> | ((records: Array<Record<string, unknown>>) => Record<string, unknown>);
+  /** 选择高亮模式，默认整行高亮 */
+  highlightMode?: 'row' | 'column' | 'cell' | 'cross';
+  /** 框选、Shift 扩展这类「一个范围覆盖多格」的选中，是否把高亮铺满整行；默认 true */
+  highlightInRange?: boolean;
+  /** 是否允许多选，默认 true。false：只能单选，点新的会替换掉旧的（Ctrl/Shift 多选一并关掉） */
+  multiSelect?: boolean;
   /** 单元格样式回调 */
   cellStyle?: VTableCellStyleHook;
   /** 列宽总和不足容器宽度时，是否自动拉宽各列来填满容器；默认 false（右侧留白） */
   autoFillWidth?: boolean;
   /** 可编辑列 */
   editableFields?: Record<string, string>;
+  /** 进入编辑的触发方式，默认双击 */
+  editCellTrigger?: EditCellTrigger;
+  /** 单元格编辑完成回调（含行索引与新值），用于把编辑结果同步回页面 */
+  onCellValueChange?: (info: VTableCellValueChangeInfo) => void;
   /** 行高 */
   rowHeight?: number;
   /** 表头行高 */
@@ -109,9 +121,14 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
       maxFrozenWidth,
       unfreezeAllOnExceedsMaxWidth,
       summary,
+      highlightMode,
+      highlightInRange,
+      multiSelect,
       cellStyle,
       autoFillWidth,
       editableFields,
+      editCellTrigger,
+      onCellValueChange,
       rowHeight,
       headerRowHeight,
       emptyTip,
@@ -313,9 +330,14 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
             maxFrozenWidth={maxFrozenWidth}
             unfreezeAllOnExceedsMaxWidth={unfreezeAllOnExceedsMaxWidth}
             summary={resolvedSummary}
+            highlightMode={highlightMode}
+            highlightInRange={highlightInRange}
+            multiSelect={multiSelect ?? false}
             cellStyle={cellStyle}
             autoFillWidth={autoFillWidth}
             editableFields={editableFields}
+            editCellTrigger={editCellTrigger}
+            onCellValueChange={onCellValueChange}
             rowHeight={rowHeight}
             headerRowHeight={headerRowHeight}
             emptyTip={emptyTip ?? '暂无数据'}
