@@ -383,8 +383,9 @@ export interface VTableProps {
    */
   highlightInRange?: boolean;
   /**
-   * 是否允许多选。true：Ctrl/Cmd 点选追加、Shift 点选扩展范围；
-   * false：只能单选，点新的会替换掉旧的（VTable 内建的 ctrl/shiftMultiSelect 一并关掉）。
+   * 是否允许多选。true：Ctrl/Cmd 点选追加、Shift 点选扩展范围、可拖拽框选、
+   * Ctrl+A 全选、点表头整列选中（VTable 原生行为）；
+   * false：只能单选 —— 点新的会替换掉旧的，上面这些批量入口全部关闭。
    */
   multiSelect?: boolean;
   /** 列宽总和不足容器宽度时，是否自动拉宽各列来填满容器；默认 false（右侧留白） */
@@ -964,7 +965,14 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
         highlightMode,
         // 打开后，框选 / Shift 扩展的多格范围也会整行高亮（默认不打开，只有单击整行）
         highlightInRange,
-        headerSelectMode: 'inline',
+        // 单选模式：点表头只选中表头那一格。默认 'inline' 是点表头整列选中，
+        // 角头（序号列表头）默认更是全表选中（cornerHeaderSelectMode 缺省 'all'），
+        // 这两个口子都能绕过单选，一并收窄成 'cell'
+        headerSelectMode: multiSelect ? 'inline' : 'cell',
+        ...(multiSelect ? {} : { cornerHeaderSelectMode: 'cell' as const }),
+        // 单选模式：拖拽不扩展选中范围。ctrlMultiSelect=false 只能关掉 Ctrl 追加，
+        // 拖拽扩格走的是 grabing 状态改 range 端点那条路，原生开关只有 disableDragSelect
+        ...(multiSelect ? {} : { disableDragSelect: true }),
         blankAreaClickDeselect: true,
         // 统计行不参与选中高亮
         disableSelect: (_col: number, row: number, inner: { columnHeaderLevelCount: number }) =>
@@ -982,10 +990,12 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
         // 关掉后 VTable 不再用 Ctrl/Shift 追加选中范围，等于单选
         ctrlMultiSelect: multiSelect,
         shiftMultiSelect: multiSelect,
-        // Ctrl+A 全选。它内部会派发 selected_cell（event.js 的 deelTableSelectAll），
+        // Ctrl+A 全选（单选模式下不开启：keydown 处理只看这个开关，不看 ctrlMultiSelect，
+        // 不关的话单选表格依然能被 Ctrl+A 一次全选）。
+        // 它内部会派发 selected_cell（event.js 的 deelTableSelectAll），
         // 所以整行底色与对外行数会照常跟上，不需要额外接线。
         // disableHeaderSelect 让选中范围从第一个数据行开始，不含表头。
-        selectAllOnCtrlA: { disableHeaderSelect: true },
+        ...(multiSelect ? { selectAllOnCtrlA: { disableHeaderSelect: true } } : {}),
       },
       ...(editableFields ? { editCellTrigger } : {}),
       ...(emptyTip ? { emptyTip: { text: emptyTip } } : {}),

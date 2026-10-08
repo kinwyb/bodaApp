@@ -418,6 +418,7 @@ const PreorderPage: React.FC<ViewPageProps> = ({view, trail}) => {
                     records={dataSource}
                     rowKey="ID"
                     frozenColCount={8}
+                    multiSelect={true}
                     summary={summary}
                     cellStyle={cellStyle}
                     menu={tableMenu}
