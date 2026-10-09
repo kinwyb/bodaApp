@@ -1,8 +1,8 @@
-import React, {useCallback, useEffect, useMemo, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {App, Button, DatePicker, Form, Input, InputNumber, Modal, Select} from 'antd';
 import dayjs, {type Dayjs} from 'dayjs';
 import {ApiError, employeeApi, yupaiApi, YupaiMachineSizeHeader, type YupaiOrder} from '@/api';
-import {VTable} from '@/components/VTable';
+import {VTable, type VTableMenuConfig} from '@/components/VTable';
 import {EmployeeQuickSelect} from '@/components/quick-select';
 import {
     buildPreorderDetailColumns,
@@ -78,9 +78,9 @@ const buildValues = (record?: YupaiOrder | null): yupaiOrderFormValues => {
     };
 };
 
-const buildDetailRows = (records?: YupaiOrder[] | null): yupaiOrderDetailRow[] => {
-    if (!records) return [createDetailRow('__new__')];
-    return records.map((record) => {
+const buildDetailRows = (records?: YupaiOrder[] | null, withNewLine: boolean = false): yupaiOrderDetailRow[] => {
+    if (!records) return [createDetailRow('')];
+    const result = records.map((record) => {
         const row: yupaiOrderDetailRow = {
             YupaiOrderID: String(record.ID ?? ''),
             StyleCode: String(record.StyleCode ?? ''),
@@ -99,6 +99,10 @@ const buildDetailRows = (records?: YupaiOrder[] | null): yupaiOrderDetailRow[] =
         });
         return row;
     });
+    if (withNewLine) {
+        result.push(createDetailRow(''));
+    }
+    return result;
 };
 
 const Field: React.FC<{
@@ -152,6 +156,38 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
     // 列定义只描述展示，是否可编辑由下面的 editableFields 决定
     const detailColumns = useMemo(() => buildPreorderDetailColumns(), []);
 
+    /** 新增明细行的序号：只为生成唯一行标识，不会提交给后端 */
+    const newRowSeqRef = useRef(0);
+
+    /** 右键菜单「添加行」：不传 at 表示追加到末尾，传了则插到该位置之前 */
+    const addDetailRow = useCallback((at?: number) => {
+        setDetailRows((prev) => {
+            const next = [...prev];
+            const index = at === undefined ? next.length : Math.max(0, Math.min(at, next.length));
+            newRowSeqRef.current += 1;
+            next.splice(index, 0, createDetailRow(`new-${newRowSeqRef.current}`));
+            return next;
+        });
+    }, []);
+
+    /** 详情表格右键菜单：只读 / 未解锁时不弹（返回空数组即无菜单） */
+    const detailMenu = useMemo<VTableMenuConfig>(
+        () => ({
+            contextMenuItems: ({rowIndex}) => {
+                if (detailLocked) return [];
+                return [
+                    ...(rowIndex >= 0 ? [{text: '在下方插入行', menuKey: 'insertRowBelow'}] : []),
+                    {text: '新增行', menuKey: 'appendRow'},
+                ];
+            },
+            onClick: ({menuKey, rowIndex}) => {
+                if (menuKey === 'insertRowBelow') addDetailRow(rowIndex + 1);
+                else if (menuKey === 'appendRow') addDetailRow();
+            },
+        }),
+        [addDetailRow, detailLocked],
+    );
+
     const handleDetailChange = useCallback(
         ({field, rowIndex, value}: { field: string; rowIndex: number; value: unknown }) => {
             setDetailRows((prev) =>
@@ -176,7 +212,7 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                     if (departments && departments.includes(res.data[0].DepartmentID)) { //进入编辑状态
                         form.resetFields();
                         form.setFieldsValue(buildValues(res.data[0]));
-                        setDetailRows(buildDetailRows(res.data));
+                        setDetailRows(buildDetailRows(res.data, true));
                         setOrderChecked(true);
                         return;
                     }
@@ -480,9 +516,10 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                         <VTable
                             columns={detailColumns}
                             records={detailRows as unknown as Array<Record<string, unknown>>}
-                            rowKey="__id"
+                            rowKey="YupaiOrderID"
                             editableFields={detailLocked ? undefined : DETAIL_EDITOR_FIELDS}
                             onCellValueChange={handleDetailChange}
+                            menu={detailMenu}
                         />
                         {detailRows.length === 0 && <div className="preorder-detail-empty">没有任何记录</div>}
                     </div>
