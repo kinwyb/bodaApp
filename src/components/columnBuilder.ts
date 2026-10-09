@@ -10,8 +10,16 @@ export type ColumnDataType =
 
 export interface ColumnTagItem {
   label: string;
-  color: string;
+  /** 文字颜色，不传则沿用单元格默认文字色（随主题，与底色自然一致） */
+  color?: string;
 }
+
+/**
+ * tag 映射项：
+ * - 字符串简写：只给文案，不指定颜色 —— `{ 1: '苹果' }`
+ * - 对象写法：需要指定颜色时用 —— `{ 1: { label: '苹果', color: '#d85a30' } }`
+ */
+export type ColumnTagItemLike = string | ColumnTagItem;
 
 export interface AppColumnDef {
   field: string;
@@ -21,8 +29,8 @@ export interface AppColumnDef {
   dataType?: ColumnDataType;
   /** number：小数位 */
   precision?: number;
-  /** tag：值 -> 文案与颜色 */
-  tagMap?: Record<string, ColumnTagItem>;
+  /** tag：值 -> 文案（字符串简写）或 {label, color}（要指定颜色时） */
+  tagMap?: Record<string, ColumnTagItemLike>;
   /** boolean：勾选框右侧的文字（选中 / 未选中），不传则只显示勾选框 */
   booleanText?: [string, string];
   /** 是否可排序 */
@@ -97,13 +105,21 @@ export function buildColumns(defs: AppColumnDef[]): ColumnsDefine {
 
       case 'tag': {
         const map = def.tagMap ?? {};
+        // 字符串简写等价于「只有文案、不指定颜色」
+        const itemOf = (value: unknown): ColumnTagItem | undefined => {
+          const raw = map[String(value ?? '')];
+          if (raw === undefined || raw === null) return undefined;
+          return typeof raw === 'string' ? { label: raw } : raw;
+        };
         base.fieldFormat = (record: Record<string, unknown>) => {
           const value = String(record[def.field] ?? '');
-          return map[value]?.label ?? value;
+          return itemOf(value)?.label ?? value;
         };
-        base.style = (args: { dataValue?: unknown }) => ({
-          color: map[String(args.dataValue ?? '')]?.color ?? '#1f1f1f',
-        });
+        // 没配颜色的项不返回 color，文字沿用默认色（与底色一致，跟随主题）
+        base.style = (args: { dataValue?: unknown }) => {
+          const color = itemOf(args.dataValue)?.color;
+          return color ? { color } : {};
+        };
         break;
       }
 

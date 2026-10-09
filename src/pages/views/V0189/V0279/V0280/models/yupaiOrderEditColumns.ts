@@ -3,7 +3,7 @@ import {buildColumns, type AppColumnDef} from '@/components/columnBuilder';
 import {
     ANTD_INPUT_EDITOR,
     registerAntdInputEditor,
-    registerAntdNumberEditor,
+    registerAntdNumberEditor, registerAntdSelectEditor,
 } from '@/components/vtable-editors/register';
 import {YupaiMachineSizeHeader} from '@/api/modules/yupai';
 
@@ -39,17 +39,27 @@ export interface yupaiOrderDetailRow {
 const DETAIL_INT_EDITOR = 'preorder-detail-int';
 /** 小数值（克重、下机时间、缝制工时）：0 起步，允许小数 */
 const DETAIL_DECIMAL_EDITOR = 'preorder-detail-decimal';
+const DETAIL_HDWORK_EDITOR = 'preorder-detail-hdwork';
+const hdWorkNames = [
+    '拷边', '缝杯', '粘合', '包边', '人字车', '带刀款', '生理裤', '密拉',
+    '拉花边', '短裤拉花边', '拉皮双针', '四针六线', '空卷', '上拉链',
+];
 
 // VTable 只认「已注册的编辑器名」，先注册再挂到列上
 registerAntdInputEditor(ANTD_INPUT_EDITOR);
 registerAntdNumberEditor(DETAIL_INT_EDITOR, {min: 0, precision: 0});
 registerAntdNumberEditor(DETAIL_DECIMAL_EDITOR, {min: 0});
+registerAntdSelectEditor(DETAIL_HDWORK_EDITOR, {
+    // 工序名本身就是值和文案，转成 options 用 map 即可
+    options: hdWorkNames.map((name) => ({value: name, label: name})),
+});
 
 /** 这些数值列允许小数，其余数值列按整数处理 */
 const DECIMAL_FIELDS = new Set(['ZZMWeight', 'ZZMTime', 'MSewWt']);
 
 /** 按列的数据类型挑编辑器：数值列用 InputNumber，其余用 Input */
 function editorOf(column: AppColumnDef): string {
+    if (column.field === 'HDWorkName') return DETAIL_HDWORK_EDITOR;
     if (column.dataType !== 'number') return ANTD_INPUT_EDITOR;
     return DECIMAL_FIELDS.has(column.field) ? DETAIL_DECIMAL_EDITOR : DETAIL_INT_EDITOR;
 }

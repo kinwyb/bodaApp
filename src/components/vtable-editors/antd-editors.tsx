@@ -217,6 +217,45 @@ export class AntdInputNumberEditor implements IEditor<number | null> {
   }
 }
 
+// ─── AntdSelectEditor：把数据值对齐到 options 的 value 类型 ──────────────────
+
+/** 从 antd Select 的 options（含分组）里收集所有 value */
+function collectOptionValues(options: unknown): unknown[] {
+  if (!Array.isArray(options)) return [];
+  const values: unknown[] = [];
+  const walk = (list: unknown[]) => {
+    list.forEach((item) => {
+      if (!item || typeof item !== 'object') return;
+      const option = item as { value?: unknown; options?: unknown };
+      if (option.value !== undefined) values.push(option.value);
+      if (Array.isArray(option.options)) walk(option.options);
+    });
+  };
+  walk(options);
+  return values;
+}
+
+/**
+ * 把数据里的值对齐到 options 的 value 类型，业务侧不必关心两边类型是否一致：
+ * 先全等匹配，再按字符串比较（数据可能是 '2'，而 options 里写的是 2，或反之）。
+ * 找不到匹配、或 options 尚未加载时原样返回（antd 会退回显示原值本身）。
+ */
+function alignToOptionValue(value: unknown, options: unknown): unknown {
+  const values = collectOptionValues(options);
+  if (values.length > 0) {
+    const exact = values.find((item) => item === value);
+    if (exact !== undefined) return exact;
+    const loose =
+      value === null || value === undefined || value === ''
+        ? undefined
+        : values.find((item) => String(item) === String(value));
+    if (loose !== undefined) return loose;
+  }
+  // 空值交给 antd 显示 placeholder；不在候选项里的值原样返回，不做类型转换
+  if (value === null || value === undefined || value === '') return undefined;
+  return value;
+}
+
 // ─── AntdSelectEditor ────────────────────────────────────────────────────────
 
 export class AntdSelectEditor implements IEditor<unknown> {
@@ -242,7 +281,7 @@ export class AntdSelectEditor implements IEditor<unknown> {
             trigger.parentElement || document.body,
           ...this.props,
         })}
-        initialValue={value ?? undefined}
+        initialValue={alignToOptionValue(value, this.props.options)}
         valueRef={this.valueRef}
       />,
     );
