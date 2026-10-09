@@ -82,20 +82,20 @@ const buildDetailRows = (records?: YupaiOrder[] | null): yupaiOrderDetailRow[] =
     if (!records) return [createDetailRow('__new__')];
     return records.map((record) => {
         const row: yupaiOrderDetailRow = {
-            __id: String(record.ID ?? 'detail-1'),
+            YupaiOrderID: String(record.ID ?? ''),
             StyleCode: String(record.StyleCode ?? ''),
-            Number: Number(record.Number) || '',
+            Number: Number(record.Number) || 0,
             ProduceName: String(record.ProduceName ?? ''),
             Color: String(record.Color ?? ''),
             TSWorkName: String(record.TSWorkName ?? ''),
             HDWorkName: String(record.HDWorkName ?? ''),
-            ZZMWeight: Number(record.ZZMWeight) || '',
-            ZZMTime: '',
-            MSewWt: Number(record.MSewWt) || '',
+            ZZMWeight: Number(record.ZZMWeight) || 0,
+            ZZMTime: Number(record.ZZMTime ?? ''),
+            MSewWt: Number(record.MSewWt) || 0,
         };
         YupaiMachineSizeHeader.forEach((_, index) => {
             const field = `MCSize${index + 1}`;
-            row[field] = Number(record[field]) || '';
+            row[field] = Number(record[field]) || 0;
         });
         return row;
     });
@@ -149,10 +149,8 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
         setOrderChecked(false);
     }, [form, open, record]);
 
-    const detailColumns = useMemo(
-        () => buildPreorderDetailColumns(detailLocked),
-        [detailLocked],
-    );
+    // 列定义只描述展示，是否可编辑由下面的 editableFields 决定
+    const detailColumns = useMemo(() => buildPreorderDetailColumns(), []);
 
     const handleDetailChange = useCallback(
         ({field, rowIndex, value}: { field: string; rowIndex: number; value: unknown }) => {

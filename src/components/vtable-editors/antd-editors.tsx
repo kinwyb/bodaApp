@@ -94,6 +94,14 @@ function EditorShell({
   return cloneElement(element, injectedProps as Record<string, unknown>);
 }
 
+/** 单元格里的数值可能是 ''、NaN 等非数值，统一归一化成 number | null 再交给 antd */
+function toNumberOrNull(value: unknown): number | null {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (value === null || value === undefined || value === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 // ─── 定位容器 ────────────────────────────────────────────────────────────────
 
 interface Rect {
@@ -137,7 +145,7 @@ export class AntdInputEditor implements IEditor<string> {
     root.render(
       <EditorShell
         element={createElement(Input, { ...this.props, allowClear: true })}
-        initialValue={value ?? ''}
+        initialValue={ !value ? '' : String(value)}
         valueRef={this.valueRef}
       />,
     );
@@ -183,7 +191,7 @@ export class AntdInputNumberEditor implements IEditor<number | null> {
     root.render(
       <EditorShell
         element={createElement(InputNumber, { ...this.props, controls: false })}
-        initialValue={value ?? null}
+        initialValue={toNumberOrNull(value)}
         valueRef={this.valueRef}
       />,
     );
