@@ -17,7 +17,7 @@ import {
     type yupaiOrderDetailRow,
 } from './yupaiOrderEditColumns.ts';
 import {validateYupaiOrderDetailRows, yupaiService} from "@/services/yupai.ts";
-import {DATE_FORMAT, toDateString, toDayjs, toNumberOrZero} from '@/utils';
+import {DATE_FORMAT, toDateString, toDayjs, toNumberOrNullIfZero, toNumberOrZero} from '@/utils';
 
 interface yupaiOrderFormValues {
     OrderCode?: string;
@@ -107,18 +107,20 @@ const buildDetailRows = (records?: YupaiOrder[] | null, withNewLine: boolean = f
         const row: yupaiOrderDetailRow = {
             YupaiOrderID: String(record.ID ?? ''),
             StyleCode: String(record.StyleCode ?? ''),
-            Number: Number(record.Number) || 0,
+            // 数值列统一「0 视作未填 → null」，与 createDetailRow 的初始值保持一致，
+            // 这样判空（isBlank）和校验都不用再猜「这个 0 是初始值还是用户填的」
+            Number: toNumberOrNullIfZero(record.Number),
             ProduceName: String(record.ProduceName ?? ''),
             Color: String(record.Color ?? ''),
             TSWorkName: String(record.TSWorkName ?? ''),
             HDWorkName: String(record.HDWorkName ?? ''),
-            ZZMWeight: Number(record.ZZMWeight) || 0,
-            ZZMTime: Number(record.ZZMTime ?? ''),
-            MSewWt: Number(record.MSewWt) || 0,
+            ZZMWeight: toNumberOrNullIfZero(record.ZZMWeight),
+            ZZMTime: toNumberOrNullIfZero(record.ZZMTime),
+            MSewWt: toNumberOrNullIfZero(record.MSewWt),
         };
         YupaiMachineSizeHeader.forEach((_, index) => {
             const field = `MCSize${index + 1}`;
-            row[field] = Number(record[field]) || 0;
+            row[field] = toNumberOrNullIfZero(record[field]);
         });
         return row;
     });
@@ -306,10 +308,12 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                 const hit = rowKey ? String(row.YupaiOrderID) === rowKey : index === rowIndex;
                 if (!hit) return row;
                 const nextRow = {...row, [field]: value};
-                // 改尺码格时，款式数量做等量调整：换出旧值、换入新值
+                // 改尺码格时，款式数量做等量调整：换出旧值、换入新值。
+                // 算出来是 0 就说明没数量，按行数据约定折成 null（而不是留一个 0）
                 if (isMCSizeField) {
-                    nextRow.Number =
-                        toNumberOrZero(row.Number) - toNumberOrZero(previousValue) + toNumberOrZero(value);
+                    nextRow.Number = toNumberOrNullIfZero(
+                        toNumberOrZero(row.Number) - toNumberOrZero(previousValue) + toNumberOrZero(value),
+                    );
                 }
                 return nextRow;
             });
@@ -415,13 +419,14 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
         const firstRow = detailRows[0];
         if (firstRow) {
             payload.StyleCode = String(firstRow.StyleCode ?? '');
-            payload.Number = Number(firstRow.Number) || 0;
+            // 行数据里的「未填」是 null，提交时折回 0（后端字段非空）
+            payload.Number = toNumberOrZero(firstRow.Number);
             payload.ProduceName = firstRow.ProduceName;
             payload.Color = firstRow.Color;
             payload.TSWorkName = firstRow.TSWorkName;
             payload.HDWorkName = firstRow.HDWorkName;
-            payload.ZZMWeight = Number(firstRow.ZZMWeight) || 0;
-            payload.MSewWt = Number(firstRow.MSewWt) || 0;
+            payload.ZZMWeight = toNumberOrZero(firstRow.ZZMWeight);
+            payload.MSewWt = toNumberOrZero(firstRow.MSewWt);
         }
 
         setSaving(true);

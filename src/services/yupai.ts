@@ -127,7 +127,7 @@ export function validateYupaiOrderDetailRows(
         if (!row.StyleCode) errors.StyleCode = '款号不能为空';
         if (!row.ProduceName) errors.ProduceName = '款式描述不能为空';
         if (Number(row.ZZMWeight) <= 0) errors.ZZMWeight = '中码下机克重不能为空';
-        if (Number(row.ZZMCycle) <= 0) errors.ZZMCycle = '中码下机时间不能为空';
+        if (Number(row.ZZMTime) <= 0) errors.ZZMTime = '中码下机时间不能为空';
         const sizeSum = YupaiMachineSizeHeader.reduce(
             (sum, _title, index) => sum + Number(row[`MCSize${index + 1}`] ?? 0), 0,
         );

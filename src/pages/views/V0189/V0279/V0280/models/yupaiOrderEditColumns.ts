@@ -7,13 +7,19 @@ import {
 } from '@/components/vtable-editors/register';
 import {YupaiMachineSizeHeader} from '@/api/modules/yupai';
 
-/** 详情表格的一行：当前一单一款式，编辑时由预订单记录映射而来 */
+/**
+ * 详情表格的一行：当前一单一款式，编辑时由预订单记录映射而来。
+ *
+ * 数值字段的「未填」一律是 **null，不是 0** —— 这样 isBlank / isBlankExcept
+ * 就能直接判出「整行没填」，不用再另写一套「数值 <= 0 算空」的值语义判空；
+ * 提交给后端时再折回 0（见页面 handleSave 的 payload）。
+ */
 export interface yupaiOrderDetailRow {
     YupaiOrderID: string;
     /** 款号 */
     StyleCode: string;
-    /** 款式数量 */
-    Number: number;
+    /** 款式数量（未填为 null） */
+    Number: number | null;
     /** 款式描述 */
     ProduceName: string;
     /** 预估颜色 */
@@ -22,14 +28,14 @@ export interface yupaiOrderDetailRow {
     TSWorkName: string;
     /** 后道主工序 */
     HDWorkName: string;
-    /** 中码下机克重 */
-    ZZMWeight: number;
-    /** 中码下机时间 */
-    ZZMTime: number;
-    /** 缝制工时 */
-    MSewWt: number;
+    /** 中码下机克重（未填为 null） */
+    ZZMWeight: number | null;
+    /** 中码下机时间（未填为 null） */
+    ZZMTime: number | null;
+    /** 缝制工时（未填为 null） */
+    MSewWt: number | null;
 
-    /** 尺码分布，字段名 MCSize1 ~ MCSize9，对应下面 SIZE_HEADERS 的顺序 */
+    /** 尺码分布，字段名 MCSize1 ~ MCSize9，对应下面 SIZE_HEADERS 的顺序（未填为 null） */
     [key: string]: unknown;
 }
 
@@ -113,22 +119,22 @@ export function buildPreorderDetailColumns(): ColumnsDefine {
     return buildColumns(DETAIL_COLUMNS);
 }
 
-/** 新建一行空白明细，供用户直接在表格里输入 */
+/** 新建一行空白明细，供用户直接在表格里输入。数值字段的空 = null（不是 0） */
 export function createDetailRow(id: string): yupaiOrderDetailRow {
     const row = {
         YupaiOrderID: id,
         StyleCode: '',
-        Number: 0,
+        Number: null,
         ProduceName: '',
         Color: '',
         TSWorkName: '',
         HDWorkName: '',
-        ZZMWeight: 0,
-        ZZMTime: 0,
-        MSewWt: 0,
+        ZZMWeight: null,
+        ZZMTime: null,
+        MSewWt: null,
     } as yupaiOrderDetailRow;
     YupaiMachineSizeHeader.forEach((_, index) => {
-        row[`MCSize${index + 1}`] = 0;
+        row[`MCSize${index + 1}`] = null;
     });
     return row;
 }
