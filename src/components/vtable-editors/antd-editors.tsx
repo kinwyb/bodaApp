@@ -45,8 +45,7 @@ export type ValidateValueResult = boolean;
 /**
  * 编辑器值校验：返回提示文案表示**不通过**（会拦住这次提交），返回 undefined 表示通过。
  *
- * 在注册具名编辑器时传入（见 register.ts），与表格的整行校验共用同一份规则，
- * 避免「编辑器拦一套、保存校验另一套」两边漂移。
+ * 与表格的整行校验共用同一份规则，避免「编辑器拦一套、保存校验另一套」两边漂移。
  */
 export type EditorValidator<V = any> = (value: V) => string | undefined;
 
@@ -69,11 +68,92 @@ export interface IEditor<V = any> {
   getInputElement?: () => HTMLElement;
 }
 
+// ─── 编辑器行访问：所有编辑器共享的「当前行」读写口 ──────────────────────────
+
+/**
+ * 正在编辑的那一行的读写口 —— 注册编辑器时通过 onStart / onCommit / onEnd 拿到。
+ *
+ * 这是本项目所有 antd 编辑器共用的能力（Input / InputNumber / Select 都一样），
+ * 用来解决「选一行数据、把它的字段填进本行其他列」这类需求：
+ *
+ * - Input + onSearch 打开用户列表弹窗，选完用户把姓名/部门填回本行；
+ * - Select 的选项本身是一张表的行，选中后带出款式名称、面料等字段。
+ *
+ * 不需要在页面里另外维护 `value -> 整行` 的字典，也不需要自己查表格坐标。
+ *
+ * ⚠️ 只在**编辑期间**有效：编辑器 onEnd 之后（用户提交或按 ESC 放弃）访问器失效，
+ * 写入会被静默忽略，拿 `record` 会得到 undefined。弹窗这类异步流程要在 onStart 里
+ * 存下访问器、onEnd 里清掉，别长期持有。
+ */
+export interface EditorRowAccessor {
+  /** 当前编辑行的原始记录（就是表格数据源里那一个对象，VTable 编辑时也改它） */
+  readonly record: Record<string, unknown> | undefined;
+  /** 数据行下标（不含表头）；拿不到时为 null，此时写入不生效 */
+  readonly recordIndex: number | null;
+  /** 读本行某一列（读的是「编辑前」的值，本次编辑的新值在 onCommit 的 payload.value 里） */
+  getField: (field: string) => unknown;
+  /** 写本行某一列 */
+  setField: (field: string, value: unknown) => void;
+  /** 一次写本行多列；值为 undefined 的字段跳过（不拿它把本行冲成空） */
+  setFields: (fields: Record<string, unknown>) => void;
+  /**
+   * 结束本次编辑 —— 等价于用户点到别处（照样会走 validateValue）。
+   * 「弹窗选完就收工」的场景用它，免得编辑态与回填的数据对不上。
+   */
+  endEdit: () => void;
+}
+
+/** 提交时回传给业务的上下文（各控件给的东西不一样） */
+export interface EditorCommitPayload<V = unknown> {
+  /** 本次提交的值 */
+  value: V;
+  /** 只有 Select 类控件有：被选中的那个 option 对象本身（原始行挂在上面即可取到） */
+  option?: Record<string, unknown>;
+}
+
+/**
+ * 编辑器的扩展能力，注册时一次性给定（编辑器实例是全局共享的，同名幂等）。
+ *
+ * 三个钩子拿到的都是 EditorRowAccessor，可以在里面直接改本行其他列 ——
+ * 写回走的是表格的 changeCellValueByRecord，**会照常派发 change_cell_value**，
+ * 所以页面 onCellValueChange 那份 records 会自动跟着更新，页面侧不用改任何东西。
+ */
+export interface EditorOptions<V = unknown> {
+  /** 提交前校验，返回文案即拦住提交；不传则不做校验 */
+  validator?: EditorValidator<V>;
+  /**
+   * 进入编辑、拿到本行之后调用。
+   * 需要「编辑期间异步回填」的场景（如 Input 的 onSearch 打开弹窗），
+   * 在这里把访问器存到页面闭包里，等用户选完再写回。
+   */
+  onStart?: (row: EditorRowAccessor) => void;
+  /** 提交时（校验通过后）调用 */
+  onCommit?: (payload: EditorCommitPayload<V>, row: EditorRowAccessor) => void;
+  /** 编辑结束时调用，含按 ESC 放弃的那种（此时 onCommit 不会走） */
+  onEnd?: (row: EditorRowAccessor) => void;
+}
+
 // ─── 工具类型：从 antd 组件 Props 中排除受控属性 ────────────────────────────
 
 type OmitControlled<P> = Omit<P, 'value' | 'onChange' | 'defaultValue'>;
 
-export type AntdInputEditorProps = OmitControlled<ComponentProps<typeof Input>>;
+/**
+ * Input 编辑器的 props。
+ *
+ * 在 antd `Input` 的基础上多了一个 `onSearch`：antd 只有 `Input.Search` 才有这个事件，
+ * 普通 `Input` 是没有的。传了它就渲染成 `Input.Search`（自带搜索按钮），
+ * 用来做「回车 / 点搜索图标 → 打开选择弹窗」这类交互。
+ *
+ * 只想要回车触发、不希望多一个搜索按钮的话，用 antd 原生的 `onPressEnter` 即可
+ * （那是普通 Input 的能力，照常透传）。
+ */
+export type AntdInputEditorProps = OmitControlled<
+  ComponentProps<typeof Input>
+> & {
+  /** 回车或点搜索图标时触发；**传了它就渲染 `Input.Search`** */
+  onSearch?: (value: string) => void;
+};
+
 export type AntdInputNumberEditorProps = OmitControlled<
   ComponentProps<typeof InputNumber>
 >;
@@ -114,12 +194,18 @@ function EditorShell({
   element,
   initialValue,
   valueRef,
+  optionRef,
   errorRef,
   onRerender,
 }: {
   element: ReactElement;
   initialValue: unknown;
   valueRef: { current: unknown };
+  /**
+   * 受控控件 onChange 的**第二个**参数（Select 才会给，就是被选中的那个 option 本身）。
+   * 只在需要「选中项带出其他字段」的编辑器上传，其余不传。
+   */
+  optionRef?: { current: unknown };
   /** 校验失败的提示文案（由编辑器类在 validateValue 里写入） */
   errorRef: { current: string | undefined };
   /** 把「触发重渲染」的出口交给编辑器类，用于把校验结果刷到界面上 */
@@ -138,7 +224,7 @@ function EditorShell({
   }
 
   const handleChange = useCallback(
-    (newValue: unknown) => {
+    (newValue: unknown, extra?: unknown) => {
       // Input 的 onChange 传 ChangeEvent，取 target.value
       // InputNumber / Select 的 onChange 直接传值
       const isChangeEvent =
@@ -149,9 +235,11 @@ function EditorShell({
         ? (newValue as { target: { value: unknown } }).target.value
         : newValue;
       valueRef.current = resolved;
+      // Select 会多给一个「选中的 option」，联动要用它带出的原始行
+      if (optionRef) optionRef.current = extra;
       forceUpdate((n) => n + 1);
     },
-    [valueRef],
+    [valueRef, optionRef],
   );
 
   const error = errorRef.current;
@@ -239,25 +327,95 @@ function createWrapper(
   return { wrapper, root: createRoot(wrapper) };
 }
 
-// ─── AntdInputEditor ─────────────────────────────────────────────────────────
+// ─── 从编辑上下文里解析「本行」 ──────────────────────────────────────────────
 
-export class AntdInputEditor implements IEditor<string> {
-  private props: AntdInputEditorProps;
-  private validator?: EditorValidator<string>;
-  private wrapper: HTMLDivElement | null = null;
-  private root: Root | null = null;
-  private valueRef: { current: string } = { current: '' };
+/**
+ * 当前编辑单元格对应的**数据行下标**（不含表头）。
+ *
+ * 编辑器 context 里的 col/row 是 VTable 坐标（含表头行），不能直接当 recordIndex 用；
+ * 交给表格自己换算，合并单元格时它是数组，取第一个。
+ * 拿不到（坐标异常 / 表格不支持）返回 null，调用方据此放弃写回。
+ */
+function resolveRecordIndex(context: EditContext<unknown>): number | null {
+  const table = context.table;
+  if (!table || typeof table.getRecordIndexByCell !== 'function') return null;
+  const index = table.getRecordIndexByCell(context.col, context.row);
+  const recordIndex = Array.isArray(index) ? index[0] : index;
+  return typeof recordIndex === 'number' && recordIndex >= 0 ? recordIndex : null;
+}
+
+/**
+ * 当前编辑行对应的原始记录对象。
+ *
+ * 用的就是 edit-manager 自己取行数据的那个方法（见 `es/edit/edit-manager.js` 的
+ * startEditCell：`this.table.getCellRawRecord(col, row)`），拿到的正是数据源里的
+ * record 对象 —— 也就是页面 records 数组里那一个，改它等于改页面的数据。
+ *
+ * 数据源异步时这个方法可能返回 Promise，那种情况当作拿不到（返回 undefined）。
+ */
+function resolveRecord(
+  context: EditContext<unknown>,
+): Record<string, unknown> | undefined {
+  const table = context.table;
+  if (!table || typeof table.getCellRawRecord !== 'function') return undefined;
+  const record = table.getCellRawRecord(context.col, context.row);
+  if (!record || typeof record !== 'object') return undefined;
+  if (typeof (record as { then?: unknown }).then === 'function') return undefined;
+  return record as Record<string, unknown>;
+}
+
+// ─── 基础编辑器：三个 antd 编辑器共用的骨架 ──────────────────────────────────
+
+/**
+ * antd 编辑器基类：把 onStart / onEnd / 校验 / ESC / 行访问这些**与控件无关**的流程
+ * 收在一处，子类只需要回答三件事 —— 用什么控件、初始值怎么归一化、
+ * ESC 算不算放弃（Select 需要挡掉「关下拉」那一下）。
+ *
+ * 除了校验，基类还给业务提供了三种统一的行操作能力（见 EditorOptions）：
+ * onStart 拿到本行、onCommit 提交时回填、onEnd 收尾。三者拿到的都是
+ * EditorRowAccessor，可以直接 setField / setFields 改本行其他列。
+ */
+export abstract class BaseAntdEditor<V = unknown> implements IEditor<V> {
+  /** 注册时给定的扩展能力（校验 + 生命周期钩子），全局共享 */
+  protected readonly options: EditorOptions<V>;
+  /** 受控值：控件 onChange 后写它，VTable 提交时由 getValue 读走 */
+  protected readonly valueRef: { current: unknown } = { current: undefined };
+  /** Select 类控件 onChange 的第二个参数（选中的 option），只有 acceptsOption 为真时收集 */
+  protected readonly optionRef: { current: unknown } = { current: undefined };
   /** 校验失败的提示文案；undefined 表示通过 */
-  private errorRef: { current: string | undefined } = { current: undefined };
+  private readonly errorRef: { current: string | undefined } = { current: undefined };
   /** 触发一次重渲染（由 EditorShell 注册进来），用来把校验提示刷到界面上 */
   private rerender: (() => void) | null = null;
   /** ESC 放弃编辑时置位，让这一次 completeEdit 跳过校验 */
-  private skipNextValidation: { current: boolean } = { current: false };
-  private endEditRef: { current: (() => void) | null } = { current: null };
+  private readonly skipNextValidation: { current: boolean } = { current: false };
+  private readonly endEditRef: { current: (() => void) | null } = { current: null };
+  /** 以下三样只在编辑期间有效，onEnd 里一并清掉 */
+  private readonly tableRef: { current: any } = { current: null };
+  private readonly recordIndexRef: { current: number | null } = { current: null };
+  private readonly recordRef: { current: Record<string, unknown> | undefined } = {
+    current: undefined,
+  };
+  protected wrapper: HTMLDivElement | null = null;
+  private root: Root | null = null;
 
-  constructor(props: AntdInputEditorProps = {}, validator?: EditorValidator<string>) {
-    this.props = props;
-    this.validator = validator;
+  constructor(options: EditorOptions<V> = {}) {
+    this.options = options;
+  }
+
+  /** 子类：创建受控的 antd 控件（不要自己接 value/onChange，由 EditorShell 注入） */
+  protected abstract createControl(): ReactElement;
+
+  /** 子类：把单元格原值归一化成控件的初始值 */
+  protected abstract toInitialValue(value: unknown): unknown;
+
+  /** 子类：ESC 是否算「放弃编辑」，默认算 */
+  protected shouldCancelOnEscape(_wrapper: HTMLElement): boolean {
+    return true;
+  }
+
+  /** 子类：是否需要收下 onChange 的第二个参数（只有 Select 有这个概念） */
+  protected acceptsOption(): boolean {
+    return false;
   }
 
   private setError = (message: string | undefined): void => {
@@ -265,44 +423,69 @@ export class AntdInputEditor implements IEditor<string> {
     this.rerender?.();
   };
 
-  onStart(context: EditContext<string>): void {
+  onStart(context: EditContext<V>): void {
     const { container, referencePosition, value } = context;
     const { wrapper, root } = createWrapper(container, referencePosition.rect);
     this.wrapper = wrapper;
     this.root = root;
-    // 每次开始编辑都清掉上一轮的提示，否则会跟着残留下来
+    // 每次开始编辑都清掉上一轮的状态，否则会跟着残留下来
     this.errorRef.current = undefined;
     this.skipNextValidation.current = false;
+    this.optionRef.current = undefined;
     this.endEditRef.current = context.endEdit;
-    bindEscapeToCancel(wrapper, this.skipNextValidation, this.endEditRef);
+    this.tableRef.current = context.table;
+    this.recordIndexRef.current = resolveRecordIndex(context);
+    this.recordRef.current = resolveRecord(context);
+    bindEscapeToCancel(wrapper, this.skipNextValidation, this.endEditRef, () =>
+      this.shouldCancelOnEscape(wrapper),
+    );
     root.render(
       <EditorShell
-        element={createElement(Input, { ...this.props, allowClear: true })}
-        initialValue={ !value ? '' : String(value)}
+        element={this.createControl()}
+        initialValue={this.toInitialValue(value)}
         valueRef={this.valueRef}
+        optionRef={this.acceptsOption() ? this.optionRef : undefined}
         errorRef={this.errorRef}
         onRerender={(rerender) => {
           this.rerender = rerender;
         }}
       />,
     );
+    this.options.onStart?.(this.createRow());
   }
 
-  validateValue(newValue?: string): ValidateValueResult {
+  validateValue(newValue?: V): ValidateValueResult {
     if (this.skipNextValidation.current) {
       this.skipNextValidation.current = false;
       return true;
     }
-    return runValidator(this.validator, newValue, this.setError);
+    const passed = runValidator(this.options.validator, newValue, this.setError);
+    // 校验通过才回调：ESC 与校验失败都提前 return 了，业务不会拿到「半截」的提交
+    if (passed) {
+      this.options.onCommit?.(
+        {
+          value: newValue as V,
+          option: this.optionRef.current as Record<string, unknown> | undefined,
+        },
+        this.createRow(),
+      );
+    }
+    return passed;
   }
 
-  getValue(): string {
-    return this.valueRef.current;
+  getValue(): V {
+    return this.valueRef.current as V;
   }
 
   onEnd(): void {
+    // 先把收尾钩子给业务（此时表格与行下标还都在）
+    this.options.onEnd?.(this.createRow());
     this.rerender = null;
     this.endEditRef.current = null;
+    this.tableRef.current = null;
+    this.recordIndexRef.current = null;
+    this.recordRef.current = undefined;
+    this.optionRef.current = undefined;
     this.root?.unmount();
     this.root = null;
     this.wrapper?.remove();
@@ -315,84 +498,103 @@ export class AntdInputEditor implements IEditor<string> {
 
   getInputElement(): HTMLElement {
     return this.wrapper!;
+  }
+
+  /**
+   * 本行访问器。每次调用都新造一个，但内部读的始终是编辑期间那几份引用，
+   * 所以业务可以放心把它存起来（存到 onEnd 为止）。
+   */
+  protected createRow(): EditorRowAccessor {
+    const record = this.recordRef.current;
+    return {
+      record,
+      recordIndex: this.recordIndexRef.current,
+      getField: (field: string) => record?.[field],
+      setField: (field: string, value: unknown) => this.writeRow([[field, value]]),
+      setFields: (fields: Record<string, unknown>) =>
+        this.writeRow(Object.entries(fields).filter(([, value]) => value !== undefined)),
+      endEdit: () => this.endEditRef.current?.(),
+    };
+  }
+
+  /**
+   * 把字段写回本行。
+   *
+   * 走 `table.changeCellValueByRecord` 而不是直接改 record 对象：它会照常派发
+   * `change_cell_value`，页面 onCellValueChange 因此能拿到并同步自己的 records
+   * （见 VTable.tsx 的 change_cell_value 处理）—— 直接改对象的话，数组引用没变，
+   * 页面不会重渲染，改完只有表格自己知道。
+   *
+   * 逐列写时不刷新（autoRefresh: false），全部写完统一 refreshAfterSourceChange 一次：
+   * 每次写都刷会把整表重绘好几遍。
+   */
+  private writeRow(entries: Array<[string, unknown]>): void {
+    const table = this.tableRef.current;
+    const recordIndex = this.recordIndexRef.current;
+    if (!table || recordIndex === null || entries.length === 0) return;
+    entries.forEach(([field, value]) => {
+      table.changeCellValueByRecord(
+        recordIndex,
+        field,
+        (value ?? null) as string | number | null,
+        { autoRefresh: false },
+      );
+    });
+    table.refreshAfterSourceChange?.();
+  }
+}
+
+// ─── AntdInputEditor ─────────────────────────────────────────────────────────
+
+export class AntdInputEditor extends BaseAntdEditor<string> {
+  private props: AntdInputEditorProps;
+
+  constructor(props: AntdInputEditorProps = {}, options: EditorOptions<string> = {}) {
+    super(options);
+    this.props = props;
+  }
+
+  protected createControl(): ReactElement {
+    const { onSearch, ...inputProps } = this.props;
+    // 传了 onSearch 就换成 antd 的 Input.Search —— 普通 Input 没有 onSearch 事件，
+    // 直接透传只会得到一个「永远不触发」的属性
+    if (onSearch) {
+      return createElement(Input.Search, {
+        ...inputProps,
+        allowClear: true,
+        onSearch: (value: string) => onSearch(value),
+      } as ComponentProps<typeof Input.Search>) as ReactElement;
+    }
+    return createElement(Input, { ...this.props, allowClear: true }) as ReactElement;
+  }
+
+  protected toInitialValue(value: unknown): unknown {
+    return !value ? '' : String(value);
   }
 }
 
 // ─── AntdInputNumberEditor ───────────────────────────────────────────────────
 
-export class AntdInputNumberEditor implements IEditor<number | null> {
+export class AntdInputNumberEditor extends BaseAntdEditor<number | null> {
   private props: AntdInputNumberEditorProps;
-  private validator?: EditorValidator<number | null>;
-  private wrapper: HTMLDivElement | null = null;
-  private root: Root | null = null;
-  private valueRef: { current: number | null } = { current: null };
-  private errorRef: { current: string | undefined } = { current: undefined };
-  private rerender: (() => void) | null = null;
-  private skipNextValidation: { current: boolean } = { current: false };
-  private endEditRef: { current: (() => void) | null } = { current: null };
 
   constructor(
     props: AntdInputNumberEditorProps = {},
-    validator?: EditorValidator<number | null>,
+    options: EditorOptions<number | null> = {},
   ) {
+    super(options);
     this.props = props;
-    this.validator = validator;
   }
 
-  private setError = (message: string | undefined): void => {
-    this.errorRef.current = message;
-    this.rerender?.();
-  };
-
-  onStart(context: EditContext<number | null>): void {
-    const { container, referencePosition, value } = context;
-    const { wrapper, root } = createWrapper(container, referencePosition.rect);
-    this.wrapper = wrapper;
-    this.root = root;
-    this.errorRef.current = undefined;
-    this.skipNextValidation.current = false;
-    this.endEditRef.current = context.endEdit;
-    bindEscapeToCancel(wrapper, this.skipNextValidation, this.endEditRef);
-    root.render(
-      <EditorShell
-        element={createElement(InputNumber, { ...this.props, controls: false })}
-        initialValue={toNumberOrNull(value)}
-        valueRef={this.valueRef}
-        errorRef={this.errorRef}
-        onRerender={(rerender) => {
-          this.rerender = rerender;
-        }}
-      />,
-    );
+  protected createControl(): ReactElement {
+    return createElement(InputNumber, {
+      ...this.props,
+      controls: false,
+    }) as ReactElement;
   }
 
-  validateValue(newValue?: number | null): ValidateValueResult {
-    if (this.skipNextValidation.current) {
-      this.skipNextValidation.current = false;
-      return true;
-    }
-    return runValidator(this.validator, newValue, this.setError);
-  }
-
-  getValue(): number | null {
-    return this.valueRef.current;
-  }
-
-  onEnd(): void {
-    this.rerender = null;
-    this.endEditRef.current = null;
-    this.root?.unmount();
-    this.root = null;
-    this.wrapper?.remove();
-    this.wrapper = null;
-  }
-
-  isEditorElement(target: HTMLElement): boolean {
-    return this.wrapper?.contains(target) ?? false;
-  }
-
-  getInputElement(): HTMLElement {
-    return this.wrapper!;
+  protected toInitialValue(value: unknown): unknown {
+    return toNumberOrNull(value);
   }
 }
 
@@ -435,87 +637,39 @@ function alignToOptionValue(value: unknown, options: unknown): unknown {
   return value;
 }
 
-// ─── AntdSelectEditor ────────────────────────────────────────────────────────
-
-export class AntdSelectEditor implements IEditor<unknown> {
+export class AntdSelectEditor extends BaseAntdEditor<unknown> {
   private props: AntdSelectEditorProps;
-  private validator?: EditorValidator<unknown>;
-  private wrapper: HTMLDivElement | null = null;
-  private root: Root | null = null;
-  private valueRef: { current: unknown } = { current: undefined };
-  private errorRef: { current: string | undefined } = { current: undefined };
-  private rerender: (() => void) | null = null;
-  private skipNextValidation: { current: boolean } = { current: false };
-  private endEditRef: { current: (() => void) | null } = { current: null };
 
-  constructor(props: AntdSelectEditorProps = {}, validator?: EditorValidator<unknown>) {
+  constructor(props: AntdSelectEditorProps = {}, options: EditorOptions<unknown> = {}) {
+    super(options);
     this.props = props;
-    this.validator = validator;
   }
 
-  private setError = (message: string | undefined): void => {
-    this.errorRef.current = message;
-    this.rerender?.();
-  };
-
-  onStart(context: EditContext<unknown>): void {
-    const { container, referencePosition, value } = context;
-    const { wrapper, root } = createWrapper(container, referencePosition.rect);
-    this.wrapper = wrapper;
-    this.root = root;
-    this.errorRef.current = undefined;
-    this.skipNextValidation.current = false;
-    this.endEditRef.current = context.endEdit;
-    // Select 有自己的 ESC 语义（关闭下拉），这时不能顺带把编辑也取消掉
-    bindEscapeToCancel(wrapper, this.skipNextValidation, this.endEditRef, () =>
-      wrapper.querySelector('.ant-select-open') == null,
-    );
-    root.render(
-      <EditorShell
-        element={createElement(Select, {
-          showSearch: true,
-          getPopupContainer: (trigger: HTMLElement) =>
-            trigger.parentElement || document.body,
-          ...this.props,
-        })}
-        initialValue={alignToOptionValue(value, this.props.options)}
-        valueRef={this.valueRef}
-        errorRef={this.errorRef}
-        onRerender={(rerender) => {
-          this.rerender = rerender;
-        }}
-      />,
-    );
+  protected createControl(): ReactElement {
+    return createElement(Select, {
+      showSearch: true,
+      getPopupContainer: (trigger: HTMLElement) =>
+        trigger.parentElement || document.body,
+      ...this.props,
+    }) as ReactElement;
   }
 
-  validateValue(newValue?: unknown): ValidateValueResult {
-    if (this.skipNextValidation.current) {
-      this.skipNextValidation.current = false;
-      return true;
-    }
-    return runValidator(this.validator, newValue, this.setError);
+  protected toInitialValue(value: unknown): unknown {
+    return alignToOptionValue(value, this.props.options);
   }
 
-  getValue(): unknown {
-    return this.valueRef.current;
+  /** Select 才有「选中的 option」这个概念，onCommit 拿它带出整行 */
+  protected acceptsOption(): boolean {
+    return true;
   }
 
-  onEnd(): void {
-    this.rerender = null;
-    this.endEditRef.current = null;
-    this.root?.unmount();
-    this.root = null;
-    this.wrapper?.remove();
-    this.wrapper = null;
+  /** ESC 在下拉展开时是「关下拉」，不该顺带把编辑也取消掉 */
+  protected shouldCancelOnEscape(wrapper: HTMLElement): boolean {
+    return wrapper.querySelector('.ant-select-open') == null;
   }
 
   isEditorElement(target: HTMLElement): boolean {
-    if (this.wrapper?.contains(target)) return true;
     // antd Select 下拉弹层渲染在 wrapper 外，需额外判断
-    return target.closest('.ant-select-dropdown') != null;
-  }
-
-  getInputElement(): HTMLElement {
-    return this.wrapper!;
+    return super.isEditorElement(target) || target.closest('.ant-select-dropdown') != null;
   }
 }

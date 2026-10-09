@@ -111,10 +111,10 @@ Object.entries(DETAIL_FIELD_RULES).forEach(([field, rule]) => {
         registerAntdNumberEditor(
             name,
             {min: 0, ...(DECIMAL_FIELDS.has(field) ? {} : {precision: 0})},
-            (value) => rule(value),
+            {validator: (value) => rule(value)},
         );
     } else {
-        registerAntdInputEditor(name, {}, (value) => rule(value));
+        registerAntdInputEditor(name, {}, {validator: (value) => rule(value)});
     }
     RULED_FIELD_EDITORS[field] = name;
 });
