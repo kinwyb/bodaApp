@@ -1,4 +1,5 @@
 import type { ColumnsDefine } from '@visactor/vtable';
+import { cleanDateText } from '@/utils';
 
 /** 列的数据类型：决定渲染成什么控件以及对齐/格式 */
 export type ColumnDataType =
@@ -39,12 +40,6 @@ export interface AppColumnDef {
   columnProps?: Record<string, unknown>;
 }
 
-/** 后端用 0001-01-01 表示空日期 */
-const cleanDate = (value: unknown): string => {
-  const text = value === null || value === undefined ? '' : String(value);
-  return text.startsWith('0001-01-01') ? '' : text;
-};
-
 /** 只读复选框的样式：看起来和普通勾选框一致，但用户点不动 */
 const READONLY_CHECKBOX = {
   disableFill: '#ffffff',
@@ -75,7 +70,7 @@ export function buildColumns(defs: AppColumnDef[]): ColumnsDefine {
         break;
 
       case 'date':
-        base.fieldFormat = (record: Record<string, unknown>) => cleanDate(record[def.field]);
+        base.fieldFormat = (record: Record<string, unknown>) => cleanDateText(record[def.field]);
         break;
 
       case 'boolean': {
