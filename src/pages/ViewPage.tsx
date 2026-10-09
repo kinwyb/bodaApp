@@ -51,8 +51,8 @@ const ViewPage: React.FC<ViewPageProps> = ({ view, trail }) => {
       setLoading(true);
       try {
         const res = await viewApi.rows(view, params);
-        setDataSource(res.data);
-        setTotal(res.page?.total ?? res.data.length);
+        setDataSource(res.data ?? []);
+        setTotal(res.page?.total ?? res.data?.length ?? 0);
       } catch (error) {
         message.error(error instanceof ApiError ? error.message : '加载数据失败');
       } finally {

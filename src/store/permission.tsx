@@ -44,8 +44,8 @@ export const PermissionProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           powerApi.userMenus(),
         ]);
         if (cancelled) return;
-        setSystem(systemRes.data);
-        setPermittedIds(buildPermissionIndex(permissionRes.data).ids);
+        setSystem(systemRes.data ?? []);
+        setPermittedIds(buildPermissionIndex(permissionRes.data ?? []).ids);
       } catch (error) {
         if (!cancelled) {
           message.error(error instanceof ApiError ? error.message : '加载菜单权限失败');

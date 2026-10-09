@@ -66,8 +66,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!getToken()) return null;
     try {
       const res = await loginApi.userInfo();
-      applyUserInfo(res.data);
-      return res.data;
+      applyUserInfo(res.data ?? null);
+      return res.data ?? null;
     } catch {
       // 拉取失败时保留已有缓存，是否登出交给调用方判断
       return null;
@@ -107,7 +107,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     loginApi
       .userInfo()
       .then((res) => {
-        if (!cancelled) applyUserInfo(res.data);
+        if (!cancelled) applyUserInfo(res.data ?? null);
       })
       .catch(() => undefined);
     return () => {
