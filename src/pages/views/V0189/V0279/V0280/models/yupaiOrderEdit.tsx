@@ -1,5 +1,5 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {App, Button, DatePicker, Form, Input, InputNumber, Modal, Select} from 'antd';
+import {App, Button, DatePicker, Form, Input, InputNumber, Modal, Select, Skeleton} from 'antd';
 import dayjs, {type Dayjs} from 'dayjs';
 import {ApiError, employeeApi, yupaiApi, YupaiMachineSizeHeader, type YupaiOrder} from '@/api';
 import {VTable, type VTableMenuConfig} from '@/components/VTable';
@@ -133,24 +133,79 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
     const [detailRows, setDetailRows] = useState<yupaiOrderDetailRow[]>([]);
     const [employeeOpen, setEmployeeOpen] = useState(false);
     const [orderChecked, setOrderChecked] = useState(false);
+    // 初值取 true：首帧先显示骨架屏，等下面那个 effect 用 setIsLoading(isEdit) 定值。
+    // 若初值为 false，编辑态首次打开会先按「非加载」渲染一帧 —— 表格被建出来、紧接着
+    // 又被 Skeleton 顶掉，多一次建表/释放，正是需要避开的时序。
+    const [isLoading, setIsLoading] = useState(true);
+    const [toolbarLocked, setToolbarLocked] = useState(true);
 
     const isView = mode === 'view';
     const isEdit = mode === 'edit';
     const isAdd = mode === 'add';
 
-    const toolbarLocked = isView || isEdit;
     const detailLocked = isView || (isAdd && !orderChecked);
 
     useEffect(() => {
         if (!open) {
+            // 关闭时只收掉弹窗内的临时状态，**不要把 isLoading 置回 false**：
+            // 关闭动画期间内容还在 DOM 里，isLoading 一变 false，渲染就会从 Skeleton
+            // 换成真正的表单 + 详情表格 —— 等于往一个正在消失的容器里新建一张 canvas 表格。
+            // 表格会以 0 尺寸初始化、留下坏掉的场景图，之后再 resize 就抛
+            // 「Cannot read properties of null (reading 'element')」，序号列也跟着错乱。
+            // 下次打开时开头会用 setIsLoading(isEdit) 重新定值，不会残留。
             setEmployeeOpen(false);
+            setOrderChecked(false);
+            setToolbarLocked(false);
+            return;
+        }
+        setToolbarLocked(isView || isEdit);
+        setIsLoading(isEdit);
+        form.resetFields();
+        if (!isEdit || !record) {
+            form.setFieldsValue(buildValues(record));
+            setDetailRows(buildDetailRows(record ? [record] : null));
             setOrderChecked(false);
             return;
         }
-        form.resetFields();
-        form.setFieldsValue(buildValues(record));
-        setDetailRows(buildDetailRows(record ? [record] : null));
-        setOrderChecked(false);
+        // 如果是编辑，要按订单号取到最新的订单号所有的款式记录，显示当前选中的一条其他款式不显示但是更新的时候主信息要同步更新
+        let cancel = false;
+        const loadYupaiOrder = async () => {
+            try {
+                const res = await yupaiService.queryOrder(record.OrderCode);
+                if (cancel) {
+                    return;
+                }
+                if (res.data && res.data.length > 0 && res.data[0].Status < 2) {
+                    const matchOrder = res.data.filter(o => o.ID == record.ID);
+                    if (matchOrder && matchOrder.length > 0) {
+                        form.setFieldsValue(buildValues(matchOrder[0]))
+                        setDetailRows(buildDetailRows(matchOrder));
+                    }else{
+                        // 订单里已经没有选中的这条记录了（多半被他人改动过）。
+                        // 提示后直接关窗，这里同样不翻 isLoading —— 理由同上，
+                        // 别在弹窗关闭之后还把详情表格建出来。
+                        void message.error("预订单信息与选择数据不匹配,请重试")
+                        onCancel();
+                        return;
+                    }
+                    setToolbarLocked(true);
+                } else { //没有有效的订单信息，就相当于新增
+                    form.setFieldsValue(buildValues(record))
+                    setDetailRows(buildDetailRows(record ? [record] : null));
+                }
+                setOrderChecked(false);
+                setIsLoading(false);
+            } catch (error) {
+                void message.error(error instanceof ApiError ? error.message : '预订单信息获取失败');
+                setOrderChecked(false);
+            } finally {
+                setChecking(false);
+            }
+        }
+        void loadYupaiOrder();
+        return () => {
+            cancel = true;
+        }
     }, [form, open, record]);
 
     // 列定义只描述展示，是否可编辑由下面的 editableFields 决定
@@ -297,6 +352,9 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
             open={open}
             title={modalTitle}
             width="94vw"
+            // 关闭即销毁内容：详情表格是 canvas 组件，留在隐藏容器里不但占资源，
+            // 下次打开还会带着上一轮的内部状态被 resize（见下面 !open 分支的说明）。
+            destroyOnHidden
             style={{top: 24, maxWidth: 1600}}
             styles={{
                 body: {
@@ -310,222 +368,225 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
             mask={{closable: false}}
             onCancel={onCancel}
         >
-            <Form form={form} component={false} className="preorder-form">
-                <div className="preorder-form-toolbar">
-                    <span className="pf-label">订单号</span>
-                    <Form.Item name="OrderCode" noStyle>
-                        <Input
-                            style={{width: 150}}
-                            allowClear={!toolbarLocked}
-                            placeholder="订单号"
-                            readOnly={toolbarLocked}
-                        />
-                    </Form.Item>
-                    {isAdd && (
-                        <Button loading={checking} disabled={disabled} onClick={handleCheck}>
-                            检测
-                        </Button>
-                    )}
-                    <span className="pf-label pf-toolbar-gap">预排日期</span>
-                    <Form.Item name="YPDate" noStyle>
-                        <DatePicker
-                            style={{width: 150}}
-                            format={DATE_FORMAT}
-                            {...dpProps(toolbarLocked)}
-                        />
-                    </Form.Item>
-                    {!isView && (
-                        <Button
-                            type="primary"
-                            style={{marginLeft: 'auto'}}
-                            loading={saving}
-                            disabled={detailLocked}
-                            onClick={handleSave}
-                        >
-                            保存
-                        </Button>
-                    )}
-                </div>
-
-                <fieldset
-                    className={`preorder-fieldset${detailLocked && !isView ? ' preorder-fieldset-disabled' : ''}`}>
-                    <legend>详情</legend>
-
-                    <div className="pf-row">
-                        <Field label="业务员" required>
-                            <Form.Item name="Ywy" noStyle>
-                                <Input style={{width: 120}} readOnly allowClear={false}/>
-                            </Form.Item>
-                            <Button
-                                style={{width: 30, padding: 0}}
-                                className="pf-picker-btn"
-                                disabled={detailLocked}
-                                onClick={() => setEmployeeOpen(true)}
-                            >
-                                ...
+            {isLoading ? (
+                <Skeleton active paragraph={{rows: 6}}/>
+            ) : (
+                <Form form={form} component={false} className="preorder-form">
+                    <div className="preorder-form-toolbar">
+                        <span className="pf-label">订单号</span>
+                        <Form.Item name="OrderCode" noStyle>
+                            <Input
+                                style={{width: 150}}
+                                allowClear={!toolbarLocked}
+                                placeholder="订单号"
+                                readOnly={toolbarLocked}
+                            />
+                        </Form.Item>
+                        {isAdd && (
+                            <Button loading={checking} disabled={disabled} onClick={handleCheck}>
+                                检测
                             </Button>
-                        </Field>
-                        <Field label="产地">
-                            <Form.Item name="WorkPlace" noStyle>
-                                <Select
-                                    style={{width: 150}}
-                                    placeholder="请选择"
-                                    options={workPlaces.map((value) => ({value, label: value}))}
-                                    {...selectProps(detailLocked)}
-                                />
-                            </Form.Item>
-                        </Field>
-                    </div>
-
-                    <div className="pf-row">
-                        <Field label="计划下单日期" required>
-                            <Form.Item
-                                name="JHDate"
-                                noStyle
-                                rules={[{required: true, message: '请选择计划下单日期'}]}
+                        )}
+                        <span className="pf-label pf-toolbar-gap">预排日期</span>
+                        <Form.Item name="YPDate" noStyle>
+                            <DatePicker
+                                style={{width: 150}}
+                                format={DATE_FORMAT}
+                                {...dpProps(toolbarLocked)}
+                            />
+                        </Form.Item>
+                        {!isView && (
+                            <Button
+                                type="primary"
+                                style={{marginLeft: 'auto'}}
+                                loading={saving}
+                                disabled={detailLocked}
+                                onClick={handleSave}
                             >
-                                <DatePicker
-                                    style={{width: 150}}
-                                    format={DATE_FORMAT}
-                                    {...dpProps(detailLocked)}
-                                />
-                            </Form.Item>
-                        </Field>
-                        <Field label="确认可下单期">
-                            <Form.Item name="QRDate" noStyle>
-                                <DatePicker
-                                    style={{width: 150}}
-                                    format={DATE_FORMAT}
-                                    {...dpProps(detailLocked)}
-                                />
-                            </Form.Item>
-                        </Field>
+                                保存
+                            </Button>
+                        )}
                     </div>
 
-                    <div className="pf-row">
-                        <Field label="尾货期" required>
-                            <Form.Item
-                                name="WCDate"
-                                noStyle
-                                rules={[{required: true, message: '请选择尾货期'}]}
-                            >
-                                <DatePicker
-                                    style={{width: 150}}
-                                    format={DATE_FORMAT}
-                                    {...dpProps(detailLocked)}
-                                />
-                            </Form.Item>
-                        </Field>
-                        <Field label="走货期" required>
-                            <Form.Item
-                                name="ZHDate"
-                                noStyle
-                                rules={[{required: true, message: '请选择走货期'}]}
-                            >
-                                <DatePicker
-                                    style={{width: 150}}
-                                    format={DATE_FORMAT}
-                                    {...dpProps(detailLocked)}
-                                />
-                            </Form.Item>
-                        </Field>
-                    </div>
+                    <fieldset
+                        className={`preorder-fieldset${detailLocked && !isView ? ' preorder-fieldset-disabled' : ''}`}>
+                        <legend>详情</legend>
 
-                    <div className="pf-row">
-                        <Field label="原料可下单期">
-                            <Form.Item name="YLDate" noStyle>
-                                <DatePicker
-                                    style={{width: 150}}
-                                    format={DATE_FORMAT}
-                                    {...dpProps(detailLocked)}
-                                />
-                            </Form.Item>
-                        </Field>
-                        <Field label="缝制辅料可下单期">
-                            <Form.Item name="FLDate" noStyle>
-                                <DatePicker
-                                    style={{width: 150}}
-                                    format={DATE_FORMAT}
-                                    {...dpProps(detailLocked)}
-                                />
-                            </Form.Item>
-                        </Field>
-                        <Field label="包装辅料提供期">
-                            <Form.Item name="BZFLDate" noStyle>
-                                <DatePicker
-                                    style={{width: 150}}
-                                    format={DATE_FORMAT}
-                                    {...dpProps(detailLocked)}
-                                />
-                            </Form.Item>
-                        </Field>
-                    </div>
+                        <div className="pf-row">
+                            <Field label="业务员" required>
+                                <Form.Item name="Ywy" noStyle>
+                                    <Input style={{width: 120}} readOnly allowClear={false}/>
+                                </Form.Item>
+                                <Button
+                                    style={{width: 30, padding: 0}}
+                                    className="pf-picker-btn"
+                                    disabled={detailLocked}
+                                    onClick={() => setEmployeeOpen(true)}
+                                >
+                                    ...
+                                </Button>
+                            </Field>
+                            <Field label="产地">
+                                <Form.Item name="WorkPlace" noStyle>
+                                    <Select
+                                        style={{width: 150}}
+                                        placeholder="请选择"
+                                        options={workPlaces.map((value) => ({value, label: value}))}
+                                        {...selectProps(detailLocked)}
+                                    />
+                                </Form.Item>
+                            </Field>
+                        </div>
 
-                    <div className="pf-row">
-                        <Field label="下单把握率">
-                            <Form.Item name="XDRate" noStyle>
-                                <Input
-                                    style={{width: 150}}
-                                    placeholder="如 95%"
-                                    readOnly={detailLocked}
-                                    allowClear={!detailLocked}
-                                />
-                            </Form.Item>
-                        </Field>
-                        <Field label="总数量:">
-                            <Form.Item name="Qty" noStyle>
-                                <InputNumber
-                                    style={{width: 130}}
-                                    min={0}
-                                    readOnly={detailLocked}
-                                />
-                            </Form.Item>
-                        </Field>
-                    </div>
+                        <div className="pf-row">
+                            <Field label="计划下单日期" required>
+                                <Form.Item
+                                    name="JHDate"
+                                    noStyle
+                                    rules={[{required: true, message: '请选择计划下单日期'}]}
+                                >
+                                    <DatePicker
+                                        style={{width: 150}}
+                                        format={DATE_FORMAT}
+                                        {...dpProps(detailLocked)}
+                                    />
+                                </Form.Item>
+                            </Field>
+                            <Field label="确认可下单期">
+                                <Form.Item name="QRDate" noStyle>
+                                    <DatePicker
+                                        style={{width: 150}}
+                                        format={DATE_FORMAT}
+                                        {...dpProps(detailLocked)}
+                                    />
+                                </Form.Item>
+                            </Field>
+                        </div>
 
-                    <div className="pf-row">
-                        <Field label="备注" grow>
-                            <Form.Item name="Memo" noStyle>
-                                <Input placeholder="备注" readOnly={detailLocked} allowClear={!detailLocked}/>
-                            </Form.Item>
-                        </Field>
-                    </div>
+                        <div className="pf-row">
+                            <Field label="尾货期" required>
+                                <Form.Item
+                                    name="WCDate"
+                                    noStyle
+                                    rules={[{required: true, message: '请选择尾货期'}]}
+                                >
+                                    <DatePicker
+                                        style={{width: 150}}
+                                        format={DATE_FORMAT}
+                                        {...dpProps(detailLocked)}
+                                    />
+                                </Form.Item>
+                            </Field>
+                            <Field label="走货期" required>
+                                <Form.Item
+                                    name="ZHDate"
+                                    noStyle
+                                    rules={[{required: true, message: '请选择走货期'}]}
+                                >
+                                    <DatePicker
+                                        style={{width: 150}}
+                                        format={DATE_FORMAT}
+                                        {...dpProps(detailLocked)}
+                                    />
+                                </Form.Item>
+                            </Field>
+                        </div>
 
-                    <div className="pf-row">
-                        <Field label="中期检验日期">
-                            <Form.Item name="ZQCheckDate" noStyle>
-                                <DatePicker
-                                    style={{width: 150}}
-                                    format={DATE_FORMAT}
-                                    {...dpProps(detailLocked)}
-                                />
-                            </Form.Item>
-                        </Field>
-                        <Field label="中期检验要求" grow>
-                            <Form.Item name="ZQCheckMemo" noStyle>
-                                <Input
-                                    placeholder="中期检验要求"
-                                    readOnly={detailLocked}
-                                    allowClear={!detailLocked}
-                                />
-                            </Form.Item>
-                        </Field>
-                    </div>
+                        <div className="pf-row">
+                            <Field label="原料可下单期">
+                                <Form.Item name="YLDate" noStyle>
+                                    <DatePicker
+                                        style={{width: 150}}
+                                        format={DATE_FORMAT}
+                                        {...dpProps(detailLocked)}
+                                    />
+                                </Form.Item>
+                            </Field>
+                            <Field label="缝制辅料可下单期">
+                                <Form.Item name="FLDate" noStyle>
+                                    <DatePicker
+                                        style={{width: 150}}
+                                        format={DATE_FORMAT}
+                                        {...dpProps(detailLocked)}
+                                    />
+                                </Form.Item>
+                            </Field>
+                            <Field label="包装辅料提供期">
+                                <Form.Item name="BZFLDate" noStyle>
+                                    <DatePicker
+                                        style={{width: 150}}
+                                        format={DATE_FORMAT}
+                                        {...dpProps(detailLocked)}
+                                    />
+                                </Form.Item>
+                            </Field>
+                        </div>
 
-                    <div className="preorder-detail-grid">
-                        <VTable
-                            columns={detailColumns}
-                            records={detailRows as unknown as Array<Record<string, unknown>>}
-                            rowKey="YupaiOrderID"
-                            editableFields={detailLocked ? undefined : DETAIL_EDITOR_FIELDS}
-                            onCellValueChange={handleDetailChange}
-                            menu={detailMenu}
-                        />
-                        {detailRows.length === 0 && <div className="preorder-detail-empty">没有任何记录</div>}
-                    </div>
-                </fieldset>
-            </Form>
+                        <div className="pf-row">
+                            <Field label="下单把握率">
+                                <Form.Item name="XDRate" noStyle>
+                                    <Input
+                                        style={{width: 150}}
+                                        placeholder="如 95%"
+                                        readOnly={detailLocked}
+                                        allowClear={!detailLocked}
+                                    />
+                                </Form.Item>
+                            </Field>
+                            <Field label="总数量:">
+                                <Form.Item name="Qty" noStyle>
+                                    <InputNumber
+                                        style={{width: 130}}
+                                        min={0}
+                                        readOnly={detailLocked}
+                                    />
+                                </Form.Item>
+                            </Field>
+                        </div>
 
+                        <div className="pf-row">
+                            <Field label="备注" grow>
+                                <Form.Item name="Memo" noStyle>
+                                    <Input placeholder="备注" readOnly={detailLocked} allowClear={!detailLocked}/>
+                                </Form.Item>
+                            </Field>
+                        </div>
+
+                        <div className="pf-row">
+                            <Field label="中期检验日期">
+                                <Form.Item name="ZQCheckDate" noStyle>
+                                    <DatePicker
+                                        style={{width: 150}}
+                                        format={DATE_FORMAT}
+                                        {...dpProps(detailLocked)}
+                                    />
+                                </Form.Item>
+                            </Field>
+                            <Field label="中期检验要求" grow>
+                                <Form.Item name="ZQCheckMemo" noStyle>
+                                    <Input
+                                        placeholder="中期检验要求"
+                                        readOnly={detailLocked}
+                                        allowClear={!detailLocked}
+                                    />
+                                </Form.Item>
+                            </Field>
+                        </div>
+
+                        <div className="preorder-detail-grid">
+                            <VTable
+                                columns={detailColumns}
+                                records={detailRows as unknown as Array<Record<string, unknown>>}
+                                rowKey="YupaiOrderID"
+                                editableFields={detailLocked ? undefined : DETAIL_EDITOR_FIELDS}
+                                onCellValueChange={handleDetailChange}
+                                menu={detailMenu}
+                            />
+                            {detailRows.length === 0 && <div className="preorder-detail-empty">没有任何记录</div>}
+                        </div>
+                    </fieldset>
+                </Form>
+            )}
             <EmployeeQuickSelect
                 open={employeeOpen}
                 title="快速选择-业务员"

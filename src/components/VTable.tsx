@@ -926,6 +926,17 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     };
   }, [resolveMenuItems]);
 
+  /**
+   * 表格当前已经用上的「列配置 + autoFillWidth」。
+   *
+   * 不用「跳过首次执行」的布尔标记：StrictMode 下挂载期的 effect 会跑两遍
+   * （mount → cleanup → mount），标记在第一遍就被消费掉，第二遍会真的多做一次
+   * updateOption —— 表格刚建好就重建列，正是表头与列定义对不上
+   * （getHeader 返回 undefined）的来源。改成和「建表时那一份」比引用，
+   * 没变就必定是白跑，比布尔标记更贴合意图。
+   */
+  const syncedOptionRef = useRef<{ columns: ColumnsDefine; autoFillWidth: boolean } | null>(null);
+
   // 创建实例（仅一次），后续数据/列变化通过 API 增量更新
   useEffect(() => {
     const container = containerRef.current;
@@ -1007,6 +1018,8 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     optionsRef.current = options;
     const table = new ListTable(container, options);
     tableRef.current = table;
+    // 记下建表用的那份配置，下面的同步 effect 据此判断要不要 updateOption
+    syncedOptionRef.current = { columns: finalColumns, autoFillWidth };
 
     const toInfo = (args: { col: number; row: number; field?: unknown }): VTableCellInfo => ({
       col: args.col,
@@ -1153,7 +1166,12 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
       return false;
     });
 
+    // ResizeObserver 的通知是异步投递的：disconnect() 之后仍可能有一次已经排队的回调落地，
+    // 而那时 table 已经 release、内部 scenegraph 被置空，resize() 会抛
+    // 「Cannot read properties of null (reading 'element')」。用 disposed 挡在门外。
+    let disposed = false;
     const observer = new ResizeObserver(() => {
+      if (disposed) return;
       if (container.clientWidth > 0 && container.clientHeight > 0) {
         table.resize();
         // resize 会重置底部冻结，这里补偿一次
@@ -1163,9 +1181,11 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     observer.observe(container);
 
     return () => {
+      disposed = true;
       observer.disconnect();
       table.release();
       tableRef.current = null;
+      syncedOptionRef.current = null;
     };
     // 仅初始化一次，后续更新由下面的 effect 处理
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1309,18 +1329,18 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
   );
 
   /**
-   * 列配置变化后同步给表格。
-   * 跳过首次执行：表格就是拿这份配置建的，再 updateOption 一次等于白重建一遍场景。
+   * 列配置 / autoFillWidth 变化后同步给表格。
+   * 表格就是拿建表时那份配置建的，配置没换过就不必 updateOption（那等于白重建一遍场景）。
    */
-  const skipInitialOptionSyncRef = useRef(true);
   useEffect(() => {
-    if (skipInitialOptionSyncRef.current) {
-      skipInitialOptionSyncRef.current = false;
-      return;
-    }
     const table = tableRef.current;
     const base = optionsRef.current;
     if (!table || !base) return;
+    const synced = syncedOptionRef.current;
+    if (synced && synced.columns === finalColumns && synced.autoFillWidth === autoFillWidth) {
+      return;
+    }
+    syncedOptionRef.current = { columns: finalColumns, autoFillWidth };
     // 列不足容器时是否拉宽填满：可在运行时切换
     base.autoFillWidth = autoFillWidth;
     // 传入完整 options（去掉 records，避免重复 setRecords），否则 theme 等配置会被重置
