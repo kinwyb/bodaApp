@@ -86,9 +86,9 @@ export const yupaiService = {
             CreateUser: S,
             UpdateTime: S,
             UpdateUser: S,
-            DepartmentID:S,
+            DepartmentID: S,
             ...YupaiMachineSizeHeader.reduce<Record<string, FieldConfig>>((acc, _, index) => {
-                acc[`MCSize${index + 1}`] = N;
+                acc[`MCSize${index + 1}`] = {type: "number", field: `MC_SIZE${index + 1}`};
                 return acc;
             }, {}),
         }) ?? undefined
