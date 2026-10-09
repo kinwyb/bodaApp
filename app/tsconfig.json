@@ -1,6 +1,6 @@
 {
   "compilerOptions": {
-    "tsBuildInfoFile": "./dist/.tsbuildinfo",
+    "tsBuildInfoFile": "../node_modules/.tmp/tsconfig.app-shell.tsbuildinfo",
     "target": "ES2022",
     "lib": ["ES2022"],
     "types": ["node"],

@@ -24,9 +24,11 @@ dist-ssr
 *.sw?
 /.agents/
 
-# Electron
+# 桌面外壳：app/ 是 MyGo 的项目根，构建产物与开发态产物都在里面
 app/dist
-release
+app/.mygo
+# mygo generate 生成的 TS 客户端；本项目的 web 前端不使用 Go 绑定，故不入版本库
+app/mygo.ts
 
 # Local env files
 .env.development
