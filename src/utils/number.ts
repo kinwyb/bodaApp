@@ -25,3 +25,18 @@ export function toNumberOrNull(value: unknown): number | null {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
 }
+
+/**
+ * 归一化成 number | null，并把 **0 也视作「未填」**给 null。
+ *
+ * 给「用 0 表示没填」的行数据用（预订单详情行的款式数量 / 克重 / 工时 / 尺码件数）：
+ * 让「未填」在数据里真的表现为 null，`isBlank` / `isBlankExcept` 就能直接判出空行，
+ * 不必再另搞一套「数值 <= 0 算空」的值语义判空。
+ *
+ * 与上两个的区别：`toNumberOrNull` 保留 0（0 是有意义的取值），
+ * `toNumberOrZero` 则把未填折成 0 —— 那个方向会掩盖「这格到底填没填」。
+ */
+export function toNumberOrNullIfZero(value: unknown): number | null {
+  const parsed = toNumberOrNull(value);
+  return parsed === 0 ? null : parsed;
+}

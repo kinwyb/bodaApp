@@ -8,5 +8,6 @@
  *
  * 用法：`import { toNumberOrZero, toDayjs } from '@/utils';`
  */
+export * from './blank';
 export * from './date';
 export * from './number';
