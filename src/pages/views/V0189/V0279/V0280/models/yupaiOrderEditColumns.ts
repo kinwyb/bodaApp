@@ -6,6 +6,7 @@ import {
     registerAntdNumberEditor, registerAntdSelectEditor,
 } from '@/components/vtable-editors/register';
 import {YupaiMachineSizeHeader} from '@/api/modules/yupai';
+import {DETAIL_FIELD_RULES} from '@/services/yupai';
 
 /**
  * 详情表格的一行：当前一单一款式，编辑时由预订单记录映射而来。
@@ -88,6 +89,36 @@ const DETAIL_COLUMNS: AppColumnDef[] = [
     })),
 ];
 
+// ─── 单字段校验规则对应的编辑器 ──────────────────────────────────────────────
+
+/**
+ * 有单字段校验规则的字段，各自注册一个**具名**编辑器。
+ *
+ * 为什么不复用上面的通用名：VTable 的编辑器注册表是全局的，而且同名「先注册者生效」
+ * （见 register.ts 的 registerOnce）—— 共用 `preorder-detail-int` 的话同名只注册一次，
+ * 「哪个字段配哪条规则」就区分不出来了，所以有规则的字段各自占一个名字。
+ *
+ * 规则取自 services 的 DETAIL_FIELD_RULES，和保存前的整表校验是同一份，
+ * 保证不会出现「编辑器放行了、保存时又被拦下」。
+ */
+const RULED_FIELD_EDITORS: Record<string, string> = {};
+Object.entries(DETAIL_FIELD_RULES).forEach(([field, rule]) => {
+    const column = DETAIL_COLUMNS.find((item) => item.field === field);
+    // 规则字段不在表里就跳过（字段名写错时的典型症状），下面会退回到通用编辑器
+    if (!column) return;
+    const name = `preorder-detail-rule-${field}`;
+    if (column.dataType === 'number') {
+        registerAntdNumberEditor(
+            name,
+            {min: 0, ...(DECIMAL_FIELDS.has(field) ? {} : {precision: 0})},
+            (value) => rule(value),
+        );
+    } else {
+        registerAntdInputEditor(name, {}, (value) => rule(value));
+    }
+    RULED_FIELD_EDITORS[field] = name;
+});
+
 /** 详情表格可编辑字段 -> 编辑器名，交给 VTable 的 editableFields */
 export const DETAIL_EDITOR_FIELDS: Record<string, string> = Object.fromEntries(
     DETAIL_COLUMNS.map((column) => {
@@ -96,7 +127,7 @@ export const DETAIL_EDITOR_FIELDS: Record<string, string> = Object.fromEntries(
                 ...column.columnProps, fieldFormat: (record: yupaiOrderDetailRow) => {
                     const value = record[column.field];
                     if (value === null || value === undefined || value === '') return '';
-                    // 你的判断逻辑
+                    // 未填在数据里就是 null（见 createDetailRow）；0 也一并当未填显示
                     if (Number(value) > 0) {
                         return value;
                     } else {
@@ -105,7 +136,8 @@ export const DETAIL_EDITOR_FIELDS: Record<string, string> = Object.fromEntries(
                 }
             }
         }
-        return [column.field, editorOf(column)];
+        // 配了单字段规则的字段走它自己的具名编辑器（带提交前拦截），其余按类型取通用编辑器
+        return [column.field, RULED_FIELD_EDITORS[column.field] ?? editorOf(column)];
     }),
 );
 

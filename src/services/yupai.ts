@@ -1,6 +1,7 @@
 import {sqlApi, S, N, YupaiMachineSizeHeader} from "@/api";
 import type {ApiResponse, YupaiOrder,} from "@/api";
 import type {FieldConfig} from "@/api/modules/sql.ts";
+import {isBlank, toNumberOrZero} from "@/utils";
 
 /**
  * 预订单服务
@@ -102,7 +103,26 @@ export const yupaiService = {
 }
 
 /**
- * 预订单详情行的校验规则（纯函数，不发请求）
+ * 详情行的**单字段**校验规则：字段 → 校验函数（返回提示文案表示不通过，undefined 表示通过）。
+ *
+ * 一处定义、两处使用：
+ * - 整表校验 `validateYupaiOrderDetailRows`（保存前拦截 + 表格标红）
+ * - 页面注册编辑器时做「编辑提交前拦截」（见 yupaiOrderEditColumns.ts）
+ *
+ * 分开写两份必然漂移 —— 编辑器放行的值，保存时又被拦下，用户会觉得莫名其妙。
+ *
+ * 字段名必须用**详情行模型**（`yupaiOrderDetailRow`）的字段，写错编译器拦不住：
+ * `Number(undefined)` 是 NaN、比较恒为 false，规则会静默不触发，错误键也匹配不到任何列。
+ */
+export const DETAIL_FIELD_RULES: Record<string, (value: unknown) => string | undefined> = {
+    StyleCode: (value) => (isBlank(value) ? '款号不能为空' : undefined),
+    ProduceName: (value) => (isBlank(value) ? '款式描述不能为空' : undefined),
+    ZZMWeight: (value) => (toNumberOrZero(value) <= 0 ? '中码下机克重不能为空' : undefined),
+    ZZMTime: (value) => (toNumberOrZero(value) <= 0 ? '中码下机时间不能为空' : undefined),
+};
+
+/**
+ * 预订单详情行的整行校验（纯函数，不发请求）
  *
  * 返回「行主键 → 字段 → 提示文案」，没有问题时返回空对象。
  *
@@ -111,7 +131,8 @@ export const yupaiService = {
  * 而页面改的是未排序的那份数据 —— 用行号定位，排序后就会写错行。
  * 主键与行序无关，排序、增删行之后依然精确对应。
  *
- * 调用方（页面）把结果拍平成「行主键#字段 → 提示」交给 cellStyle 标红。
+ * 内容 = 单字段规则（DETAIL_FIELD_RULES，与编辑器拦截共用）+ 跨字段规则。
+ * 页面把结果拍平成「行主键#字段 → 提示」交给 cellStyle 标红。
  */
 export function validateYupaiOrderDetailRows(
     rows: Array<Record<string, unknown>>,
@@ -123,16 +144,21 @@ export function validateYupaiOrderDetailRows(
         if (!rowKey) continue;
 
         const errors: Record<string, string> = {};
-        // ─── 校验规则 ──────────────────────────────────────────────────
-        if (!row.StyleCode) errors.StyleCode = '款号不能为空';
-        if (!row.ProduceName) errors.ProduceName = '款式描述不能为空';
-        if (Number(row.ZZMWeight) <= 0) errors.ZZMWeight = '中码下机克重不能为空';
-        if (Number(row.ZZMTime) <= 0) errors.ZZMTime = '中码下机时间不能为空';
+
+        // 单字段规则：编辑器「提交前拦截」用的是同一份
+        for (const [field, rule] of Object.entries(DETAIL_FIELD_RULES)) {
+            const message = rule(row[field]);
+            if (message) errors[field] = message;
+        }
+
+        // ─── 跨字段规则：要整行（甚至多行）才判得了，编辑器那一层覆盖不到 ──────
         const sizeSum = YupaiMachineSizeHeader.reduce(
-            (sum, _title, index) => sum + Number(row[`MCSize${index + 1}`] ?? 0), 0,
+            (sum, _title, index) => sum + toNumberOrZero(row[`MCSize${index + 1}`]), 0,
         );
-        if (sizeSum !== Number(row.Number)) errors.Number = '尺码合计与款式数量不一致';
-        // ─────────────────────────────────────────────────────────────────────
+        if (sizeSum !== toNumberOrZero(row.Number)) {
+            errors.Number = '尺码合计与款式数量不一致';
+        }
+        // ─────────────────────────────────────────────────────────────────
 
         if (Object.keys(errors).length > 0) result[rowKey] = errors;
     }
