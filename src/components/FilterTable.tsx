@@ -287,12 +287,18 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
           repaint: () => tableRef.current?.repaint(),
           getSelection: () =>
             tableRef.current?.getSelection() ?? { rows: [], cells: [], activeCell: null },
+          // 行号 = 数据行下标（0 起、不含表头，跟随显示顺序）；越界返回 undefined，这里不兜底
+          getRowByIndex: (index: number) => tableRef.current?.getRowByIndex(index),
           getTable: () => tableRef.current?.getTable() ?? null,
-          // 导出是 VTable 内部 TableExportPlugin 的能力，这里一并转发出去
-          exportExcel: (fileName?: string) => tableRef.current?.exportExcel(fileName),
-          exportCsv: (fileName?: string) => tableRef.current?.exportCsv(fileName),
+          // 导出是 VTable 内部 TableExportPlugin 的能力，这里一并转发出去。
+          // 表格还没建好时 tableRef 为 null，返回一个空 Promise，让签名始终是 Promise
+          // （原先用 `as VTableApi` 把「可能返回 undefined」这一层给断言掉了）
+          exportExcel: (fileName?: string) =>
+            tableRef.current?.exportExcel(fileName) ?? Promise.resolve(undefined),
+          exportCsv: (fileName?: string) =>
+            tableRef.current?.exportCsv(fileName) ?? Promise.resolve(undefined),
           clearSelection: () => tableRef.current?.clearSelection(),
-        }) as VTableApi,
+        }) satisfies VTableApi,
       [],
     );
 

@@ -141,6 +141,17 @@ export interface VTableCellValueChangeInfo {
   record?: Record<string, unknown>;
   /** 编辑后的值 */
   value: unknown;
+  /**
+   * 编辑**前**的值（单元格原来的内容），对应 VTable 原生事件里的 currentValue。
+   *
+   * 想要新旧对比必须读这个字段：VTable 提交编辑时是**直接改写 record 对象**的
+   * （DataSource.changeFieldValue → setRecordFieldValue），所以回调触发时，
+   * 页面手里那份 records 里的值已经被覆盖成新值了，回头去读同一个 record 拿不到旧值。
+   *
+   * 需要「编辑前的整行」时，`{...record, [field]: previousValue}` 拼一下即可 ——
+   * 这次提交只改了 field 这一个字段，行里其余字段本来就还是旧值。
+   */
+  previousValue?: unknown;
 }
 
 export interface VTableSortState {
@@ -236,6 +247,28 @@ export interface VTableSelection {
 }
 
 /**
+ * 某一行在当前表格里的数据（getRowByIndex 的返回值）。
+ *
+ * 这里的「行号」指**数据行下标**：0 起、不含表头，传 0 就是界面上显示的第一行数据。
+ * 下标跟着**显示顺序**走 —— 点列头排序后，传 0 拿到的仍是排序后显示的第一行，
+ * 而不是页面 records 里的第一条。
+ *
+ * 提醒：各单元格回调里的 `row` 是另一套坐标（VTable 行号，**含表头**，0 起），
+ * 与本方法入参差一个表头行数（分组表头会大于 1），换算要用 `table.columnHeaderLevelCount`；
+ * 而回调里的 `rowIndex` 与本方法入参是同一套，可以直接传。
+ */
+export interface VTableRowInfo {
+  /** 数据行下标（入参原样回传，0 起、不含表头） */
+  rowIndex: number;
+  /** 行主键值（统计行为 SUMMARY_ROW_KEY） */
+  rowKey: string;
+  /** 该行当前的数据 */
+  record: Record<string, unknown>;
+  /** 是否底部统计行（统计行里只有汇总字段，别当业务数据用） */
+  isSummaryRow: boolean;
+}
+
+/**
  * 菜单项。
  * VTable 未从包根导出 MenuListItem，这里按官方 ts-types/menu.d.ts 的 MenuListItem 声明，
  * 保证页面写 `menu.contextMenuItems` 时拿到的就是原生形态（直接透传，不做二次转换）。
@@ -323,6 +356,17 @@ export interface VTableApi {
   getSelection: () => VTableSelection;
   /** 获取内部 ListTable 实例（供 SearchComponent 等外部工具使用） */
   getTable: () => ListTable | null;
+  /**
+   * 按**行号**取该行数据 —— 行号指数据行下标：0 起、不含表头，传 0 即界面上第一行。
+   *
+   * 跟随**显示顺序**：点列头排序后，0 仍是排序后显示的第一行，而不是页面 records 里的第一条。
+   * 与各单元格回调里的 `rowIndex` 是同一套坐标，可直接传过去；
+   * 但**别把回调里的 `row` 传进来** —— 那个含表头行，与这里差一个 columnHeaderLevelCount。
+   *
+   * 底部统计行也算一行（下标等于数据行数），会照常返回并把 isSummaryRow 标为 true；
+   * 越界返回 undefined。
+   */
+  getRowByIndex: (index: number) => VTableRowInfo | undefined;
   /**
    * 清空表格的选中态：原生选中范围与铺过的整行底色一起清，并回调
    * onActiveSelectionChange({ rowCount: 0 })。
@@ -1138,7 +1182,7 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
       paintSelectedRows();
       handlers.current.onActiveSelectionChange?.({ rowCount: 0 });
     });
-    // 单元格编辑完成：回传字段、行索引与新值
+    // 单元格编辑完成：回传字段、行索引、新值与编辑前的值
     table.on('change_cell_value', (args) => {
       const field = args.field === undefined ? '' : String(args.field);
       const headerLevel = table.columnHeaderLevelCount;
@@ -1149,6 +1193,9 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
         rowIndex: index,
         record: rowsRef.current[index],
         value: args.changedValue,
+        // currentValue 是 VTable 在改写 record **之前**取的单元格值，即编辑前的内容。
+        // （原生还有 rawValue = 未格式化的原值，需要时再加）
+        previousValue: args.currentValue,
       });
     });
     // 排序由本组件处理：先把统计行摘掉再排，排完追加回最后一行。
@@ -1314,18 +1361,50 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
   }, [clearPaintedRows]);
 
   // 把方法挂到 ref 上：<VTable ref={tableRef} />，之后用 tableRef.current?.repaint()
+  /**
+   * 按数据行下标取该行数据（0 起、不含表头）。
+   *
+   * 下标跟着**显示顺序**走：rowsRef 装的就是渲染用的那份数据（已按列头排序、
+   * 统计行追加在末尾），所以排序后传 0 拿到的仍是界面上第一行 —— 而非原始 records 的第一条。
+   * 底部统计行同样能命中（它的下标等于数据行数）。
+   *
+   * 这样页面各处就不必再手算「表头占了几行」；回调给的 rowIndex 可直接传进来。
+   */
+  const getRowByIndex = useCallback(
+    (index: number): VTableRowInfo | undefined => {
+      const table = tableRef.current;
+      if (!table || !Number.isFinite(index)) return undefined;
+      const rowIndex = Math.floor(index);
+      if (rowIndex < 0) return undefined;
+      const record = rowsRef.current[rowIndex] as Record<string, unknown> | undefined;
+      if (!record) return undefined;
+      return {
+        rowIndex,
+        rowKey: String(record[rowKey] ?? ''),
+        record,
+        // 统计行的判定按 VTable 坐标（含表头），这里换算过去
+        isSummaryRow: isSummaryRow(
+          rowIndex + table.columnHeaderLevelCount,
+          table.columnHeaderLevelCount,
+        ),
+      };
+    },
+    [isSummaryRow, rowKey],
+  );
+
   useImperativeHandle(
     ref,
     () => ({
       autoFitColumns,
       repaint,
       getSelection,
+      getRowByIndex,
       getTable: () => tableRef.current,
       exportExcel,
       exportCsv,
       clearSelection,
     }),
-    [autoFitColumns, repaint, getSelection, exportExcel, exportCsv, clearSelection],
+    [autoFitColumns, repaint, getSelection, getRowByIndex, exportExcel, exportCsv, clearSelection],
   );
 
   /**
