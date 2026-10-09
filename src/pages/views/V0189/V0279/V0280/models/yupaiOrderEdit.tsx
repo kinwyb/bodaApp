@@ -2,7 +2,13 @@ import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {App, Button, DatePicker, Form, Input, InputNumber, Modal, Select, Skeleton} from 'antd';
 import dayjs, {type Dayjs} from 'dayjs';
 import {ApiError, employeeApi, yupaiApi, YupaiMachineSizeHeader, type YupaiOrder} from '@/api';
-import {VTable, type VTableMenuConfig} from '@/components/VTable';
+import {
+    VTable,
+    type VTableApi,
+    type VTableCellStyleHook,
+    type VTableCellValueChangeInfo,
+    type VTableMenuConfig
+} from '@/components/VTable';
 import {EmployeeQuickSelect} from '@/components/quick-select';
 import {
     buildPreorderDetailColumns,
@@ -10,9 +16,8 @@ import {
     DETAIL_EDITOR_FIELDS,
     type yupaiOrderDetailRow,
 } from './yupaiOrderEditColumns.ts';
-import {yupaiService} from "@/services/yupai.ts";
-
-const DATE_FORMAT = 'YYYY-MM-DD';
+import {validateYupaiOrderDetailRows, yupaiService} from "@/services/yupai.ts";
+import {DATE_FORMAT, toDateString, toDayjs, toNumberOrZero} from '@/utils';
 
 interface yupaiOrderFormValues {
     OrderCode?: string;
@@ -43,16 +48,22 @@ export interface yupaiOrderFormModalProps {
     onSaved: () => void;
 }
 
-const toDayjs = (value: unknown): Dayjs | undefined => {
-    if (value === null || value === undefined || value === '') return undefined;
-    const text = String(value);
-    if (text.startsWith('0001-01-01')) return undefined;
-    const parsed = dayjs(text);
-    return parsed.isValid() ? parsed : undefined;
-};
+/**
+ * 单元格错误的键：行主键 + 字段。
+ * 用主键而不是行号 —— 表格排序后行号会变，主键不会，标红/清错都不会串行。
+ */
+const cellErrorKey = (rowKey: string, field: string): string => `${rowKey}#${field}`;
 
-const toDateString = (value: Dayjs | undefined): string =>
-    value && dayjs.isDayjs(value) ? value.format(DATE_FORMAT) : '';
+/** 服务层返回「行主键 → 字段 → 提示」，这里拍平成「行主键#字段 → 提示」的错误表 */
+const toCellErrors = (byRow: Record<string, Record<string, string>>): Record<string, string> => {
+    const flat: Record<string, string> = {};
+    Object.entries(byRow).forEach(([rowKey, fields]) => {
+        Object.entries(fields).forEach(([field, message]) => {
+            flat[cellErrorKey(rowKey, field)] = message;
+        });
+    });
+    return flat;
+};
 
 const buildValues = (record?: YupaiOrder | null): yupaiOrderFormValues => {
     if (!record) {
@@ -78,8 +89,20 @@ const buildValues = (record?: YupaiOrder | null): yupaiOrderFormValues => {
     };
 };
 
+/**
+ * 未落库的空白 / 新增行的临时主键。
+ *
+ * 必须唯一：VTable 用它当 rowKey（重复会导致行错位），页面也靠它定位「编辑的是哪一行」。
+ * 用模块级自增而不是行号，弹窗反复开关也不会撞。
+ */
+let draftRowSeq = 0;
+const nextDraftRowKey = (): string => {
+    draftRowSeq += 1;
+    return `draft-${draftRowSeq}`;
+};
+
 const buildDetailRows = (records?: YupaiOrder[] | null, withNewLine: boolean = false): yupaiOrderDetailRow[] => {
-    if (!records) return [createDetailRow('')];
+    if (!records) return [createDetailRow(nextDraftRowKey())];
     const result = records.map((record) => {
         const row: yupaiOrderDetailRow = {
             YupaiOrderID: String(record.ID ?? ''),
@@ -100,7 +123,7 @@ const buildDetailRows = (records?: YupaiOrder[] | null, withNewLine: boolean = f
         return row;
     });
     if (withNewLine) {
-        result.push(createDetailRow(''));
+        result.push(createDetailRow(nextDraftRowKey()));
     }
     return result;
 };
@@ -131,6 +154,8 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
     const [saving, setSaving] = useState(false);
     const [checking, setChecking] = useState(false);
     const [detailRows, setDetailRows] = useState<yupaiOrderDetailRow[]>([]);
+    /** 校验不通过的单元格：「行主键#字段」→ 提示文案 */
+    const [cellErrors, setCellErrors] = useState<Record<string, string>>({});
     const [employeeOpen, setEmployeeOpen] = useState(false);
     const [orderChecked, setOrderChecked] = useState(false);
     // 初值取 true：首帧先显示骨架屏，等下面那个 effect 用 setIsLoading(isEdit) 定值。
@@ -138,6 +163,9 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
     // 又被 Skeleton 顶掉，多一次建表/释放，正是需要避开的时序。
     const [isLoading, setIsLoading] = useState(true);
     const [toolbarLocked, setToolbarLocked] = useState(true);
+
+    /** 详情表格实例：校验结果变化后要靠它重绘（cellStyle 是 canvas 渲染时读取的） */
+    const tableRef = useRef<VTableApi>(null);
 
     const isView = mode === 'view';
     const isEdit = mode === 'edit';
@@ -156,6 +184,7 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
             setEmployeeOpen(false);
             setOrderChecked(false);
             setToolbarLocked(false);
+            setCellErrors({});
             return;
         }
         setToolbarLocked(isView || isEdit);
@@ -180,7 +209,7 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                     if (matchOrder && matchOrder.length > 0) {
                         form.setFieldsValue(buildValues(matchOrder[0]))
                         setDetailRows(buildDetailRows(matchOrder));
-                    }else{
+                    } else {
                         // 订单里已经没有选中的这条记录了（多半被他人改动过）。
                         // 提示后直接关窗，这里同样不翻 isLoading —— 理由同上，
                         // 别在弹窗关闭之后还把详情表格建出来。
@@ -211,46 +240,105 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
     // 列定义只描述展示，是否可编辑由下面的 editableFields 决定
     const detailColumns = useMemo(() => buildPreorderDetailColumns(), []);
 
-    /** 新增明细行的序号：只为生成唯一行标识，不会提交给后端 */
-    const newRowSeqRef = useRef(0);
-
-    /** 右键菜单「添加行」：不传 at 表示追加到末尾，传了则插到该位置之前 */
-    const addDetailRow = useCallback((at?: number) => {
+    /**
+     * 右键菜单「添加行」：不传 afterRowKey 表示追加到末尾，传了则插到该行之后。
+     *
+     * 入参是**行主键**而不是行号：行号在表格排序后与数据顺序对不上，
+     * 「在下方插入行」会插到别处；按主键先找到它在数据里的位置再插，才是用户看到的那一行。
+     */
+    const addDetailRow = useCallback((afterRowKey?: string) => {
         setDetailRows((prev) => {
             const next = [...prev];
-            const index = at === undefined ? next.length : Math.max(0, Math.min(at, next.length));
-            newRowSeqRef.current += 1;
-            next.splice(index, 0, createDetailRow(`new-${newRowSeqRef.current}`));
+            const anchor = afterRowKey
+                ? next.findIndex((row) => String(row.YupaiOrderID) === afterRowKey)
+                : -1;
+            // 找不到锚点行（理论上不会）就退回追加到末尾，别插到开头
+            const index = anchor >= 0 ? anchor + 1 : next.length;
+            next.splice(index, 0, createDetailRow(nextDraftRowKey()));
             return next;
         });
     }, []);
 
-    /** 详情表格右键菜单：只读 / 未解锁时不弹（返回空数组即无菜单） */
+    /**
+     * 详情表格右键菜单：只读 / 未解锁时不弹（返回空数组即无菜单）。
+     * 菜单里传递行主键而不是行号，理由见 addDetailRow。
+     */
     const detailMenu = useMemo<VTableMenuConfig>(
         () => ({
-            contextMenuItems: ({rowIndex}) => {
-                if (detailLocked) return [];
+            contextMenuItems: ({rowIndex, record}) => {
+                if (detailLocked || !isAdd) return [];
+                const rowKey = String(record?.YupaiOrderID ?? '');
                 return [
-                    ...(rowIndex >= 0 ? [{text: '在下方插入行', menuKey: 'insertRowBelow'}] : []),
+                    ...(rowIndex >= 0 && rowKey ? [{text: '在下方插入行', menuKey: 'insertRowBelow'}] : []),
                     {text: '新增行', menuKey: 'appendRow'},
                 ];
             },
-            onClick: ({menuKey, rowIndex}) => {
-                if (menuKey === 'insertRowBelow') addDetailRow(rowIndex + 1);
+            onClick: ({menuKey, record}) => {
+                const rowKey = String(record?.YupaiOrderID ?? '');
+                if (menuKey === 'insertRowBelow' && rowKey) addDetailRow(rowKey);
                 else if (menuKey === 'appendRow') addDetailRow();
             },
         }),
-        [addDetailRow, detailLocked],
+        [addDetailRow, detailLocked, isAdd],
     );
 
+    /**
+     * 编辑提交：把新值同步回页面这份 detailRows（保存时读的就是它）。
+     *
+     * 定位用**行主键**而不是 rowIndex —— VTable 回传的 rowIndex 是「当前 records 数组里的位置」，
+     * 而组件接管排序后这个数组已经排过序（见 VTable.tsx 的 rows/ setRecords），页面这份
+     * detailRows 却还是原始顺序，按索引改会写错行。回调里带的 record 就是那一行的原始记录，
+     * 取它的主键来定位，排序、增删行之后都准确。
+     *
+     * 顺带跑一次全表校验：跨行/跨字段规则只有在这里才拿得到完整数据。
+     *
+     * 需要「编辑前后对比」时，用回调参数里的 previousValue（被编辑那一格的旧值）——
+     * 此刻 detailRows 里那一行已经被 VTable 就地改成新值了，回头读它拿不到旧数据；
+     * 要整行的旧状态，`{...record, [field]: previousValue}` 拼一下即可。
+     */
     const handleDetailChange = useCallback(
-        ({field, rowIndex, value}: { field: string; rowIndex: number; value: unknown }) => {
-            setDetailRows((prev) =>
-                prev.map((row, index) => (index === rowIndex ? {...row, [field]: value} : row)),
-            );
+        ({field, rowIndex, record, value, previousValue}: VTableCellValueChangeInfo) => {
+            const rowKey = String(record?.YupaiOrderID ?? '');
+            const isMCSizeField = field.startsWith('MCSize');
+            const nextRows = detailRows.map((row, index) => {
+                // 正常走主键；万一拿不到主键（理论上不会）退回按行号改 ——
+                // 宁可保留旧行为，也不能静默把这次编辑丢掉
+                const hit = rowKey ? String(row.YupaiOrderID) === rowKey : index === rowIndex;
+                if (!hit) return row;
+                const nextRow = {...row, [field]: value};
+                // 改尺码格时，款式数量做等量调整：换出旧值、换入新值
+                if (isMCSizeField) {
+                    nextRow.Number =
+                        toNumberOrZero(row.Number) - toNumberOrZero(previousValue) + toNumberOrZero(value);
+                }
+                return nextRow;
+            });
+            setDetailRows(nextRows);
+            setCellErrors(toCellErrors(validateYupaiOrderDetailRows(nextRows)));
         },
-        [],
+        [detailRows],
     );
+
+    /** 校验不通过的单元格标红（cellStyle 由 canvas 渲染时读取，见下面的重绘 effect） */
+    const detailCellStyle: VTableCellStyleHook = useCallback(
+        ({rowKey, field, isSummaryRow}) => {
+            if (!rowKey || isSummaryRow) return undefined;
+            return cellErrors[cellErrorKey(rowKey, field)]
+                ? {bgColor: '#fff2f0', color: '#cf1322'}
+                : undefined;
+        },
+        [cellErrors],
+    );
+
+    /**
+     * cellStyle 变了不会自动生效：canvas 只在重绘时才重新取样式。
+     * 编辑场景下 records 变化会触发一次 setRecords，但「保存前统一校验」时数据没动，
+     * 所以这里统一补一次重绘。关闭时跳过，别去动正在销毁的表格。
+     */
+    useEffect(() => {
+        if (!open) return;
+        tableRef.current?.repaint();
+    }, [cellErrors, open]);
 
     const handleCheck = useCallback(async () => {
         const code = String(form.getFieldValue('OrderCode') ?? '').trim();
@@ -268,6 +356,7 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                         form.resetFields();
                         form.setFieldsValue(buildValues(res.data[0]));
                         setDetailRows(buildDetailRows(res.data, true));
+                        setCellErrors({});
                         setOrderChecked(true);
                         return;
                     }
@@ -276,6 +365,7 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                 setOrderChecked(false);
             } else {
                 void message.success(`订单号 ${code} 可以使用`);
+                setCellErrors({});
                 setOrderChecked(true);
             }
         } catch (error) {
@@ -287,6 +377,16 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
     }, [form, message, record]);
 
     const handleSave = useCallback(async () => {
+        // 先全量校验详情表：有错就标红并拦住提交，避免把不合法的数据发给后端
+        const errors = toCellErrors(validateYupaiOrderDetailRows(detailRows));
+        const errorCount = Object.keys(errors).length;
+        if (errorCount > 0) {
+            setCellErrors(errors);
+            void message.error(`有 ${errorCount} 处数据需要修正，已在表格中标红`);
+            return;
+        }
+        setCellErrors({});
+
         let values: yupaiOrderFormValues;
         try {
             values = await form.validateFields();
@@ -575,11 +675,13 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
 
                         <div className="preorder-detail-grid">
                             <VTable
+                                ref={tableRef}
                                 columns={detailColumns}
                                 records={detailRows as unknown as Array<Record<string, unknown>>}
                                 rowKey="YupaiOrderID"
                                 editableFields={detailLocked ? undefined : DETAIL_EDITOR_FIELDS}
                                 onCellValueChange={handleDetailChange}
+                                cellStyle={detailCellStyle}
                                 menu={detailMenu}
                             />
                             {detailRows.length === 0 && <div className="preorder-detail-empty">没有任何记录</div>}

@@ -100,3 +100,41 @@ export const yupaiService = {
     },
 
 }
+
+/**
+ * 预订单详情行的校验规则（纯函数，不发请求）
+ *
+ * 返回「行主键 → 字段 → 提示文案」，没有问题时返回空对象。
+ *
+ * 主键取详情行的 YupaiOrderID 而**不是行号**：详情表格支持点列头排序，
+ * VTable 回传的行号是「当前 records 数组（已被排序）里的位置」，
+ * 而页面改的是未排序的那份数据 —— 用行号定位，排序后就会写错行。
+ * 主键与行序无关，排序、增删行之后依然精确对应。
+ *
+ * 调用方（页面）把结果拍平成「行主键#字段 → 提示」交给 cellStyle 标红。
+ */
+export function validateYupaiOrderDetailRows(
+    rows: Array<Record<string, unknown>>,
+): Record<string, Record<string, string>> {
+    const result: Record<string, Record<string, string>> = {};
+    for (const row of rows) {
+        const rowKey = String(row.YupaiOrderID ?? '');
+        // 没有主键的行不参与校验：否则它们会挤在同一个键上互相覆盖
+        if (!rowKey) continue;
+
+        const errors: Record<string, string> = {};
+        // ─── 校验规则 ──────────────────────────────────────────────────
+        if (!row.StyleCode) errors.StyleCode = '款号不能为空';
+        if (!row.ProduceName) errors.ProduceName = '款式描述不能为空';
+        if (Number(row.ZZMWeight) <= 0) errors.ZZMWeight = '中码下机克重不能为空';
+        if (Number(row.ZZMCycle) <= 0) errors.ZZMCycle = '中码下机时间不能为空';
+        const sizeSum = YupaiMachineSizeHeader.reduce(
+            (sum, _title, index) => sum + Number(row[`MCSize${index + 1}`] ?? 0), 0,
+        );
+        if (sizeSum !== Number(row.Number)) errors.Number = '尺码合计与款式数量不一致';
+        // ─────────────────────────────────────────────────────────────────────
+
+        if (Object.keys(errors).length > 0) result[rowKey] = errors;
+    }
+    return result;
+}
