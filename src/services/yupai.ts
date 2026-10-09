@@ -43,7 +43,7 @@ export const yupaiService = {
             }
         }
         const orders = result.data.parseToList<YupaiOrder>({
-            ID: S,
+            ID: {type: "string", field: "YupaiOrderID"},
             YPDate: S,
             Ywy: S,
             YwyNo: S,
