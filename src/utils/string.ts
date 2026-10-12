@@ -24,3 +24,18 @@ export function toStringOrEmpty(value: unknown): string {
     if (typeof value === 'number' && Number.isNaN(value)) return '';
     return String(value);
 }
+
+/**
+ * 转成十六进制字符串（UTF-8 字节 → 小写 hex）。
+ *
+ * 用途：本项目后端约定登录的 password 必须传 hex 而不是明文 ——
+ * 实测传明文会被判成「password参数缺失」，传 `admin` 的 hex `61646d696e` 才继续往下校验账号。
+ *
+ * 走 `TextEncoder` 而不是 `charCodeAt` 逐字符取码元：后者在非 ASCII 字符上给出的是
+ * UTF-16 码元（可能 > 255，转出来不是字节），密码里出现中文就会编错。
+ */
+export function toHexString(value: string): string {
+    return Array.from(new TextEncoder().encode(value))
+        .map((byte) => byte.toString(16).padStart(2, '0'))
+        .join('');
+}

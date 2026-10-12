@@ -3,7 +3,16 @@
  * 业务逻辑（跨接口加工、领域规则）放 @/services。
  */
 export * from './types';
-export { ApiError, clearToken, getToken, http, request, setToken } from './request';
+export {
+  ApiError,
+  clearToken,
+  getToken,
+  http,
+  isUnauthorizedError,
+  onSessionExpired,
+  request,
+  setToken,
+} from './request';
 export { powerApi } from './modules/power.ts';
 export type { DesktopMenu, UserMenu } from './modules/power.ts';
 export { viewApi } from './modules/view';

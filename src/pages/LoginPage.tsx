@@ -2,6 +2,7 @@ import React from 'react';
 import { App, Button, Card, Form, Input, Typography } from 'antd';
 import { LockOutlined, UserOutlined } from '@ant-design/icons';
 import { useAuth } from '../store/auth';
+import { ApiError } from '../api';
 import { useNavigate } from 'react-router-dom';
 
 const { Title, Text } = Typography;
@@ -21,13 +22,12 @@ const LoginPage: React.FC = () => {
   const onFinish = async (values: { username: string; password: string }) => {
     setLoading(true);
     try {
-      const success = await login(values.username, values.password);
-      if (success) {
-        message.success('登录成功');
-        navigate('/', { replace: true });
-      } else {
-        message.error('登录失败');
-      }
+      await login(values.username, values.password);
+      message.success('登录成功');
+      navigate('/', { replace: true });
+    } catch (error) {
+      // 后端返回的提示（如「用户名或密码错误」）比统一的「登录失败」更有用
+      message.error(error instanceof ApiError ? error.message : '登录失败');
     } finally {
       setLoading(false);
     }
@@ -54,7 +54,6 @@ const LoginPage: React.FC = () => {
           onFinish={onFinish}
           autoComplete="off"
           size="large"
-          initialValues={{ username: 'admin', password: 'admin' }}
         >
           <Form.Item
             name="username"
@@ -74,9 +73,6 @@ const LoginPage: React.FC = () => {
             </Button>
           </Form.Item>
         </Form>
-        <Text type="secondary" style={{ display: 'block', textAlign: 'center', fontSize: 12 }}>
-          默认账号：admin / admin（模拟登录）
-        </Text>
       </Card>
     </div>
   );

@@ -1,9 +1,19 @@
 {
-  "EmpID": "10086",
-  "EmpName": "管理员",
+  "Token": "mock-token-bodaway",
+  "UserID": "00000000-0000-0000-0000-000000000000",
+  "EmpID": "000000",
+  "EmpName": "超级用户",
+  "OrgID": "0001E610000000KO20VW",
+  "RoomCode": "",
   "IP": "127.0.0.1",
-  "UserID": "u-0001",
-  "RoleDepartmentIDs": ["1", "2", "3"],
-  "RoleDepartmentNos": ["D001", "D002", "D003"],
-  "DepartmentID": "1"
+  "RoleIDs": null,
+  "RoleDepartmentIDs": ["FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF"],
+  "RoleDepartmentNos": null,
+  "Orgs": null,
+  "Tracing": true,
+  "ServerMode": "",
+  "RequestUniqID": "",
+  "RequestSucc": true,
+  "Language": "",
+  "SQLTraceID": ""
 }

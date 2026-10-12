@@ -41,6 +41,12 @@ export interface RequestOptions {
     params?: QueryParams;
     /** 请求体，自动 JSON 序列化 */
     body?: unknown;
+    /**
+     * 请求体的编码方式，默认 `'json'`。
+     * 用 `'form'` 发 application/x-www-form-urlencoded —— 本项目后端读的是表单参数，
+     * 登录接口传 JSON 会报「username参数缺失」。
+     */
+    contentType?: 'json' | 'form';
     /** 额外请求头 */
     headers?: Record<string, string>;
     /** 用于取消请求 */

@@ -19,12 +19,11 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       proxy: {
-        // 当 VITE_USE_MOCK=false 时，将 /api 请求代理到后端服务
-        '/api': {
+        // 当 VITE_USE_MOCK=false 时，将 /v1/boda 请求代理到后端服务。
+        // 代理前缀要与 VITE_API_BASE_URL 保持一致（后端接口统一带 /v1/boda 前缀）。
+        '/v1/boda': {
           target: apiTarget,
           changeOrigin: true,
-          // 如果后端接口本身不以 /api 开头，取消下面注释以去掉 /api 前缀
-          // rewrite: (path) => path.replace(/^\/api/, ''),
         },
       },
     },
