@@ -1,8 +1,10 @@
 import {register} from '@visactor/vtable';
 import {
+    AntdDatePickerEditor,
     AntdInputEditor,
     AntdInputNumberEditor,
     AntdSelectEditor,
+    type AntdDatePickerEditorProps,
     type AntdInputEditorProps,
     type AntdInputNumberEditorProps,
     type AntdSelectEditorProps,
@@ -34,9 +36,9 @@ export type { EditorOptions };
  * - `validator`：**提交前校验**。返回提示文案就拦住这次提交 —— 值不会写进表格，
  *   输入框标红并把文案贴在下方，用户改对之前退不出编辑态（想放弃按 ESC）。
  * - `onStart` / `onCommit` / `onEnd`：拿到「正在编辑的那一行」并直接改它。
- *   三个编辑器（Input / InputNumber / Select）**都有**这三个钩子，回调里拿到的是
- *   统一的 EditorRowAccessor —— 所以「选一行数据、把字段填进本行其他列」这套写法
- *   对任何控件都一样，不必各自发明。
+ *   四个编辑器（Input / InputNumber / Select / DatePicker）**都有**这三个钩子，
+ *   回调里拿到的是统一的 EditorRowAccessor —— 所以「选一行数据、把字段填进本行其他列」
+ *   这套写法对任何控件都一样，不必各自发明。
  *
  * ⚠️ 注册表是全局的，且**同名幂等、先注册者生效**：要给不同字段配不同校验或不同联动，
  * 必须各自注册一个具名实例（参考 V0280 的 `preorder-detail-<字段名>`），
@@ -49,6 +51,8 @@ export const ANTD_INPUT_EDITOR = 'antd-input';
 export const ANTD_NUMBER_EDITOR = 'antd-number';
 /** 枚举：下拉选择（Select，支持搜索） */
 export const ANTD_SELECT_EDITOR = 'antd-select';
+/** 日期：日期选择器（DatePicker） */
+export const ANTD_DATE_EDITOR = 'antd-date';
 
 /** 已注册的编辑器名，同名只注册一次，避免重复 register 把带 props 的实例覆盖掉 */
 const registered = new Set<string>();
@@ -155,9 +159,38 @@ export function registerAntdSelectEditor(
     registerOnce(name, new AntdSelectEditor(props, options));
 }
 
-/** 一次注册三个基础编辑器（默认名字、不带额外约束与校验），幂等 */
+/**
+ * 注册日期编辑器
+ * @param name 编辑器名，默认 ANTD_DATE_EDITOR
+ * @param props 透传给 antd DatePicker 的配置（format / placeholder / disabledDate 等），
+ *   以及本编辑器扩展的 `valueFormat`（写回表格的日期格式，默认 YYYY-MM-DD）
+ * @param options 校验与行操作钩子
+ *
+ * 表格里存**日期字符串**、控件里是 dayjs，转换由编辑器包办，业务只管用：
+ *
+ *   registerAntdDatePickerEditor('preorder-jhdate', {
+ *       placeholder: '选择日期',
+ *       disabledDate: (current) => current.isBefore(dayjs(), 'day'),
+ *   }, {
+ *       validator: (value) => (value ? undefined : '请选择计划下单日期'),
+ *   });
+ *   // 挂到列上： editableFields={{ JHDate: 'preorder-jhdate' }}
+ *
+ * 空值（含后端 `0001-01-01` 占位）会显示成「未选」，清空后写回的是空串。
+ * 需要「日期 + 时间」：同时给 `showTime` 与 `valueFormat: 'YYYY-MM-DD HH:mm:ss'`。
+ */
+export function registerAntdDatePickerEditor(
+    name: string = ANTD_DATE_EDITOR,
+    props: AntdDatePickerEditorProps = {},
+    options: EditorOptions<string> = {},
+): void {
+    registerOnce(name, new AntdDatePickerEditor(props, options));
+}
+
+/** 一次注册四个基础编辑器（默认名字、不带额外约束与校验），幂等 */
 export function registerAntdEditors(): void {
     registerAntdInputEditor();
     registerAntdNumberEditor();
     registerAntdSelectEditor();
+    registerAntdDatePickerEditor();
 }

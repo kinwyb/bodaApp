@@ -10,8 +10,9 @@ import {
   type ReactElement,
 } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { Input, InputNumber, Select } from 'antd';
-import { toNumberOrNull } from '@/utils';
+import { DatePicker, Input, InputNumber, Select } from 'antd';
+import dayjs, { type Dayjs } from 'dayjs';
+import { DATE_FORMAT, toDayjs, toNumberOrNull } from '@/utils';
 
 // ─── VTable IEditor 接口（与 @visactor/vtable-editors 保持兼容） ──────────────
 
@@ -671,5 +672,87 @@ export class AntdSelectEditor extends BaseAntdEditor<unknown> {
   isEditorElement(target: HTMLElement): boolean {
     // antd Select 下拉弹层渲染在 wrapper 外，需额外判断
     return super.isEditorElement(target) || target.closest('.ant-select-dropdown') != null;
+  }
+}
+
+// ─── AntdDatePickerEditor：日期值在「字符串」与「dayjs」之间转换 ──────────────
+
+/**
+ * 日期编辑器的 props。
+ *
+ * 在 antd `DatePicker` 的基础上多了一个 `valueFormat`。
+ *
+ * **表格里存的是日期字符串，控件要的是 dayjs**，两边转换由编辑器负责（业务不用管）：
+ * - 进编辑：`toDayjs(单元格值)` —— 空值 / 后端的 `0001-01-01` 占位都会变成「没选」；
+ * - 提交时：把 dayjs 按 `valueFormat`（默认 `DATE_FORMAT`）格式化成字符串，空则给空串。
+ *
+ * 要「日期 + 时间」就同时给 `showTime` 和 `valueFormat`（如 `'YYYY-MM-DD HH:mm:ss'`）——
+ * 只给 `showTime` 的话写回表格的值会被截到日（默认格式只到天）。
+ */
+export type AntdDatePickerEditorProps = OmitControlled<
+  ComponentProps<typeof DatePicker>
+> & {
+  /** 写回表格的日期格式，默认 `DATE_FORMAT`（YYYY-MM-DD） */
+  valueFormat?: string;
+};
+
+export class AntdDatePickerEditor extends BaseAntdEditor<string> {
+  private props: AntdDatePickerEditorProps;
+  /** 面板是否展开：展开时 ESC 只该关面板，别顺带把编辑也取消掉 */
+  private panelOpenRef: { current: boolean } = { current: false };
+
+  constructor(
+    props: AntdDatePickerEditorProps = {},
+    options: EditorOptions<string> = {},
+  ) {
+    super(options);
+    this.props = props;
+  }
+
+  protected createControl(): ReactElement {
+    const { onOpenChange, valueFormat, ...dateProps } = this.props;
+    // valueFormat 是本编辑器自己的参数（提交时格式化用），别透传给 antd
+    void valueFormat;
+    // 每次开始编辑都重置：上一次编辑结束时面板要是没关干净，别把状态带进来
+    this.panelOpenRef.current = false;
+    return createElement(DatePicker, {
+      // 面板挂在单元格里（与 Select 一致），点面板不会被当成「点到别处」
+      getPopupContainer: (trigger: HTMLElement) =>
+        trigger.parentElement || document.body,
+      ...dateProps,
+      // 面板开合自己也要知道：ESC 在面板展开时是「关面板」
+      onOpenChange: (open: boolean) => {
+        this.panelOpenRef.current = open;
+        onOpenChange?.(open);
+      },
+    }) as ReactElement;
+  }
+
+  protected toInitialValue(value: unknown): unknown {
+    return toDayjs(value);
+  }
+
+  /**
+   * 覆盖基类的 getValue：控件里是 dayjs，表格里要字符串。
+   *
+   * 这个返回值就是「写进单元格的值」—— edit-manager 在 completeEdit 里取它当
+   * changedValue，也把它传给 validateValue，所以校验规则拿到的也是字符串。
+   */
+  getValue(): string {
+    // 直接读 valueRef：基类 getValue 的返回类型是 V（这里即 string），
+    // 而控件里存的其实是 dayjs，类型对不上，不能走 super.getValue()
+    const value = this.valueRef.current as Dayjs | null | undefined;
+    if (!value || !dayjs.isDayjs(value)) return '';
+    return value.format(this.props.valueFormat ?? DATE_FORMAT);
+  }
+
+  /** 面板展开时 ESC 是「关面板」，不该顺带把编辑也取消掉 */
+  protected shouldCancelOnEscape(): boolean {
+    return !this.panelOpenRef.current;
+  }
+
+  isEditorElement(target: HTMLElement): boolean {
+    // 面板默认挂在单元格内（见 getPopupContainer）；业务把它改挂到 body 时靠这个兜底
+    return super.isEditorElement(target) || target.closest('.ant-picker-dropdown') != null;
   }
 }
