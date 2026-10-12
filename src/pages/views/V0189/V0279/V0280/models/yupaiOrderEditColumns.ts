@@ -16,6 +16,8 @@ import {DETAIL_FIELD_RULES} from '@/services/yupai';
  * 提交给后端时再折回 0（见页面 handleSave 的 payload）。
  */
 export interface yupaiOrderDetailRow {
+    _id: string; //数据唯一ID
+    // 预订单数据ID
     YupaiOrderID: string;
     /** 款号 */
     StyleCode: string;
@@ -154,7 +156,7 @@ export function buildPreorderDetailColumns(): ColumnsDefine {
 /** 新建一行空白明细，供用户直接在表格里输入。数值字段的空 = null（不是 0） */
 export function createDetailRow(id: string): yupaiOrderDetailRow {
     const row = {
-        YupaiOrderID: id,
+        _id: id,
         StyleCode: '',
         Number: null,
         ProduceName: '',

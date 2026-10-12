@@ -1,5 +1,6 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {App, Button, DatePicker, Form, Input, InputNumber, Modal, Select, Skeleton} from 'antd';
+import {DeleteOutlined} from '@ant-design/icons';
 import dayjs, {type Dayjs} from 'dayjs';
 import {ApiError, employeeApi, yupaiApi, YupaiMachineSizeHeader, type YupaiOrder} from '@/api';
 import {
@@ -10,6 +11,7 @@ import {
     type VTableMenuConfig
 } from '@/components/VTable';
 import {EmployeeQuickSelect} from '@/components/quick-select';
+import {alignMenuIcons, toMenuIcon} from '@/components/menuIcon';
 import {
     buildPreorderDetailColumns,
     createDetailRow,
@@ -17,7 +19,16 @@ import {
     type yupaiOrderDetailRow,
 } from './yupaiOrderEditColumns.ts';
 import {validateYupaiOrderDetailRows, yupaiService} from "@/services/yupai.ts";
-import {DATE_FORMAT, toDateString, toDayjs, toNumberOrNullIfZero, toNumberOrZero} from '@/utils';
+import {DATE_FORMAT, isBlankExcept, toDateString, toDayjs, toNumberOrNullIfZero, toNumberOrZero} from '@/utils';
+
+/**
+ * 右键菜单图标：直接用 antd 图标。
+ *
+ * VTable 的菜单图标要的是字符串（完整 `<svg>` 字符串，它会把内容 innerHTML 进一个 span），
+ * 而 antd 图标是 React 组件 —— `toMenuIcon` 就是这一层转换，模块级调用一次即可。
+ * 图标自带 1em 尺寸与 currentColor，所以大小跟着菜单字号、颜色跟着文字（高亮时一起变）。
+ */
+const MENU_ICON_DELETE = toMenuIcon(<DeleteOutlined/>);
 
 interface yupaiOrderFormValues {
     OrderCode?: string;
@@ -90,6 +101,17 @@ const buildValues = (record?: YupaiOrder | null): yupaiOrderFormValues => {
 };
 
 /**
+ * 判断明细行是否为空
+ * @param row
+ */
+const isEmptyRow = (row: Record<string, unknown> | null): boolean => {
+    if (row == null) {
+        return true;
+    }
+    return isBlankExcept(row, ["_id", "YupaiOrderID"])
+}
+
+/**
  * 未落库的空白 / 新增行的临时主键。
  *
  * 必须唯一：VTable 用它当 rowKey（重复会导致行错位），页面也靠它定位「编辑的是哪一行」。
@@ -105,6 +127,7 @@ const buildDetailRows = (records?: YupaiOrder[] | null, withNewLine: boolean = f
     if (!records) return [createDetailRow(nextDraftRowKey())];
     const result = records.map((record) => {
         const row: yupaiOrderDetailRow = {
+            _id: String(record.ID ?? ''),
             YupaiOrderID: String(record.ID ?? ''),
             StyleCode: String(record.StyleCode ?? ''),
             // 数值列统一「0 视作未填 → null」，与 createDetailRow 的初始值保持一致，
@@ -209,7 +232,7 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                 if (res.data && res.data.length > 0 && res.data[0].Status < 2) {
                     const matchOrder = res.data.filter(o => o.ID == record.ID);
                     if (matchOrder && matchOrder.length > 0) {
-                        form.setFieldsValue(buildValues(matchOrder[0]))
+                        form.setFieldsValue(buildValues(matchOrder[0]));
                         setDetailRows(buildDetailRows(matchOrder));
                     } else {
                         // 订单里已经没有选中的这条记录了（多半被他人改动过）。
@@ -252,11 +275,35 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
         setDetailRows((prev) => {
             const next = [...prev];
             const anchor = afterRowKey
-                ? next.findIndex((row) => String(row.YupaiOrderID) === afterRowKey)
+                ? next.findIndex((row) => String(row._id) === afterRowKey)
                 : -1;
             // 找不到锚点行（理论上不会）就退回追加到末尾，别插到开头
             const index = anchor >= 0 ? anchor + 1 : next.length;
+            if (index > 0) {
+                const data = prev[index - 1];
+                if (data && isEmptyRow(data)) { //如果原本就是一行空数据，那就不再新增空行了
+                    return prev
+                }
+            }
             next.splice(index, 0, createDetailRow(nextDraftRowKey()));
+            return next;
+        });
+    }, []);
+
+    const deleteDetailRow = useCallback((delRowKey: string) => {
+        setDetailRows((prev) => {
+            const next = [...prev];
+            const anchor = delRowKey
+                ? next.findIndex((row) => String(row._id) === delRowKey)
+                : -1;
+            if (anchor < 0 || anchor >= prev.length) { //无效的下标，不更新任何数据
+                return prev
+            }
+            next.splice(anchor, 1);
+            if (next.length < 1) {
+                // 这里还要处理如果全部都删掉了，需要增加一个空白行
+                next.push(createDetailRow(nextDraftRowKey()))
+            }
             return next;
         });
     }, []);
@@ -264,24 +311,32 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
     /**
      * 详情表格右键菜单：只读 / 未解锁时不弹（返回空数组即无菜单）。
      * 菜单里传递行主键而不是行号，理由见 addDetailRow。
+     * 菜单项过一遍 alignMenuIcons：只有「删除行」配了图标，其余项补空白占位才不会文字错位。
      */
     const detailMenu = useMemo<VTableMenuConfig>(
         () => ({
             contextMenuItems: ({rowIndex, record}) => {
                 if (detailLocked || !isAdd) return [];
-                const rowKey = String(record?.YupaiOrderID ?? '');
-                return [
-                    ...(rowIndex >= 0 && rowKey ? [{text: '在下方插入行', menuKey: 'insertRowBelow'}] : []),
-                    {text: '新增行', menuKey: 'appendRow'},
-                ];
+                const rowKey = String(record?._id ?? '');
+                const allowNewLine = !isEmptyRow(detailRows[detailRows.length - 1]);
+                const allowNewNextLine = !isEmptyRow(record ?? null);
+                return alignMenuIcons([
+                    ...(rowIndex >= 0 && rowKey && allowNewNextLine ? [{
+                        text: '在下方插入行',
+                        menuKey: 'insertRowBelow'
+                    }] : []),
+                    ...(allowNewLine ? [{text: '新增行', menuKey: 'appendRow'}] : []),
+                    ...(rowKey ? [{text: '删除行', menuKey: 'deleteRow', icon: MENU_ICON_DELETE}] : []),
+                ]);
             },
             onClick: ({menuKey, record}) => {
-                const rowKey = String(record?.YupaiOrderID ?? '');
+                const rowKey = String(record?._id ?? '');
                 if (menuKey === 'insertRowBelow' && rowKey) addDetailRow(rowKey);
                 else if (menuKey === 'appendRow') addDetailRow();
+                else if (menuKey === 'deleteRow' && rowKey) deleteDetailRow(rowKey);
             },
         }),
-        [addDetailRow, detailLocked, isAdd],
+        [addDetailRow, detailLocked, isAdd, detailRows, deleteDetailRow],
     );
 
     /**
@@ -302,11 +357,17 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
         ({field, rowIndex, record, value, previousValue}: VTableCellValueChangeInfo) => {
             const rowKey = String(record?.YupaiOrderID ?? '');
             const isMCSizeField = field.startsWith('MCSize');
+            let totalNumber = 0;
             const nextRows = detailRows.map((row, index) => {
                 // 正常走主键；万一拿不到主键（理论上不会）退回按行号改 ——
                 // 宁可保留旧行为，也不能静默把这次编辑丢掉
-                const hit = rowKey ? String(row.YupaiOrderID) === rowKey : index === rowIndex;
-                if (!hit) return row;
+                const hit = rowKey ? String(row._id) === rowKey : index === rowIndex;
+                if (!hit) {
+                    if (isMCSizeField) {
+                        totalNumber = totalNumber + toNumberOrZero(row.Number);
+                    }
+                    return row;
+                }
                 const nextRow = {...row, [field]: value};
                 // 改尺码格时，款式数量做等量调整：换出旧值、换入新值。
                 // 算出来是 0 就说明没数量，按行数据约定折成 null（而不是留一个 0）
@@ -314,14 +375,19 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                     nextRow.Number = toNumberOrNullIfZero(
                         toNumberOrZero(row.Number) - toNumberOrZero(previousValue) + toNumberOrZero(value),
                     );
+                    totalNumber = totalNumber + toNumberOrZero(nextRow.Number);
                 }
                 return nextRow;
             });
+            if (isMCSizeField) {
+                form.setFieldsValue({Qty: totalNumber});
+            }
             setDetailRows(nextRows);
             setCellErrors(toCellErrors(validateYupaiOrderDetailRows(nextRows)));
         },
-        [detailRows],
+        [detailRows, form],
     );
+
 
     /** 校验不通过的单元格标红（cellStyle 由 canvas 渲染时读取，见下面的重绘 effect） */
     const detailCellStyle: VTableCellStyleHook = useCallback(
