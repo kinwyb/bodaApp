@@ -47,8 +47,24 @@ export type ValidateValueResult = boolean;
  * 编辑器值校验：返回提示文案表示**不通过**（会拦住这次提交），返回 undefined 表示通过。
  *
  * 与表格的整行校验共用同一份规则，避免「编辑器拦一套、保存校验另一套」两边漂移。
+ *
+ * 第二个参数是**当前编辑行**的访问器 —— 与 onStart / onCommit / onEnd 拿到的是同一个口，
+ * 所以规则里可以读本行其他字段，例如「某列填了，这一列就必填」：
+ *
+ * ```ts
+ * validator: (value, row) =>
+ *     isBlank(value) && !isBlank(row.getField('StyleCode')) ? '款式编码填了，描述也要填' : undefined
+ * ```
+ *
+ * ⚠️ 它只看得到**本行**：
+ * - `row.getField()` 读的是**编辑前**的值（本次的新值在第一个参数 `value` 里）；
+ * - 查重、尺码合计这类**跨行 / 跨字段**规则在这里判不了，放整表校验
+ *   （`services/yupai.ts` 的 `validateYupaiOrderDetailRows`），别两处各写一份。
  */
-export type EditorValidator<V = any> = (value: V) => string | undefined;
+export type EditorValidator<V = any> = (
+  value: V,
+  row: EditorRowAccessor,
+) => string | undefined;
 
 export interface IEditor<V = any> {
   onStart: (context: EditContext<V>) => void;
@@ -72,13 +88,16 @@ export interface IEditor<V = any> {
 // ─── 编辑器行访问：所有编辑器共享的「当前行」读写口 ──────────────────────────
 
 /**
- * 正在编辑的那一行的读写口 —— 注册编辑器时通过 onStart / onCommit / onEnd 拿到。
+ * 正在编辑的那一行的读写口 —— 注册编辑器时通过 validator / onStart / onCommit / onEnd 拿到，
+ * 四个钩子拿到的都是这一个口。
  *
- * 这是本项目所有 antd 编辑器共用的能力（Input / InputNumber / Select 都一样），
- * 用来解决「选一行数据、把它的字段填进本行其他列」这类需求：
+ * 这是本项目所有 antd 编辑器共用的能力（Input / InputNumber / Select / DatePicker 都一样），
+ * 用来解决两类需求：
  *
- * - Input + onSearch 打开用户列表弹窗，选完用户把姓名/部门填回本行；
- * - Select 的选项本身是一张表的行，选中后带出款式名称、面料等字段。
+ * - 读：校验规则要参考本行其他字段（`validator` 的第二个参数）；
+ * - 写：「选一行数据、把它的字段填进本行其他列」——
+ *   Input + onSearch 打开用户列表弹窗，选完把姓名/部门填回本行；
+ *   Select 的选项本身是一张表的行，选中后带出款式名称、面料等字段。
  *
  * 不需要在页面里另外维护 `value -> 整行` 的字典，也不需要自己查表格坐标。
  *
@@ -91,7 +110,12 @@ export interface EditorRowAccessor {
   readonly record: Record<string, unknown> | undefined;
   /** 数据行下标（不含表头）；拿不到时为 null，此时写入不生效 */
   readonly recordIndex: number | null;
-  /** 读本行某一列（读的是「编辑前」的值，本次编辑的新值在 onCommit 的 payload.value 里） */
+  /**
+   * 读本行某一列。
+   *
+   * 读的是**编辑前**的值 —— 这一格的新值还没写进表格，它在 validator 的第一个参数 /
+   * onCommit 的 `payload.value` 里。别拿它跟当前输入比对，会永远差一格。
+   */
   getField: (field: string) => unknown;
   /** 写本行某一列 */
   setField: (field: string, value: unknown) => void;
@@ -120,7 +144,12 @@ export interface EditorCommitPayload<V = unknown> {
  * 所以页面 onCellValueChange 那份 records 会自动跟着更新，页面侧不用改任何东西。
  */
 export interface EditorOptions<V = unknown> {
-  /** 提交前校验，返回文案即拦住提交；不传则不做校验 */
+  /**
+   * 提交前校验，返回文案即拦住提交；不传则不做校验。
+   *
+   * 签名 `(value, row)` —— `value` 是本次要提交的值，`row` 是当前编辑行（只能读本行，
+   * 跨行规则请放整表校验）。
+   */
   validator?: EditorValidator<V>;
   /**
    * 进入编辑、拿到本行之后调用。
@@ -268,13 +297,17 @@ function EditorShell({
  *
  * 不通过时返回 `false` —— 值不写进表格、编辑态也不退出，
  * 用户改对之前点哪都没用（想放弃就按 ESC，见 bindEscapeToCancel）。
+ *
+ * `row` 是当前编辑行的访问器，会一起交给业务的 validator ——
+ * 这样规则除了拿到 `value`，还能读本行其他字段。
  */
 function runValidator(
   validator: EditorValidator | undefined,
   value: unknown,
+  row: EditorRowAccessor,
   setError: (message: string | undefined) => void,
 ): ValidateValueResult {
-  const message = validator?.(value);
+  const message = validator?.(value, row);
   setError(message);
   // 有提示文案 = 不通过：拦下这次提交并留在编辑态
   return !message;
@@ -372,9 +405,8 @@ function resolveRecord(
  * 收在一处，子类只需要回答三件事 —— 用什么控件、初始值怎么归一化、
  * ESC 算不算放弃（Select 需要挡掉「关下拉」那一下）。
  *
- * 除了校验，基类还给业务提供了三种统一的行操作能力（见 EditorOptions）：
- * onStart 拿到本行、onCommit 提交时回填、onEnd 收尾。三者拿到的都是
- * EditorRowAccessor，可以直接 setField / setFields 改本行其他列。
+ * 四个钩子（validator / onStart / onCommit / onEnd）拿到的都是 EditorRowAccessor，
+ * 所以校验规则能读本行其他字段，提交与收尾时能 setField / setFields 改本行其他列。
  */
 export abstract class BaseAntdEditor<V = unknown> implements IEditor<V> {
   /** 注册时给定的扩展能力（校验 + 生命周期钩子），全局共享 */
@@ -460,7 +492,12 @@ export abstract class BaseAntdEditor<V = unknown> implements IEditor<V> {
       this.skipNextValidation.current = false;
       return true;
     }
-    const passed = runValidator(this.options.validator, newValue, this.setError);
+    const passed = runValidator(
+      this.options.validator,
+      newValue,
+      this.createRow(),
+      this.setError,
+    );
     // 校验通过才回调：ESC 与校验失败都提前 return 了，业务不会拿到「半截」的提交
     if (passed) {
       this.options.onCommit?.(

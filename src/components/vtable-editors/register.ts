@@ -33,12 +33,17 @@ export type { EditorOptions };
  * antd-editors.tsx 只提供控件类，注册与命名放在这一层。
  *
  * 第三个参数 options 是编辑器的扩展能力（见 antd-editors.tsx 的 EditorOptions）：
- * - `validator`：**提交前校验**。返回提示文案就拦住这次提交 —— 值不会写进表格，
+ * - `validator(value, row)`：**提交前校验**。返回提示文案就拦住这次提交 —— 值不会写进表格，
  *   输入框标红并把文案贴在下方，用户改对之前退不出编辑态（想放弃按 ESC）。
+ *   第二个参数是当前编辑行，所以规则里能读本行其他字段。
  * - `onStart` / `onCommit` / `onEnd`：拿到「正在编辑的那一行」并直接改它。
- *   四个编辑器（Input / InputNumber / Select / DatePicker）**都有**这三个钩子，
- *   回调里拿到的是统一的 EditorRowAccessor —— 所以「选一行数据、把字段填进本行其他列」
- *   这套写法对任何控件都一样，不必各自发明。
+ *   四个编辑器（Input / InputNumber / Select / DatePicker）**四个钩子都有**，
+ *   回调里拿到的是统一的 EditorRowAccessor —— 「读本行做校验」「选一行数据、
+ *   把字段填进本行其他列」这两套写法对任何控件都一样，不必各自发明。
+ *
+ * ⚠️ `row` 只看得到**本行**（`getField` 读的还都是编辑前的值）：查重、尺码合计这类
+ * **跨行 / 整表**规则请放整表校验（`services/yupai.ts` 的 `validateYupaiOrderDetailRows`），
+ * 两边各写一份必然漂移 —— 编辑器放行了、保存时又被拦下，用户会觉得莫名其妙。
  *
  * ⚠️ 注册表是全局的，且**同名幂等、先注册者生效**：要给不同字段配不同校验或不同联动，
  * 必须各自注册一个具名实例（参考 V0280 的 `preorder-detail-<字段名>`），
@@ -85,6 +90,13 @@ function registerOnce(name: string, editor: IEditor) {
  *   // 弹窗里选完人：
  *   activeRow?.setFields({EmployeeName: emp.EmployeeName, DeptName: emp.DeptName});
  *   activeRow?.endEdit();     // 选完就收工，免得编辑态与回填的数据对不上
+ *
+ * validator 的第二个参数也是本行，跨字段规则（本行内）可以写：
+ *
+ *   registerAntdInputEditor('preorder-produce-name', {}, {
+ *       validator: (value, row) =>
+ *           isBlank(value) && !isBlank(row.getField('StyleCode')) ? '填了款号就得填描述' : undefined,
+ *   });
  *
  * 提示：onStart 拿到的访问器只在编辑期间有效，onEnd 之后写入会被静默忽略。
  */
