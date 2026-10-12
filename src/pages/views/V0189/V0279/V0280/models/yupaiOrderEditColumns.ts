@@ -38,10 +38,6 @@ export interface yupaiOrderDetailRow {
     ZZMTime: number | null;
     /** 缝制工时（未填为 null） */
     MSewWt: number | null;
-    /**
-     * 订单号
-     */
-    OrderCode: string | null;
 
     /** 尺码分布，字段名 MCSize1 ~ MCSize9，对应下面 SIZE_HEADERS 的顺序（未填为 null） */
     [key: string]: unknown;
@@ -108,6 +104,24 @@ const DETAIL_COLUMNS: AppColumnDef[] = [
  * 规则取自 services 的 DETAIL_FIELD_RULES，和保存前的整表校验是同一份，
  * 保证不会出现「编辑器放行了、保存时又被拦下」。
  */
+/**
+ * 当前弹窗里的订单号 —— 给编辑器的 validator 读。
+ *
+ * 为什么需要它：编辑器是在**模块级**注册的，validator 的闭包里拿不到页面的 form；
+ * 而「款号在同一订单内不能重复」这条规则要按订单号限定查询范围。页面在三个时机同步它
+ * （打开弹窗 / 点检测 / 用户改动订单号，见 yupaiOrderEdit.tsx），关闭弹窗时置空。
+ *
+ * 同一时刻只会有一个预订单弹窗，所以模块级变量够用 —— 页面靠 `<Form onFieldsChange>` 同步它
+ * （用户手动改订单号、检测时 setFieldsValue 覆盖、打开弹窗预填，三种情况都能收到），
+ * 关弹窗时置空。**明细行上不用再放订单号**：那是整单级的信息，行级冗余还得额外维护同步。
+ */
+let currentOrderCode = '';
+
+/** 页面同步「当前订单号」（详情行的款号查重按它限定范围） */
+export const setCurrentOrderCode = (orderCode: string): void => {
+    currentOrderCode = orderCode;
+};
+
 const RULED_FIELD_EDITORS: Record<string, string> = {};
 Object.entries(DETAIL_FIELD_RULES).forEach(([field, rule]) => {
     const column = DETAIL_COLUMNS.find((item) => item.field === field);
@@ -127,16 +141,19 @@ Object.entries(DETAIL_FIELD_RULES).forEach(([field, rule]) => {
                 if (!isBlank(err)) {
                     return err;
                 }
-                const dataRow = row.record as yupaiOrderDetailRow
-                if (dataRow) {
-                    const orderCode = toStringOrEmpty(dataRow?.OrderCode);
-                    const id = toStringOrEmpty(dataRow?.YupaiOrderID);
-                    if (!orderCode) {
-                        const res = await yupaiService.queryOrder(orderCode, value);
-                        if (res.data && res.data.length > 0 && res.data[0].ID != id) {
-                            return "款号数据已存在"
-                        }
-                    }
+                const dataRow = row.record as yupaiOrderDetailRow | undefined;
+                // 订单号从页面同步进来（见上面的 currentOrderCode）。值先取到局部变量：
+                // 下面要 await，模块级变量期间可能被别处改写。
+                const orderCode = currentOrderCode;
+                if (!orderCode) {
+                    // 还没有订单号（新增时用户没填 / 没检测），无从判重
+                    return undefined;
+                }
+                const selfId = toStringOrEmpty(dataRow?.YupaiOrderID);
+                const res = await yupaiService.queryOrder(orderCode, value);
+                // 排除自己那一行：同一订单里**别的**款式用了这个款号才算重复
+                if (res.data?.some((item) => String(item.ID) !== selfId)) {
+                    return "该订单下款号已存在";
                 }
                 return undefined;
             }
@@ -184,7 +201,6 @@ export function createDetailRow(id: string): yupaiOrderDetailRow {
     const row = {
         _id: id,
         StyleCode: '',
-        OrderCode: '',
         Number: null,
         ProduceName: '',
         Color: '',

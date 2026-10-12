@@ -17,6 +17,7 @@ import {
     buildPreorderDetailColumns,
     createDetailRow,
     DETAIL_EDITOR_FIELDS,
+    setCurrentOrderCode,
     type yupaiOrderDetailRow,
 } from './yupaiOrderEditColumns.ts';
 import {validateYupaiOrderDetailRows, yupaiService} from "@/services/yupai.ts";
@@ -124,7 +125,7 @@ const isEmptyRow = (row: Record<string, unknown> | null): boolean => {
     if (row == null) {
         return true;
     }
-    return isBlankExcept(row, ["_id", "YupaiOrderID","OrderCode"])
+    return isBlankExcept(row, ["_id", "YupaiOrderID"])
 }
 
 /**
@@ -146,7 +147,6 @@ const buildDetailRows = (records?: YupaiOrder[] | null, withNewLine: boolean = f
             _id: String(record.ID ?? ''),
             YupaiOrderID: String(record.ID ?? ''),
             StyleCode: String(record.StyleCode ?? ''),
-            OrderCode: String(record.OrderCode ?? ''),
             // 数值列统一「0 视作未填 → null」，与 createDetailRow 的初始值保持一致，
             // 这样判空（isBlank）和校验都不用再猜「这个 0 是初始值还是用户填的」
             Number: toNumberOrNullIfZero(record.Number),
@@ -227,6 +227,9 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
             setOrderChecked(false);
             setToolbarLocked(false);
             setCellErrors({});
+            // 订单号是模块级共享的（详情行的款号查重要用它限定范围），关弹窗时清掉，
+            // 免得下一个弹窗（可能是别的订单）读到上一单的号
+            setCurrentOrderCode('');
             return;
         }
         setToolbarLocked(isView || isEdit);
@@ -604,7 +607,24 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
             {isLoading ? (
                 <Skeleton active paragraph={{rows: 6}}/>
             ) : (
-                <Form form={form} component={false} className="preorder-form">
+                <Form
+                    form={form}
+                    component={false}
+                    className="preorder-form"
+                    // 订单号变化同步给明细的款号查重（见 yupaiOrderEditColumns 的 currentOrderCode）。
+                    // 用 onFieldsChange 而不是 onValuesChange：后者只在**用户交互**时触发，
+                    // 而订单号还会被 setFieldsValue 程序化写入（打开弹窗预填、点检测覆盖），
+                    // onFieldsChange 两种情况都能收到 —— 所以这一处就够，别处不用再手动同步。
+                    onFieldsChange={(changed) => {
+                        const hit = changed.find((item) => {
+                            const path = Array.isArray(item.name) ? item.name : [item.name];
+                            return path[0] === 'OrderCode';
+                        });
+                        if (hit) {
+                            setCurrentOrderCode(String(hit.value ?? ''));
+                        }
+                    }}
+                >
                     <div className="preorder-form-toolbar">
                         <span className="pf-label">订单号</span>
                         <Form.Item name="OrderCode" noStyle>
