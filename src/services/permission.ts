@@ -106,3 +106,33 @@ export function applyMenuPermission(system: DesktopMenu[], index: PermissionInde
 
   return {tree: filterNodes(system), actions};
 }
+
+/**
+ * 超级管理员的 UserID。
+ *
+ * 业务上这个账号应当拥有全部菜单，但 `/power/user/menu` 只按权限表如实返回
+ * （实测 127 条，缺了 279~305 这一段「预订单」模块），所以前端在算菜单时
+ * 把这个 ID 的权限视作**全集**。
+ *
+ * ⚠️ 这是把业务规则写在了前端：后端若改用别的表示方式（新增超级管理员、
+ * 或改成角色标志位），这里必须同步，否则会出现「后端认为该有、前端不显示」。
+ * 能推动后端的话，让 `/power/user/menu` 对超级管理员直接返回全部菜单才是根治。
+ */
+export const SUPER_ADMIN_USER_ID = '00000000-0000-0000-0000-000000000000';
+
+/**
+ * 收集菜单树里所有节点的 ViewID —— 即超级管理员的权限全集。
+ * 刻意从**后端返回的菜单树**上收集，而不是写死一份 id 列表：
+ * 后端以后加了新菜单，超级管理员自动就有，不用改这里。
+ */
+export function collectAllViewIds(nodes: DesktopMenu[]): Set<number> {
+  const ids = new Set<number>();
+  const walk = (list: DesktopMenu[]) => {
+    list.forEach((node) => {
+      ids.add(node.ViewID);
+      if (node.Children) walk(node.Children);
+    });
+  };
+  walk(nodes);
+  return ids;
+}

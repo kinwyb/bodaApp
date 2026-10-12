@@ -5,7 +5,9 @@
 export {
   applyMenuPermission,
   buildPermissionIndex,
+  collectAllViewIds,
   isNavigableMenu,
   splitViewPath,
+  SUPER_ADMIN_USER_ID,
 } from './permission';
 export type {MenuActionItem, MenuPermissionResult, PermissionIndex} from './permission';
