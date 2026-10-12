@@ -866,7 +866,8 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                 title="快速选择-业务员"
                 loadData={async () => (await employeeApi.list()).data ?? []}
                 onSelect={(employee) => {
-                    form.setFieldValue('Ywy', employee.EmployeeName);
+                    // 后端 /employee 的姓名字段就叫 Employee（不是 EmployeeName）
+                    form.setFieldValue('Ywy', employee.Employee);
                     form.setFieldValue('YwyNo', employee.EmployeeNo);
                     form.setFieldValue('DepartmentID', employee.DepartmentID);
                     setEmployeeOpen(false);

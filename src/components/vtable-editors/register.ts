@@ -91,7 +91,7 @@ function registerOnce(name: string, editor: IEditor) {
  *       },
  *   );
  *   // 弹窗里选完人：
- *   activeRow?.setFields({EmployeeName: emp.EmployeeName, DeptName: emp.DeptName});
+ *   activeRow?.setFields({EmployeeName: emp.Employee, DeptName: emp.Department});
  *   activeRow?.endEdit();     // 选完就收工，免得编辑态与回填的数据对不上
  *
  * validator 的第二个参数也是本行，跨字段规则（本行内）可以写：
@@ -160,14 +160,14 @@ export function registerAntdNumberEditor(
  *       {
  *           options: employees.map((emp) => ({
  *               value: emp.EmployeeNo,
- *               label: emp.EmployeeName,
+ *               label: emp.Employee,
  *               data: emp,                        // 整行挂上来
  *           })),
  *       },
  *       {
  *           onCommit: ({option}, row) => {
  *               const emp = option?.data as EmployeeRecord | undefined;
- *               if (emp) row.setFields({EmployeeName: emp.EmployeeName, DeptName: emp.DeptName});
+ *               if (emp) row.setFields({EmployeeName: emp.Employee, DeptName: emp.Department});
  *           },
  *       },
  *   );

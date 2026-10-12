@@ -6,11 +6,11 @@ import { buildColumns, type AppColumnDef } from '../columnBuilder';
 
 export type { EmployeeRecord } from '@/api';
 
-/** 弹窗展示的三列：工号、姓名、部门 */
+/** 弹窗展示的三列：工号、姓名、部门（字段名照后端 /employee 的返回，姓名为 Employee、部门为 Department） */
 const EMPLOYEE_COLUMNS: AppColumnDef[] = [
   { field: 'EmployeeNo', title: '工号', width: 110 },
-  { field: 'EmployeeName', title: '姓名', width: 140 },
-  { field: 'DepartmentName', title: '部门', width: 240 },
+  { field: 'Employee', title: '姓名', width: 140 },
+  { field: 'Department', title: '部门', width: 240 },
 ];
 
 export interface EmployeeQuickSelectProps {
@@ -49,7 +49,7 @@ export interface EmployeeQuickSelectProps {
  * <EmployeeQuickSelect
  *   open={open}
  *   loadData={async () => (await employeeApi.list()).data}
- *   onSelect={(employee) => { setYwy(employee.EmployeeName); setOpen(false); }}
+ *   onSelect={(employee) => { setYwy(employee.Employee); setOpen(false); }}
  *   onCancel={() => setOpen(false)}
  * />
  */
@@ -75,7 +75,7 @@ export const EmployeeQuickSelect: React.FC<EmployeeQuickSelectProps> = ({
       columns={columns}
       rowKey="EmployeeNo"
       loadData={loadData}
-      searchFields={localFilter ? ['EmployeeNo', 'EmployeeName', 'DepartmentName'] : undefined}
+      searchFields={localFilter ? ['EmployeeNo', 'Employee', 'Department'] : undefined}
       searchLabel="快速选择:"
       searchPlaceholder={searchPlaceholder}
       width={width}
