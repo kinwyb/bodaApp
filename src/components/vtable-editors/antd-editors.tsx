@@ -653,10 +653,24 @@ export abstract class BaseAntdEditor<V = unknown> implements IEditor<V> {
     this.recordIndexRef.current = null;
     this.recordRef.current = undefined;
     this.optionRef.current = undefined;
-    this.root?.unmount();
+
+    // ⚠️ wrapper / root 不能在这里同步清理。
+    //
+    // 表格卸载时 React 清理 effect → `table.release()`，而 BaseTable.release() 的最后
+    // 会调 `editorManager.editingEditor.onEnd()`（见 `es/core/BaseTable.js:1060`）——
+    // 整条链都在 React 的渲染 / 提交过程中。此刻再同步 unmount 另一个 root，React 会报
+    // 「Attempted to synchronously unmount a root while React was already rendering」。
+    //
+    // 推到微任务里做：那时当前这次渲染已经结束（执行上下文已出 Render/Commit 阶段），
+    // 卸载就不会跟 React 打架。闭包里拿的是这一轮的实例，用户很快再次编辑也不会误删新的。
+    const root = this.root;
+    const wrapper = this.wrapper;
     this.root = null;
-    this.wrapper?.remove();
     this.wrapper = null;
+    queueMicrotask(() => {
+      root?.unmount();
+      wrapper?.remove();
+    });
   }
 
   isEditorElement(target: HTMLElement): boolean {
