@@ -405,19 +405,29 @@ function runValidator(
  * 「怎么放弃」交给调用方在 `onCancel` 里做（见 `BaseAntdEditor.cancelEdit`）——
  * 关键是**光置一次「跳过校验」不够**：completeEdit 走完流程照样会把 `getValue()`
  * 写进单元格（实测过：输入非法值按 ESC，非法值真的进了表格）。
+ *
+ * ⚠️ 监听挂在 **window 的捕获阶段**，不是 wrapper 上 —— keydown 的目标是
+ * `document.activeElement`：校验没过时编辑态会保持，但用户只要点过别处，焦点就不在编辑器里了。
+ * 挂在 wrapper（冒泡阶段）的监听那时收不到，`stopPropagation()` 也没机会执行，
+ * 这一下 ESC 会被 antd Modal 当成「关弹窗」，整单编辑白做（实测：弹窗数 1 → 0）。
+ * 挂 window 捕获的好处：比 antd 挂在 document 上的监听（不管它用哪个阶段）都先执行。
+ *
+ * 返回解绑函数：**必须**由调用方在编辑结束（onEnd）时调用，否则每编辑一格就残留一个全局监听。
  */
 function bindEscapeToCancel(
-  wrapper: HTMLElement,
   onCancel: () => void,
   /** 本次 ESC 是否真的算「放弃编辑」；不传就一律算（Select 用它挡掉『关下拉』那一下） */
   shouldCancel?: () => boolean,
-): void {
-  wrapper.addEventListener('keydown', (event) => {
+): () => void {
+  const handler = (event: KeyboardEvent) => {
     if (event.key !== 'Escape') return;
     if (shouldCancel && !shouldCancel()) return;
+    // 拦住，别再往下传 —— 否则 Modal 会把整个弹窗一起关掉
     event.stopPropagation();
     onCancel();
-  });
+  };
+  window.addEventListener('keydown', handler, true);
+  return () => window.removeEventListener('keydown', handler, true);
 }
 
 // ─── 定位容器 ────────────────────────────────────────────────────────────────
@@ -508,6 +518,8 @@ export abstract class BaseAntdEditor<V = unknown> implements IEditor<V> {
   /** 进入编辑时的原值：ESC 放弃时用它还原，别让当前值被写进表格 */
   private readonly initialValueRef: { current: unknown } = { current: undefined };
   private readonly endEditRef: { current: (() => void) | null } = { current: null };
+  /** ESC 监听的解绑函数（见 bindEscapeToCancel），onEnd 里必须调，否则全局监听会累积 */
+  private readonly unbindEscapeRef: { current: (() => void) | null } = { current: null };
   /** 以下三样只在编辑期间有效，onEnd 里一并清掉 */
   private readonly tableRef: { current: any } = { current: null };
   private readonly recordIndexRef: { current: number | null } = { current: null };
@@ -580,8 +592,9 @@ export abstract class BaseAntdEditor<V = unknown> implements IEditor<V> {
     this.tableRef.current = context.table;
     this.recordIndexRef.current = resolveRecordIndex(context);
     this.recordRef.current = resolveRecord(context);
-    bindEscapeToCancel(
-      wrapper,
+    // 上一轮万一把监听留下来了（正常不会），先收掉，免得叠出多个
+    this.unbindEscapeRef.current?.();
+    this.unbindEscapeRef.current = bindEscapeToCancel(
       () => this.cancelEdit(),
       () => this.shouldCancelOnEscape(wrapper),
     );
@@ -645,6 +658,10 @@ export abstract class BaseAntdEditor<V = unknown> implements IEditor<V> {
     // 先把收尾钩子给业务（此时表格与行下标还都在）
     this.options.onEnd?.(this.createRow());
     this.rerender = null;
+    // ESC 监听挂在 window 上，必须在这里解绑：留着的话编辑都结束了它还拦着 ESC，
+    // 用户就再也关不掉弹窗了
+    this.unbindEscapeRef.current?.();
+    this.unbindEscapeRef.current = null;
     // 异步校验可能还在飞：结果回来时编辑器已经收工，写回会被下面的清空挡掉，
     // 这里把「校验中」一并复位，免得下次进来带着上一轮的提示
     this.pendingRef.current = false;
