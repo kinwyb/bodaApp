@@ -1,13 +1,24 @@
 import type {DesktopMenu, UserMenu} from '@/api';
+import {pickByEnv} from '@/utils';
 
 /**
  * 菜单权限的业务逻辑层：接口调用在 @/api（powerApi），
  * 这里只做纯计算 —— 权限树过滤、索引构建、菜单形态判断。
  */
 
-/** 菜单是否可作为导航项 */
+/**
+ * 菜单是否可作为导航项：先排除按钮节点，再按当前环境取对应的开关。
+ *
+ * 后端每个菜单节点同时带 `Debug` / `Release` 两个标记，就是给「调试期」与
+ * 「发布期」准备的两份清单：
+ *   - 调试环境按 `Debug` —— 标了调试的菜单都能点进去，哪怕还没发布
+ *   - 发布环境按 `Release` —— 只出现正式放出的菜单
+ *
+ * 当前处于哪个环境由 @/utils 的 APP_ENV 决定（默认 dev 走 debug、打包走 release）。
+ */
 export function isNavigableMenu(node: DesktopMenu): boolean {
-  return !node.IsAction && node.Release;
+  if (node.IsAction) return false;
+  return pickByEnv({ debug: true, release: node.Release });
 }
 
 /** 将 View 路径按下划线拆分成层级，例如 V0005_V0010 -> ["V0005", "V0010"] */

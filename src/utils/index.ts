@@ -10,5 +10,6 @@
  */
 export * from './blank';
 export * from './date';
+export * from './env';
 export * from './number';
 export * from './string';
