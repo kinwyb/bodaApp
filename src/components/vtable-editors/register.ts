@@ -36,6 +36,9 @@ export type { EditorOptions };
  * - `validator(value, row)`：**提交前校验**。返回提示文案就拦住这次提交 —— 值不会写进表格，
  *   输入框标红并把文案贴在下方，用户改对之前退不出编辑态（想放弃按 ESC）。
  *   第二个参数是当前编辑行，所以规则里能读本行其他字段。
+ *   也可以返回 **Promise**（异步校验，如去后端查这个编码是否已被占用）：
+ *   等待期间界面显示「校验中…」，vtable 会挡住重复触发（用户连点也不会重复调接口），
+ *   结果回来才决定提交还是留在编辑态 —— 不会「先写进表格、后来才发现不合法」。
  * - `onStart` / `onCommit` / `onEnd`：拿到「正在编辑的那一行」并直接改它。
  *   四个编辑器（Input / InputNumber / Select / DatePicker）**四个钩子都有**，
  *   回调里拿到的是统一的 EditorRowAccessor —— 「读本行做校验」「选一行数据、
@@ -97,6 +100,15 @@ function registerOnce(name: string, editor: IEditor) {
  *       validator: (value, row) =>
  *           isBlank(value) && !isBlank(row.getField('StyleCode')) ? '填了款号就得填描述' : undefined,
  *   });
+ *
+ * 要调接口校验就写成 async（返回值一样是「文案 = 不通过」）：
+ *
+ *   registerAntdInputEditor('preorder-style-code', {}, {
+ *       validator: async (value) =>
+ *           (await styleApi.exists(String(value))) ? '该编码已被占用' : undefined,
+ *   });
+ *   // 等待期间界面显示「校验中…」；接口挂了按「不通过」处理并显示错误信息，
+ *   // 用户可重试，也可以按 ESC 放弃这一格的编辑。
  *
  * 提示：onStart 拿到的访问器只在编辑期间有效，onEnd 之后写入会被静默忽略。
  */

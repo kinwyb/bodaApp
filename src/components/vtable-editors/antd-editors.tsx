@@ -60,11 +60,23 @@ export type ValidateValueResult = boolean;
  * - `row.getField()` 读的是**编辑前**的值（本次的新值在第一个参数 `value` 里）；
  * - 查重、尺码合计这类**跨行 / 跨字段**规则在这里判不了，放整表校验
  *   （`services/yupai.ts` 的 `validateYupaiOrderDetailRows`），别两处各写一份。
+ *
+ * 也可以返回 **Promise**（异步校验，例如要去后端查这个值是否已被占用）：
+ *
+ * ```ts
+ * validator: async (value) => (await api.exists(value) ? '该编码已被占用' : undefined)
+ * ```
+ *
+ * vtable 原生支持（`IEditor.validateValue` 的类型就是
+ * `boolean | ValidateEnum | Promise<boolean | ValidateEnum>`，`completeEdit` 里有 `isPromise` 分支）：
+ * 等待期间它会用 `isValidatingValue` 挡住重复触发，所以**用户等结果时反复点别处不会重复调接口**；
+ * 结果回来后才决定提交还是留在编辑态 —— 不会出现「值先写进去、后来才发现不合法」。
+ * 等待期间界面上显示「校验中…」（`setPending`）。
  */
 export type EditorValidator<V = any> = (
   value: V,
   row: EditorRowAccessor,
-) => string | undefined;
+) => string | undefined | Promise<string | undefined>;
 
 export interface IEditor<V = any> {
   onStart: (context: EditContext<V>) => void;
@@ -73,6 +85,9 @@ export interface IEditor<V = any> {
   /**
    * 退出编辑前的校验。VTable 的 edit-manager 在 completeEdit（失焦 / 回车 / 点到别处）时调它，
    * 拿到的就是 getValue() 的值 —— 即「值提交进表格之前」的最后一道闸。
+   *
+   * 可以返回 Promise（异步校验）：edit-manager 的 completeEdit 里有 `isPromise` 分支，
+   * 会等它 resolve 再决定退出还是留在编辑态，等待期间用 `isValidatingValue` 挡重复触发。
    */
   validateValue?: (
     newValue?: V,
@@ -80,7 +95,7 @@ export interface IEditor<V = any> {
     position?: unknown,
     table?: unknown,
     isClickOnTable?: boolean,
-  ) => ValidateValueResult;
+  ) => ValidateValueResult | Promise<ValidateValueResult>;
   isEditorElement?: (target: HTMLElement) => boolean;
   getInputElement?: () => HTMLElement;
 }
@@ -214,6 +229,28 @@ const ERROR_TIP_STYLE: CSSProperties = {
 };
 
 /**
+ * 异步校验进行中的提示条：**中性配色**（不是错误）。
+ *
+ * 去后端查一次可能几百毫秒到几秒，不给反馈用户会以为「点了没反应」；
+ * 用错误红又像是已经判错了，所以灰底灰字。
+ */
+const PENDING_TIP_STYLE: CSSProperties = {
+  position: 'absolute',
+  top: '100%',
+  left: 0,
+  marginTop: 2,
+  padding: '2px 6px',
+  background: '#fafafa',
+  border: '1px solid #f0f0f0',
+  borderRadius: 4,
+  color: '#8c8c8c',
+  fontSize: 12,
+  lineHeight: '18px',
+  whiteSpace: 'nowrap',
+  pointerEvents: 'none',
+};
+
+/**
  * 将 antd 组件包装为受控组件：
  * - 首次渲染时将 initialValue 写入 valueRef
  * - onChange 统一处理 Input（ChangeEvent）和 InputNumber/Select（直接值）两种签名
@@ -226,6 +263,7 @@ function EditorShell({
   valueRef,
   optionRef,
   errorRef,
+  pendingRef,
   onRerender,
 }: {
   element: ReactElement;
@@ -238,6 +276,8 @@ function EditorShell({
   optionRef?: { current: unknown };
   /** 校验失败的提示文案（由编辑器类在 validateValue 里写入） */
   errorRef: { current: string | undefined };
+  /** 异步校验进行中（显示「校验中…」） */
+  pendingRef?: { current: boolean };
   /** 把「触发重渲染」的出口交给编辑器类，用于把校验结果刷到界面上 */
   onRerender?: (rerender: () => void) => void;
 }) {
@@ -273,24 +313,40 @@ function EditorShell({
   );
 
   const error = errorRef.current;
+  const pending = pendingRef?.current === true;
   const injectedProps = {
     value: valueRef.current,
     onChange: handleChange,
     autoFocus: true,
     style: { width: '100%', height: '100%', boxSizing: 'border-box' as const },
-    // 校验没过时把控件本身也标红（Input / InputNumber / Select 都吃 status）
+    // 校验没过时把控件本身也标红（Input / InputNumber / Select 都吃 status）；
+    // 「校验中」不标红，等结果回来再说
     ...(error ? { status: 'error' as const } : {}),
   };
 
   return (
     <>
       {cloneElement(element, injectedProps as Record<string, unknown>)}
-      {error ? <div style={ERROR_TIP_STYLE}>{error}</div> : null}
+      {error ? (
+        <div style={ERROR_TIP_STYLE}>{error}</div>
+      ) : pending ? (
+        <div style={PENDING_TIP_STYLE}>校验中…</div>
+      ) : null}
     </>
   );
 }
 
 // ─── 校验：三个编辑器共用的部分 ──────────────────────────────────────────────
+
+/**
+ * 与 vtable 的 `isPromise`（`es/tools/helper.js`）同款判断：有 `then` 就当 Promise。
+ * 不用 `instanceof Promise` —— 业务可能返回别的 thenable（或跨 realm 的 Promise）。
+ */
+function isPromiseLike<T>(value: T | Promise<T>): value is Promise<T> {
+  return Boolean(
+    value != null && typeof (value as { then?: unknown }).then === 'function',
+  );
+}
 
 /**
  * 编辑器通用的校验执行：把结果落到错误态上，并给出 VTable 要的返回值。
@@ -300,17 +356,44 @@ function EditorShell({
  *
  * `row` 是当前编辑行的访问器，会一起交给业务的 validator ——
  * 这样规则除了拿到 `value`，还能读本行其他字段。
+ *
+ * 业务返回 Promise 时**原样把它交给 VTable**：edit-manager 的 completeEdit 有 `isPromise`
+ * 分支，会等它 resolve 再 `dealWithValidateValue`，等待期间 `isValidatingValue` 为真、
+ * 重复的 completeEdit 直接被挡掉（省得我们自己做防重入）。我们只负责两件事：
+ * - 等待期间挂上 `pending`（界面上显示「校验中…」）；
+ * - **永不 reject** —— reject 会让 vtable 把异常抛给 completeEdit 的调用方，
+ *   所以失败一律按「校验不通过」处理（留在编辑态 + 提示）。
  */
 function runValidator(
   validator: EditorValidator | undefined,
   value: unknown,
   row: EditorRowAccessor,
   setError: (message: string | undefined) => void,
-): ValidateValueResult {
-  const message = validator?.(value, row);
-  setError(message);
-  // 有提示文案 = 不通过：拦下这次提交并留在编辑态
-  return !message;
+  setPending: (pending: boolean) => void,
+): ValidateValueResult | Promise<ValidateValueResult> {
+  const result = validator?.(value, row);
+
+  if (!isPromiseLike(result)) {
+    setError(result);
+    // 有提示文案 = 不通过：拦下这次提交并留在编辑态
+    return !result;
+  }
+
+  // 新一轮校验：先把上一轮的结论清掉，否则会顶着上一条错误文案等结果（用户以为又错了）
+  setError(undefined);
+  setPending(true);
+  return Promise.resolve(result).then(
+    (message) => {
+      setPending(false);
+      setError(message);
+      return !message;
+    },
+    (error: unknown) => {
+      setPending(false);
+      setError(error instanceof Error ? error.message : '校验失败，请重试');
+      return false;
+    },
+  );
 }
 
 /**
@@ -319,13 +402,13 @@ function runValidator(
  * 没有它的话，值校验不过时用户就被困在编辑态了：点哪都会触发一次 completeEdit、
  * 都会被拦下来（edit-manager 自己不看 Escape，扫描过 es/edit 目录，里面没有键盘处理）。
  *
- * 实现上不能直接拿 completeEdit 当取消用 —— context.endEdit 就是 completeEdit，
- * 调它照样会来问 validateValue。所以先置一次「跳过校验」的标记，再让它走完流程。
+ * 「怎么放弃」交给调用方在 `onCancel` 里做（见 `BaseAntdEditor.cancelEdit`）——
+ * 关键是**光置一次「跳过校验」不够**：completeEdit 走完流程照样会把 `getValue()`
+ * 写进单元格（实测过：输入非法值按 ESC，非法值真的进了表格）。
  */
 function bindEscapeToCancel(
   wrapper: HTMLElement,
-  skipRef: { current: boolean },
-  endEditRef: { current: (() => void) | null },
+  onCancel: () => void,
   /** 本次 ESC 是否真的算「放弃编辑」；不传就一律算（Select 用它挡掉『关下拉』那一下） */
   shouldCancel?: () => boolean,
 ): void {
@@ -333,8 +416,7 @@ function bindEscapeToCancel(
     if (event.key !== 'Escape') return;
     if (shouldCancel && !shouldCancel()) return;
     event.stopPropagation();
-    skipRef.current = true;
-    endEditRef.current?.();
+    onCancel();
   });
 }
 
@@ -417,10 +499,14 @@ export abstract class BaseAntdEditor<V = unknown> implements IEditor<V> {
   protected readonly optionRef: { current: unknown } = { current: undefined };
   /** 校验失败的提示文案；undefined 表示通过 */
   private readonly errorRef: { current: string | undefined } = { current: undefined };
+  /** 异步校验进行中（界面上显示「校验中…」） */
+  private readonly pendingRef: { current: boolean } = { current: false };
   /** 触发一次重渲染（由 EditorShell 注册进来），用来把校验提示刷到界面上 */
   private rerender: (() => void) | null = null;
-  /** ESC 放弃编辑时置位，让这一次 completeEdit 跳过校验 */
+  /** ESC 放弃编辑时置位，让这一次 completeEdit 跳过校验（见 cancelEdit） */
   private readonly skipNextValidation: { current: boolean } = { current: false };
+  /** 进入编辑时的原值：ESC 放弃时用它还原，别让当前值被写进表格 */
+  private readonly initialValueRef: { current: unknown } = { current: undefined };
   private readonly endEditRef: { current: (() => void) | null } = { current: null };
   /** 以下三样只在编辑期间有效，onEnd 里一并清掉 */
   private readonly tableRef: { current: any } = { current: null };
@@ -456,6 +542,28 @@ export abstract class BaseAntdEditor<V = unknown> implements IEditor<V> {
     this.rerender?.();
   };
 
+  private setPending = (pending: boolean): void => {
+    this.pendingRef.current = pending;
+    this.rerender?.();
+  };
+
+  /**
+   * 放弃本次编辑（ESC）：把值还原成进入编辑时的原值，再跳过校验走完 completeEdit。
+   *
+   * 为什么不能只「跳过校验」：completeEdit 走完流程后照样会 `getValue()` 并写进单元格，
+   * 那样 ESC 实际是「绕过校验强行提交」（实测过：输入非法值按 ESC，非法值真的进了表格）。
+   * 还原成原值之后 doExit 写回的就是原值，而且 `oldValue === changedValue`，
+   * vtable 不会派发 `change_cell_value` —— 页面 state 天然不受影响。
+   */
+  private cancelEdit(): void {
+    // 校验等待期间按 ESC 也算放弃：pending 一并清掉
+    this.setPending(false);
+    this.valueRef.current = this.initialValueRef.current;
+    this.skipNextValidation.current = true;
+    this.rerender?.();
+    this.endEditRef.current?.();
+  }
+
   onStart(context: EditContext<V>): void {
     const { container, referencePosition, value } = context;
     const { wrapper, root } = createWrapper(container, referencePosition.rect);
@@ -463,14 +571,19 @@ export abstract class BaseAntdEditor<V = unknown> implements IEditor<V> {
     this.root = root;
     // 每次开始编辑都清掉上一轮的状态，否则会跟着残留下来
     this.errorRef.current = undefined;
+    this.pendingRef.current = false;
     this.skipNextValidation.current = false;
     this.optionRef.current = undefined;
+    // 记下原值：ESC 放弃时还原用它（见 cancelEdit）
+    this.initialValueRef.current = value;
     this.endEditRef.current = context.endEdit;
     this.tableRef.current = context.table;
     this.recordIndexRef.current = resolveRecordIndex(context);
     this.recordRef.current = resolveRecord(context);
-    bindEscapeToCancel(wrapper, this.skipNextValidation, this.endEditRef, () =>
-      this.shouldCancelOnEscape(wrapper),
+    bindEscapeToCancel(
+      wrapper,
+      () => this.cancelEdit(),
+      () => this.shouldCancelOnEscape(wrapper),
     );
     root.render(
       <EditorShell
@@ -479,6 +592,7 @@ export abstract class BaseAntdEditor<V = unknown> implements IEditor<V> {
         valueRef={this.valueRef}
         optionRef={this.acceptsOption() ? this.optionRef : undefined}
         errorRef={this.errorRef}
+        pendingRef={this.pendingRef}
         onRerender={(rerender) => {
           this.rerender = rerender;
         }}
@@ -487,28 +601,40 @@ export abstract class BaseAntdEditor<V = unknown> implements IEditor<V> {
     this.options.onStart?.(this.createRow());
   }
 
-  validateValue(newValue?: V): ValidateValueResult {
+  validateValue(newValue?: V): ValidateValueResult | Promise<ValidateValueResult> {
     if (this.skipNextValidation.current) {
       this.skipNextValidation.current = false;
       return true;
     }
-    const passed = runValidator(
+    const validated = runValidator(
       this.options.validator,
       newValue,
       this.createRow(),
       this.setError,
+      this.setPending,
     );
-    // 校验通过才回调：ESC 与校验失败都提前 return 了，业务不会拿到「半截」的提交
-    if (passed) {
-      this.options.onCommit?.(
-        {
-          value: newValue as V,
-          option: this.optionRef.current as Record<string, unknown> | undefined,
-        },
-        this.createRow(),
-      );
+    if (isPromiseLike(validated)) {
+      // 异步校验：把 Promise 交给 vtable（它会等结果再决定退出还是留在编辑态，
+      // 等待期间挡住重复触发）。业务回调也跟着延后到结果回来之后。
+      return validated.then((passed) => {
+        if (passed) this.commit(newValue);
+        return passed;
+      });
     }
-    return passed;
+    // 校验通过才回调：ESC 与校验失败都提前 return 了，业务不会拿到「半截」的提交
+    if (validated) this.commit(newValue);
+    return validated;
+  }
+
+  /** 校验通过后回调业务（异步校验时等结果回来才走） */
+  private commit(value: V | undefined): void {
+    this.options.onCommit?.(
+      {
+        value: value as V,
+        option: this.optionRef.current as Record<string, unknown> | undefined,
+      },
+      this.createRow(),
+    );
   }
 
   getValue(): V {
@@ -519,6 +645,9 @@ export abstract class BaseAntdEditor<V = unknown> implements IEditor<V> {
     // 先把收尾钩子给业务（此时表格与行下标还都在）
     this.options.onEnd?.(this.createRow());
     this.rerender = null;
+    // 异步校验可能还在飞：结果回来时编辑器已经收工，写回会被下面的清空挡掉，
+    // 这里把「校验中」一并复位，免得下次进来带着上一轮的提示
+    this.pendingRef.current = false;
     this.endEditRef.current = null;
     this.tableRef.current = null;
     this.recordIndexRef.current = null;
