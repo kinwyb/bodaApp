@@ -7,6 +7,7 @@ import {
     VTable,
     type VTableApi,
     type VTableCellStyleHook,
+    type VTableCellTooltipHook,
     type VTableCellValueChangeInfo,
     type VTableMenuConfig
 } from '@/components/VTable';
@@ -64,6 +65,14 @@ export interface yupaiOrderFormModalProps {
  * 用主键而不是行号 —— 表格排序后行号会变，主键不会，标红/清错都不会串行。
  */
 const cellErrorKey = (rowKey: string, field: string): string => `${rowKey}#${field}`;
+
+/**
+ * 取一行的主键值。
+ * 详情行主键正在从 `YupaiOrderID` 迁到 `_id`，两个都在，取到哪个用哪个 ——
+ * 判断校验错误属于哪一行时用得上（`_id` 优先，空则回退）。
+ */
+const rowKeyOf = (row: yupaiOrderDetailRow): string =>
+    String(row._id || row.YupaiOrderID || '');
 
 /** 服务层返回「行主键 → 字段 → 提示」，这里拍平成「行主键#字段 → 提示」的错误表 */
 const toCellErrors = (byRow: Record<string, Record<string, string>>): Record<string, string> => {
@@ -401,6 +410,18 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
     );
 
     /**
+     * 悬停提示：光有红底用户不知道错在哪，鼠标移上去把服务层给的提示文案显示出来。
+     * 与 detailCellStyle 用同一份 cellErrors、同一套行主键判断，所以「红的格子」必然「有提示」。
+     */
+    const detailCellTooltip: VTableCellTooltipHook = useCallback(
+        ({rowKey, field, isSummaryRow}) => {
+            if (!rowKey || isSummaryRow) return undefined;
+            return cellErrors[cellErrorKey(rowKey, field)];
+        },
+        [cellErrors],
+    );
+
+    /**
      * cellStyle 变了不会自动生效：canvas 只在重绘时才重新取样式。
      * 编辑场景下 records 变化会触发一次 setRecords，但「保存前统一校验」时数据没动，
      * 所以这里统一补一次重绘。关闭时跳过，别去动正在销毁的表格。
@@ -452,7 +473,24 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
         const errorCount = Object.keys(errors).length;
         if (errorCount > 0) {
             setCellErrors(errors);
-            void message.error(`有 ${errorCount} 处数据需要修正，已在表格中标红`);
+            // 只说「有几处」用户还得满表格找红格 —— 这里把前几条直接列出来，
+            // 其余的靠悬停红格看（cellTooltip 会显示同一份提示文案）
+            const preview = Object.entries(errors).slice(0, 5).map(([key, detail]) => {
+                const [rowKey] = key.split('#');
+                const rowNo = detailRows.findIndex((row) => rowKeyOf(row) === rowKey) + 1;
+                return `${rowNo > 0 ? `第 ${rowNo} 行：` : ''}${detail}`;
+            });
+            const rest = errorCount - preview.length;
+            void message.error({
+                content: (
+                    <div>
+                        <div>有 {errorCount} 处数据需要修正（表格里已标红，鼠标移到红格上可看原因）：</div>
+                        {preview.map((text) => <div key={text}>· {text}</div>)}
+                        {rest > 0 ? <div>· 其余 {rest} 处请在表格中查看</div> : null}
+                    </div>
+                ),
+                duration: 6,
+            });
             return;
         }
         setCellErrors({});
@@ -753,6 +791,7 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                                 editableFields={detailLocked ? undefined : DETAIL_EDITOR_FIELDS}
                                 onCellValueChange={handleDetailChange}
                                 cellStyle={detailCellStyle}
+                                cellTooltip={detailCellTooltip}
                                 menu={detailMenu}
                             />
                             {detailRows.length === 0 && <div className="preorder-detail-empty">没有任何记录</div>}

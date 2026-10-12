@@ -1,7 +1,7 @@
 import {sqlApi, S, N, YupaiMachineSizeHeader} from "@/api";
 import type {ApiResponse, YupaiOrder,} from "@/api";
 import type {FieldConfig} from "@/api/modules/sql.ts";
-import {isBlank, toNumberOrZero} from "@/utils";
+import {isBlank, isBlankExcept, toNumberOrZero} from "@/utils";
 
 /**
  * 预订单服务
@@ -139,7 +139,10 @@ export function validateYupaiOrderDetailRows(
 ): Record<string, Record<string, string>> {
     const result: Record<string, Record<string, string>> = {};
     for (const row of rows) {
-        const rowKey = String(row.YupaiOrderID ?? '');
+        if (isBlankExcept(row, ["_id", "YupaiOrderID"])) {
+            continue;
+        }
+        const rowKey = String(row._id ?? '');
         // 没有主键的行不参与校验：否则它们会挤在同一个键上互相覆盖
         if (!rowKey) continue;
 
