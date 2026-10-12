@@ -6,7 +6,8 @@ import {
     registerAntdNumberEditor, registerAntdSelectEditor,
 } from '@/components/vtable-editors/register';
 import {YupaiMachineSizeHeader} from '@/api/modules/yupai';
-import {DETAIL_FIELD_RULES} from '@/services/yupai';
+import {DETAIL_FIELD_RULES, yupaiService} from '@/services/yupai';
+import {isBlank, toStringOrEmpty} from "@/utils";
 
 /**
  * 详情表格的一行：当前一单一款式，编辑时由预订单记录映射而来。
@@ -37,6 +38,10 @@ export interface yupaiOrderDetailRow {
     ZZMTime: number | null;
     /** 缝制工时（未填为 null） */
     MSewWt: number | null;
+    /**
+     * 订单号
+     */
+    OrderCode: string | null;
 
     /** 尺码分布，字段名 MCSize1 ~ MCSize9，对应下面 SIZE_HEADERS 的顺序（未填为 null） */
     [key: string]: unknown;
@@ -115,6 +120,27 @@ Object.entries(DETAIL_FIELD_RULES).forEach(([field, rule]) => {
             {min: 0, ...(DECIMAL_FIELDS.has(field) ? {} : {precision: 0})},
             {validator: (value) => rule(value)},
         );
+    } else if (field === 'StyleCode') {
+        registerAntdInputEditor(name, {}, {
+            validator: async (value, row) => {
+                const err = rule(value);
+                if (!isBlank(err)) {
+                    return err;
+                }
+                const dataRow = row.record as yupaiOrderDetailRow
+                if (dataRow) {
+                    const orderCode = toStringOrEmpty(dataRow?.OrderCode);
+                    const id = toStringOrEmpty(dataRow?.YupaiOrderID);
+                    if (!orderCode) {
+                        const res = await yupaiService.queryOrder(orderCode, value);
+                        if (res.data && res.data.length > 0 && res.data[0].ID != id) {
+                            return "款号数据已存在"
+                        }
+                    }
+                }
+                return undefined;
+            }
+        });
     } else {
         registerAntdInputEditor(name, {}, {validator: (value) => rule(value)});
     }
@@ -158,6 +184,7 @@ export function createDetailRow(id: string): yupaiOrderDetailRow {
     const row = {
         _id: id,
         StyleCode: '',
+        OrderCode: '',
         Number: null,
         ProduceName: '',
         Color: '',

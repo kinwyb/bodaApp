@@ -1,7 +1,7 @@
 import {sqlApi, S, N, YupaiMachineSizeHeader} from "@/api";
 import type {ApiResponse, YupaiOrder,} from "@/api";
 import type {FieldConfig} from "@/api/modules/sql.ts";
-import {isBlank, isBlankExcept, toNumberOrZero} from "@/utils";
+import {isBlank, isBlankExcept, toNumberOrZero, toStringOrEmpty} from "@/utils";
 
 /**
  * 预订单服务
@@ -115,7 +115,16 @@ export const yupaiService = {
  * `Number(undefined)` 是 NaN、比较恒为 false，规则会静默不触发，错误键也匹配不到任何列。
  */
 export const DETAIL_FIELD_RULES: Record<string, (value: unknown) => string | undefined> = {
-    StyleCode: (value) => (isBlank(value) ? '款号不能为空' : undefined),
+    StyleCode: (value) => {
+        if (isBlank(value)) {
+            return '款号不能为空';
+        }
+        const styleCode = toStringOrEmpty(value)
+        if (!styleCode.match("^[0-9a-zA-Z]+$")) {
+            return "请输入规范的款式编码[只允许存在数字或者字母]"
+        }
+        return undefined;
+    },
     ProduceName: (value) => (isBlank(value) ? '款式描述不能为空' : undefined),
     ZZMWeight: (value) => (toNumberOrZero(value) <= 0 ? '中码下机克重不能为空' : undefined),
     ZZMTime: (value) => (toNumberOrZero(value) <= 0 ? '中码下机时间不能为空' : undefined),
@@ -138,6 +147,13 @@ export function validateYupaiOrderDetailRows(
     rows: Array<Record<string, unknown>>,
 ): Record<string, Record<string, string>> {
     const result: Record<string, Record<string, string>> = {};
+    /**
+     * 款号 → 出现过的行主键。
+     * 查重是**跨行**规则，一行里判不出来，所以先登记、等所有行都看过再统一标注（见循环之后）。
+     * 空款号不登记：那种情况由单字段规则报「款号不能为空」，不该再报一次重复。
+     */
+    const styleCodeRows = new Map<string, string[]>();
+
     for (const row of rows) {
         if (isBlankExcept(row, ["_id", "YupaiOrderID"])) {
             continue;
@@ -155,6 +171,13 @@ export function validateYupaiOrderDetailRows(
         }
 
         // ─── 跨字段规则：要整行（甚至多行）才判得了，编辑器那一层覆盖不到 ──────
+        const styleCode = toStringOrEmpty(row.StyleCode).trim();
+        if (styleCode) {
+            const keys = styleCodeRows.get(styleCode);
+            if (keys) keys.push(rowKey);
+            else styleCodeRows.set(styleCode, [rowKey]);
+        }
+
         const sizeSum = YupaiMachineSizeHeader.reduce(
             (sum, _title, index) => sum + toNumberOrZero(row[`MCSize${index + 1}`]), 0,
         );
@@ -165,5 +188,17 @@ export function validateYupaiOrderDetailRows(
 
         if (Object.keys(errors).length > 0) result[rowKey] = errors;
     }
+
+    // 款号重复：标在涉及的所有行上（两行都标，用户才知道是「跟谁重了」）
+    styleCodeRows.forEach((rowKeys, styleCode) => {
+        if (rowKeys.length < 2) return;
+        rowKeys.forEach((rowKey) => {
+            const existing = result[rowKey];
+            // 该格已经有更根本的问题（为空 / 格式不规范）就别覆盖它 —— 那两个先解决
+            if (existing?.StyleCode) return;
+            result[rowKey] = { ...(existing ?? {}), StyleCode: `款号 ${styleCode} 在明细中重复` };
+        });
+    });
+
     return result;
 }

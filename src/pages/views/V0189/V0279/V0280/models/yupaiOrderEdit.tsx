@@ -69,12 +69,13 @@ export interface yupaiOrderFormModalProps {
 const cellErrorKey = (rowKey: string, field: string): string => `${rowKey}#${field}`;
 
 /**
- * 取一行的主键值。
- * 详情行主键正在从 `YupaiOrderID` 迁到 `_id`，两个都在，取到哪个用哪个 ——
- * 判断校验错误属于哪一行时用得上（`_id` 优先，空则回退）。
+ * 取一行的主键值 —— 详情行的行主键就是 `_id`（新增出来的空白行也是 `draft-N`）。
+ *
+ * ⚠️ 别再掺 `YupaiOrderID`：`createDetailRow` 生成的新行**没有**这个字段，
+ * 一旦某处按它取主键就会拿到空串 —— cellStyle 里 `if (!rowKey) return undefined` 直接不标红，
+ * 表现成「有错的那一行没反应、反倒是别的行标了红」。
  */
-const rowKeyOf = (row: yupaiOrderDetailRow): string =>
-    String(row._id || row.YupaiOrderID || '');
+const rowKeyOf = (row: yupaiOrderDetailRow): string => String(row._id ?? '');
 
 /** 服务层返回「行主键 → 字段 → 提示」，这里拍平成「行主键#字段 → 提示」的错误表 */
 const toCellErrors = (byRow: Record<string, Record<string, string>>): Record<string, string> => {
@@ -123,7 +124,7 @@ const isEmptyRow = (row: Record<string, unknown> | null): boolean => {
     if (row == null) {
         return true;
     }
-    return isBlankExcept(row, ["_id", "YupaiOrderID"])
+    return isBlankExcept(row, ["_id", "YupaiOrderID","OrderCode"])
 }
 
 /**
@@ -145,6 +146,7 @@ const buildDetailRows = (records?: YupaiOrder[] | null, withNewLine: boolean = f
             _id: String(record.ID ?? ''),
             YupaiOrderID: String(record.ID ?? ''),
             StyleCode: String(record.StyleCode ?? ''),
+            OrderCode: String(record.OrderCode ?? ''),
             // 数值列统一「0 视作未填 → null」，与 createDetailRow 的初始值保持一致，
             // 这样判空（isBlank）和校验都不用再猜「这个 0 是初始值还是用户填的」
             Number: toNumberOrNullIfZero(record.Number),
@@ -370,7 +372,8 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
      */
     const handleDetailChange = useCallback(
         ({field, rowIndex, record, value, previousValue}: VTableCellValueChangeInfo) => {
-            const rowKey = String(record?.YupaiOrderID ?? '');
+            // 定位行一律用行主键 `_id`（与表格的 rowKey、服务层校验的键保持一致）
+            const rowKey = String(record?._id ?? '');
             const isMCSizeField = field.startsWith('MCSize');
             let totalNumber = 0;
             const nextRows = detailRows.map((row, index) => {
@@ -826,7 +829,7 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                                 ref={tableRef}
                                 columns={detailColumns}
                                 records={detailRows as unknown as Array<Record<string, unknown>>}
-                                rowKey="YupaiOrderID"
+                                rowKey="_id"
                                 editableFields={detailLocked ? undefined : DETAIL_EDITOR_FIELDS}
                                 onCellValueChange={handleDetailChange}
                                 cellStyle={detailCellStyle}
