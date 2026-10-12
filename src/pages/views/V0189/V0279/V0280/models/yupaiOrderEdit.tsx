@@ -35,6 +35,8 @@ interface yupaiOrderFormValues {
     OrderCode?: string;
     YPDate?: Dayjs;
     Ywy?: string;
+    YwyNo?: string;
+    DepartmentID?: string;
     WorkPlace?: string;
     JHDate?: Dayjs;
     QRDate?: Dayjs;
@@ -93,6 +95,10 @@ const buildValues = (record?: YupaiOrder | null): yupaiOrderFormValues => {
         OrderCode: String(record.OrderCode ?? ''),
         YPDate: toDayjs(record.YPDate),
         Ywy: String(record.Ywy ?? ''),
+        // 业务员的两个附带字段：界面上没有输入框（表单里是 hidden 的 Form.Item），
+        // 这里回填是为了让「换订单 / 换记录」时旧值能被覆盖掉，不然会残留上一个订单的业务员
+        YwyNo: String(record.YwyNo ?? ''),
+        DepartmentID: String(record.DepartmentID ?? ''),
         WorkPlace: String(record.WorkPlace ?? ''),
         JHDate: toDayjs(record.JHDate),
         QRDate: toDayjs(record.QRDate),
@@ -456,6 +462,16 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                 setOrderChecked(false);
             } else {
                 void message.success(`订单号 ${code} 可以使用`);
+                // 加载默认业务员
+                const ywyResult = await yupaiApi.defaultYwy(code.split('-')[0]);
+                if (ywyResult.data) {
+                    form.setFieldsValue({
+                        Ywy: ywyResult.data.EmployeeName,
+                        // 工号取 EmployeeNo（别写成 EmployeeName，那样存进去的是姓名）
+                        YwyNo: ywyResult.data.EmployeeNo,
+                        DepartmentID: ywyResult.data.DepartmentID
+                    });
+                }
                 setCellErrors({});
                 setOrderChecked(true);
             }
@@ -495,6 +511,7 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
         }
         setCellErrors({});
 
+        // 主数据
         let values: yupaiOrderFormValues;
         try {
             values = await form.validateFields();
@@ -506,6 +523,10 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
             OrderCode: values.OrderCode ?? '',
             YPDate: toDateString(values.YPDate),
             Ywy: values.Ywy ?? '',
+            // 业务员工号 / 部门 id：值来自「快速选择业务员」或检测订单号时的联动，
+            // 表单里是 hidden 的 Form.Item（注册过才取得到，见 Ywy 下面那段注释）
+            YwyNo: values.YwyNo ?? '',
+            DepartmentID: values.DepartmentID ?? '',
             WorkPlace: values.WorkPlace ?? '',
             JHDate: toDateString(values.JHDate),
             QRDate: toDateString(values.QRDate),
@@ -635,6 +656,24 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                                     ...
                                 </Button>
                             </Field>
+                            {/*
+                              业务员的两个附带字段：界面上没有输入框，值由「快速选择业务员」和
+                              「检测订单号」联动写入。**必须挂一个 Form.Item 让它们「注册」进表单**，
+                              否则：
+                              - `validateFields()` / `getFieldsValue()` 都取不到它们
+                                （rc-field-form 只遍历注册过的字段实体，见 useForm.js 的
+                                `getFieldEntities(true)` → `getFieldsValue(finalValueNamePathList)`），
+                                提交时 payload 里也就没有这两个字段；
+                              - `resetFields()` 同样只重置注册字段，换订单检测时旧值会残留
+                                （buildValues 里没有这两个字段，覆盖不掉上一个订单带出来的值）。
+                              hidden 只是不显示，值照常参与校验与取值。
+                            */}
+                            <Form.Item name="YwyNo" hidden>
+                                <Input/>
+                            </Form.Item>
+                            <Form.Item name="DepartmentID" hidden>
+                                <Input/>
+                            </Form.Item>
                             <Field label="产地">
                                 <Form.Item name="WorkPlace" noStyle>
                                     <Select
@@ -747,7 +786,7 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                                     <InputNumber
                                         style={{width: 130}}
                                         min={0}
-                                        readOnly={detailLocked}
+                                        readOnly={true}
                                     />
                                 </Form.Item>
                             </Field>
@@ -805,6 +844,8 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                 loadData={async () => (await employeeApi.list()).data ?? []}
                 onSelect={(employee) => {
                     form.setFieldValue('Ywy', employee.EmployeeName);
+                    form.setFieldValue('YwyNo', employee.EmployeeNo);
+                    form.setFieldValue('DepartmentID', employee.DepartmentID);
                     setEmployeeOpen(false);
                 }}
                 onCancel={() => setEmployeeOpen(false)}

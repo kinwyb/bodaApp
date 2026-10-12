@@ -1,5 +1,6 @@
 import {http} from '../request';
-import type {PageQuery} from '../types';
+import type {ApiResponse, PageQuery} from '../types';
+import {sqlApi} from "@/api";
 
 /** 尺码列标题，按界面原样展示 */
 export const YupaiMachineSizeHeader = [
@@ -114,7 +115,7 @@ export interface YupaiOrder {
     /**
      * 部门ID
      */
-    DepartmentID:string;
+    DepartmentID: string;
     CreateTime: string;
     CreateUser: string;
     UpdateTime: string;
@@ -139,6 +140,28 @@ export interface YupaiOrderDel {
     Memo: string;
 }
 
+/**
+ * 预订单默认业务员
+ */
+export interface YupaiOrderDefaultYwy {
+    /**
+     * 工号
+     */
+    EmployeeNo: string;
+    /**
+     * 名称
+     */
+    EmployeeName: string;
+    /**
+     * 部门
+     */
+    Department: string;
+    /**
+     * 部门ID
+     */
+    DepartmentID: string;
+}
+
 export const yupaiApi = {
     list: (query: YupaiOrderQuery = {}) => http.get<YupaiOrder[]>('/plan/yupaiOrder/list', {...query, isDel: 0}),
     /** 最近发生变化的明细 */
@@ -151,7 +174,29 @@ export const yupaiApi = {
     /** 删除预订单 */
     delete: (payload: YupaiOrderDel) => http.delete<string>('/plan/yupaiOrder/del', {Memo: payload.Memo}, {"body": payload.ID}),
     /** 发布预订单 */
-    submit: (ids: string[]) => http.post<string>("/plan/yupaiOrder/submit",ids),
+    submit: (ids: string[]) => http.post<string>("/plan/yupaiOrder/submit", ids),
     /** 用户预订单权限部门 */
-    userDepartment:()=>http.get<string[]>('/plan/yupaiOrder/department'),
+    userDepartment: () => http.get<string[]>('/plan/yupaiOrder/department'),
+    /**
+     * 按订单前缀获取默认业务员
+     * @param orderPrefix 订单前缀
+     */
+    defaultYwy: async (orderPrefix: string): Promise<ApiResponse<YupaiOrderDefaultYwy>> => {
+        const sqlString = "SELECT a.EmployeeName,a.EmployeeNo,b.DepartmentID,b.Department FROM [transitDB].[dbo].[YupaiOrderYwy] a INNER JOIN [BDDMS].dbo.Employee b ON a.EmployeeNo = b.EmployeeNo where a.OrderPrefix = ?"
+        const result = await sqlApi.query({SQL: sqlString, Args: [orderPrefix]})
+        if (result.data) {
+            return {
+                code: 0,
+                data: {
+                    EmployeeNo: result.data.DataVals?.[0]["EmployeeNo"] ?? '',
+                    EmployeeName: result.data.DataVals?.[0]["EmployeeName"] ?? '',
+                    Department: result.data.DataVals?.[0]["Department"] ?? '',
+                    DepartmentID: result.data.DataVals?.[0]["DepartmentID"] ?? '',
+                }
+            }
+        }
+        return {
+            code: 0,
+        }
+    }
 };
