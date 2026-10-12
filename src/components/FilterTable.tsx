@@ -10,6 +10,7 @@ import {
   type VTableApi,
   type VTableCellInfo,
   type VTableCellStyleHook,
+  type VTableCellTooltipHook,
   type VTableCellValueChangeInfo,
   type VTableMenuConfig,
 } from './VTable';
@@ -47,6 +48,8 @@ export interface FilterTableProps {
   multiSelect?: boolean;
   /** 单元格样式回调 */
   cellStyle?: VTableCellStyleHook;
+  /** 单元格悬停提示回调（返回文案即显示 tooltip，与 cellStyle 配套） */
+  cellTooltip?: VTableCellTooltipHook;
   /** 列宽总和不足容器宽度时，是否自动拉宽各列来填满容器；默认 false（右侧留白） */
   autoFillWidth?: boolean;
   /** 可编辑列 */
@@ -125,6 +128,7 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
       highlightInRange,
       multiSelect,
       cellStyle,
+      cellTooltip,
       autoFillWidth,
       editableFields,
       editCellTrigger,
@@ -340,6 +344,7 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
             highlightInRange={highlightInRange}
             multiSelect={multiSelect ?? false}
             cellStyle={cellStyle}
+            cellTooltip={cellTooltip}
             autoFillWidth={autoFillWidth}
             editableFields={editableFields}
             editCellTrigger={editCellTrigger}

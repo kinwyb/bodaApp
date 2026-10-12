@@ -123,6 +123,24 @@ export interface VTableCellStyleInfo {
  */
 export type VTableCellStyleHook = (info: VTableCellStyleInfo) => Record<string, unknown> | undefined;
 
+/**
+ * 单元格悬停提示：返回文案就在该单元格上显示 tooltip，返回 undefined 不显示。
+ *
+ * 与 `cellStyle` 是配套的 —— `cellStyle` 负责「把格子标红」，它负责「告诉用户为什么红」，
+ * 专治「只看到红底、看不到原因」：校验不通过时把服务层给的提示文案返回即可。
+ *
+ * 入参与 `cellStyle` 完全一致（同一个 VTableCellStyleInfo），照抄 cellStyle 里那套
+ * 行主键判断即可。实现上是在 `mouseenter_cell` 时调 VTable 的 `table.showTooltip`；
+ * 鼠标移出、滚动、选中别的格子时 VTable 自己会收起，页面不用管。
+ *
+ * 文案是**纯文本**（VTable 用 textContent 写入，不解析 HTML）。太长会自动折行，
+ * 但有字数上限（`maxWidth`），别把整段说明塞进来 —— 一句话说清「哪里不对」即可。
+ *
+ * 提示配色是固定的「错误红白」（与编辑器里的校验提示条同色，`#fff2f0` / `#cf1322`），
+ * 所以这个能力目前是给**校验错误**用的。将来若要别的语义（提醒、警告）再加配置。
+ */
+export type VTableCellTooltipHook = (info: VTableCellStyleInfo) => string | undefined;
+
 /** 进入单元格编辑的触发方式 */
 export type EditCellTrigger =
   | 'doubleclick'
@@ -465,6 +483,11 @@ export interface VTableProps {
   autoFillWidth?: boolean;
   /** 页面自定义单元格样式（业务提醒用，如最近变更标绿） */
   cellStyle?: VTableCellStyleHook;
+  /**
+   * 单元格悬停提示：返回文案即在该格显示 tooltip。
+   * 与 cellStyle 配套，用来解释「为什么这一格是红的」这类信息。
+   */
+  cellTooltip?: VTableCellTooltipHook;
   /** 可编辑列：字段 -> 已注册的编辑器名（用 register.editor 注册），不传则整表只读 */
   editableFields?: Record<string, string>;
   /** 进入编辑的触发方式，默认双击 */
@@ -558,6 +581,7 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
   multiSelect = true,
   autoFillWidth = false,
   cellStyle,
+  cellTooltip,
   editableFields,
   editCellTrigger = 'doubleclick',
   onCellValueChange,
@@ -887,6 +911,8 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
   rowsRef.current = rows;
   const cellStyleRef = useRef(cellStyle);
   cellStyleRef.current = cellStyle;
+  const cellTooltipRef = useRef(cellTooltip);
+  cellTooltipRef.current = cellTooltip;
 
   /**
    * 按内容自适应所有列宽。
@@ -1210,6 +1236,52 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     table.on('selected_clear', () => {
       paintSelectedRows();
       handlers.current.onActiveSelectionChange?.({ rowCount: 0 });
+    });
+    // 悬停到单元格：页面给了文案就当 tooltip 显示（校验错误「为什么红」靠它）
+    table.on('mouseenter_cell', (args) => {
+      const hook = cellTooltipRef.current;
+      if (!hook) return;
+      const headerLevel = table.columnHeaderLevelCount;
+      const index = args.row - headerLevel;
+      // ⚠️ 事件参数里**没有 field**（vtable 只派发 col/row/cellRange/target —— 见
+      // es/event/listener/table-group.js 的 MOUSEENTER_CELL 派发处，类型上 field 是可选所以 TS 不报错），
+      // 必须自己按坐标反查列字段，否则拿到的永远是空串、匹配不到任何错误。
+      const eventField = (args as { field?: unknown }).field;
+      const columnField = table.getHeaderField?.(args.col, args.row);
+      const content = hook({
+        row: args.row,
+        rowIndex: index,
+        field: String(eventField ?? columnField ?? ''),
+        rowKey: rowKeyByIndexRef.current[index] ?? '',
+        isSummaryRow: isSummaryRow(args.row, headerLevel),
+        record: rowsRef.current[index],
+        dataValue: table.getCellOriginValue?.(args.col, args.row),
+      });
+      // 没文案就别调：VTable 自己的溢出文本提示还在用同一套 tooltip，
+      // 这里空手调一次 showTooltip 会把它的提示顶掉
+      if (!content) return;
+      table.showTooltip(args.col, args.row, {
+        content,
+        /**
+         * ⚠️ `referencePosition` 必须给，否则什么都看不见：
+         * `BubbleTooltipElement._bindToCell` 里是 `if (!position && !referencePosition) return false`，
+         * 两个都不传时内容虽已写进 tooltip 的 DOM（textContent 能读到），但元素不会被加上
+         * `--shown` 类、始终停在 `--hidden` 状态 —— 表现就是「代码都对，就是不弹」。
+         * rect 用表格自身的相对矩形，placement 缺省是 bottom（提示在单元格下方）。
+         */
+        referencePosition: {
+          rect: table.getCellRangeRelativeRect({ col: args.col, row: args.row }),
+        },
+        appearDelay: 120,
+        // 与编辑器里的校验提示条同配色，一眼能看出「这是错误说明」
+        style: {
+          bgColor: '#fff2f0',
+          color: '#cf1322',
+          padding: [6, 10],
+          maxWidth: 260,
+          arrowMark: true,
+        },
+      });
     });
     // 单元格编辑完成：回传字段、行索引、新值与编辑前的值
     table.on('change_cell_value', (args) => {
