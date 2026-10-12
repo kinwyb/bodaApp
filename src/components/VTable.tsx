@@ -277,6 +277,31 @@ export interface VTableRowInfo {
  * - `{ type: 'split' }`：分隔线（注意不是字符串 '-'，写 '-' 会渲染成一个文本项）
  * - `{ type: 'title' }`：分组标题
  * - `children`：二级子菜单
+ *
+ * 图标（`icon`）：`svg` 要传**完整的 `<svg>…</svg>` 字符串** ——
+ * VTable 是把它 innerHTML 进一个 span（见 `es/components/menu/dom/logic/MenuElement.js`
+ * 的 createItem），只有当内容长得像 URL 时才会改用 `<img>` 加载。
+ * 所以别传裸 `<path>`（HTML 解析下不会成为 SVG 元素，什么都不显示）。
+ *
+ * 想直接用 antd 图标的话不用手写 svg，用 `@/components/menuIcon` 的 `toMenuIcon`：
+ *
+ * ```ts
+ * const MENU_ICON_DELETE = toMenuIcon(<DeleteOutlined />);
+ * // { text: '删除行', menuKey: 'deleteRow', icon: MENU_ICON_DELETE }
+ * ```
+ *
+ * ⚠️ 图标是**单独占一列**的，所以同一份菜单里若有的项有图标、有的没有，没图标的项文字会顶到
+ * 最左边（看起来错位）。用 `@/components/menuIcon` 的 `alignMenuIcons(items)` 包一层即可，
+ * 它会自动给没图标的项补上等宽空白占位。
+ *
+ * 尺寸与颜色：`width` / `height` 传了才会写到那个 svg 元素上，最省事的做法是让
+ * svg 自己带 `width` / `height` / `viewBox`；颜色用 `currentColor`，这样鼠标移到
+ * 菜单项上（高亮改文字色）图标会一起变。
+ *
+ * 三个图标字段各自的生效范围：
+ * - `icon`：常态图标，html 渲染模式下右键菜单 / 表头下拉都生效；
+ * - `selectedIcon`：该项高亮（hover / 选中）时**替换** `icon`，只在配了 `icon.svg` 时才用得上；
+ * - `stateIcon`：表头下拉的勾选态图标（默认 22px），**右键菜单里不生效**。
  */
 export type VTableMenuItem =
   | string
@@ -286,6 +311,10 @@ export type VTableMenuItem =
       /** 菜单项标识，点击回调里用它区分；不传时等于 text */
       menuKey?: string;
       icon?: { width?: number; height?: number; svg?: string };
+      /** 高亮（hover）时替换 icon 的图标 */
+      selectedIcon?: { width?: number; height?: number; svg?: string };
+      /** 表头下拉的勾选态图标；右键菜单不生效 */
+      stateIcon?: { width?: number; height?: number; svg?: string };
       children?: VTableMenuItem[];
       disabled?: boolean;
     };
