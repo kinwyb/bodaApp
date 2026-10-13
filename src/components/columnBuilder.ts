@@ -1,11 +1,12 @@
 import type { ColumnsDefine } from '@visactor/vtable';
-import { cleanDateText } from '@/utils';
+import { formatDate, formatDateTime } from '@/utils';
 
 /** 列的数据类型：决定渲染成什么控件以及对齐/格式 */
 export type ColumnDataType =
   | 'text' // 普通文本
   | 'number' // 数值，右对齐，可指定小数位
-  | 'date' // 日期，空日期（0001-01-01）显示为空
+  | 'date' // 日期，只显示到日（YYYY-MM-DD）
+  | 'datetime' // 日期时间，显示到秒（YYYY-MM-DD HH:mm:ss）
   | 'boolean' // 1 / 0，渲染成只读复选框
   | 'tag'; // 枚举，按值映射文案与颜色
 
@@ -70,7 +71,11 @@ export function buildColumns(defs: AppColumnDef[]): ColumnsDefine {
         break;
 
       case 'date':
-        base.fieldFormat = (record: Record<string, unknown>) => cleanDateText(record[def.field]);
+        base.fieldFormat = (record: Record<string, unknown>) => formatDate(record[def.field]);
+        break;
+
+      case 'datetime':
+        base.fieldFormat = (record: Record<string, unknown>) => formatDateTime(record[def.field]);
         break;
 
       case 'boolean': {

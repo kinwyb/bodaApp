@@ -172,14 +172,27 @@ export type ColumnDataType =
     | 'DATETIME'
     | 'STRING';
 
-/** 字段目标类型（用于 parse 转换） */
-export type FieldType = 'string' | 'number' | 'boolean' | 'date';
+/**
+ * 字段目标类型（用于 parse 转换）。
+ *
+ * **没有 `'date'`**：这一层只负责「SQL 字符串 → 目标类型」，日期在后端是字符串、
+ * 到这一层也仍是字符串。转成 `Dayjs` 是**业务模型**的事（services 层的 `toYupaiOrder`）。
+ *
+ * 在原始层就转日期的话，HTTP 直返那条路（没有 mapping）没人转 ——
+ * 两条路的日期形态必然不一致，这正是之前踩过的坑。
+ */
+export type FieldType = 'string' | 'number' | 'boolean';
 
-// 类型预设常量
+/**
+ * 类型预设常量。`Op` 前缀 = optional（缺列时写 undefined 且整个 key 不写，
+ * 见 FieldConfig.optional）。
+ */
 export const S = {type: 'string'} as const;
 export const N = {type: 'number'} as const;
 export const B = {type: 'boolean'} as const;
-export const D = {type: 'date'} as const;
+export const OpS = {type: 'string', optional: true} as const;
+export const OpN = {type: 'number', optional: true} as const;
+export const OpB = {type: 'boolean', optional: true} as const;
 
 /** 单个字段的解析配置 */
 export interface FieldConfig {
@@ -194,7 +207,7 @@ export interface FieldConfig {
      * 写 **undefined 且整个 key 都不写**，而不是类型默认值。
      *
      * 给 T 里声明成可选的字段用（`Memo?: string`）—— 让「真的没有」和
-     * 「查到了空值」在结果里区分得开：'' / 0 / false / null 属于后者
+     * 「查到了空值」在结果里区分得开：'' / 0 / false 属于后者
      * （有这个字段，值是空），undefined（key 不存在）才是前者。
      *
      * 优先级在 `default` 之下：两处都配了以 `default` 为准。
@@ -202,7 +215,7 @@ export interface FieldConfig {
     optional?: boolean;
     /**
      * 兜底值：SQL 结果里**没有这一列**（或转换失败、convert 返回空）时写进结果的值。
-     * 不配就按 `type` 取类型默认值（见 defaultValueByType：'' / 0 / false / null）。
+     * 不配就按 `type` 取类型默认值（见 defaultValueByType：'' / 0 / false）。
      *
      * 配 `undefined` 视为没配 —— 否则又会把 undefined 带进结果，
      * 「返回完整的 T」这个承诺就不成立了（那还不如退回 Partial<T>）。
@@ -234,7 +247,8 @@ export interface DataColumn {
 /** 简化版 DataTable */
 export interface SimpleDataTable {
     columns: DataColumn[];
-    rows: Array<Array<string | number | boolean | Date | null>>;
+    /** 单元格值：不含 `Date` —— 日期列也是原样字符串（见 FieldType 的注释） */
+    rows: Array<Array<string | number | boolean | null>>;
 }
 
 /** 按 FieldType 转换 */
@@ -246,10 +260,6 @@ function convertByFieldType(raw: string, type: FieldType): unknown {
         }
         case 'boolean':
             return raw === '1' || raw.toLowerCase() === 'true';
-        case 'date': {
-            const d = new Date(raw);
-            return Number.isNaN(d.getTime()) ? raw : d;
-        }
         case 'string':
         default:
             return raw;
@@ -262,10 +272,6 @@ function convertByFieldType(raw: string, type: FieldType): unknown {
  * 存在的理由：`parse` / `parseToList` 承诺返回**完整的 T**（不再是 Partial<T>），
  * 那么每个字段都必须有值可写 —— 这就是「SQL 里没这一列」时写进去的东西。
  * 少了它，「字段全都在」就不再是构造上的保证，返回 T 只能靠一句无根据的断言。
- *
- * 日期没有天然的零值（Date 不像 number 有 0），给 null ——
- * 项目里的判空工具（`isEmptyDate` / `isBlank`）都认 null 为空。
- * 若某个日期字段实际声明成 string 想拿空串，用 `default: ''` 覆盖即可。
  */
 function defaultValueByType(type: FieldType): unknown {
     switch (type) {
@@ -273,8 +279,6 @@ function defaultValueByType(type: FieldType): unknown {
             return 0;
         case 'boolean':
             return false;
-        case 'date':
-            return null;
         case 'string':
         default:
             return '';
@@ -285,7 +289,7 @@ function defaultValueByType(type: FieldType): unknown {
 function convertByColumnType<T = string>(
     value: string | null | undefined,
     type?: ColumnDataType,
-): T | undefined {
+): T | null | undefined {
     if (value == null) return value as unknown as T;
     if (!type || type === 'STRING') return value as unknown as T;
 
@@ -301,10 +305,10 @@ function convertByColumnType<T = string>(
         case 'BIT':
             return (value === '1' || value.toLowerCase() === 'true') as unknown as T;
         case 'DATE':
-        case 'DATETIME': {
-            const d = new Date(value);
-            return (Number.isNaN(d.getTime()) ? value : d) as unknown as T;
-        }
+        case 'DATETIME':
+            // 后端声明的列类型确实是日期，但值**保持原样字符串** ——
+            // 日期转换统一在 services 层做，原始层不引入第二种形态（见 FieldType 的注释）
+            return value as unknown as T;
         default:
             return value as unknown as T;
     }
@@ -339,7 +343,7 @@ export class SQLResult {
      * 解析单行为对象。
      *
      * 返回的是**完整的 T**（不是 Partial<T>）：结果里没有对应列的字段写
-     * `FieldConfig.default`，没配则按 `type` 写类型默认值（'' / 0 / false / null）。
+     * `FieldConfig.default`，没配则按 `type` 写类型默认值（'' / 0 / false）。
      *
      * 唯一例外是配了 `optional: true` 的字段 —— 那种字段「没有」就该是「没有」，
      * 结果对象上**连 key 都不写**，读出来是 undefined（见 FieldConfig.optional）。
@@ -371,8 +375,10 @@ export class SQLResult {
     /**
      * 获取单个字段值
      * 会按 ColumnTypes 自动转换
+     *
+     * 没有这一列 / 行号越界 → `undefined`（日期列也不会给 `null` —— 这一层的日期就是字符串）
      */
-    field<T = string>(fieldName: string, index = 0): T | undefined {
+    field<T = string>(fieldName: string, index = 0): T | null | undefined {
         if (!this.DataVals || index >= this.DataVals.length) return undefined;
         const row = this.DataVals[index];
         if (!(fieldName in row)) return undefined;
@@ -440,7 +446,7 @@ export class SQLResult {
 
         if (this.DataVals && table.columns.length > 0) {
             for (const row of this.DataVals) {
-                const vals: Array<string | number | boolean | Date | null> = [];
+                const vals: Array<string | number | boolean | null> = [];
                 for (const col of table.columns) {
                     if (!(col.columnName in row)) {
                         vals.push(null);
@@ -448,7 +454,7 @@ export class SQLResult {
                     }
                     const tp = columnTypeMap.get(col.columnName) ?? 'STRING';
                     const converted = convertByColumnType(row[col.columnName], tp);
-                    vals.push((converted ?? null) as string | number | boolean | Date | null);
+                    vals.push((converted ?? null) as string | number | boolean | null);
                 }
                 table.rows.push(vals);
             }
@@ -569,7 +575,7 @@ export class SQLResult {
 //         field: 'CreateTime',
 //         convert: (v) => new Date(v).toLocaleString(),
 //     },
-//     // SQL 里没有这一列时想给别的值就配 default；不配则按 type 给 '' / 0 / false / null
+//     // SQL 里没有这一列时想给别的值就配 default；不配则按 type 给 '' / 0 / false
 //     Memo: { type: 'string', default: '-' },
 // });
 
