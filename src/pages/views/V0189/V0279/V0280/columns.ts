@@ -13,7 +13,7 @@ export const preorderFilterFields: FilterField[] = [
     {field: 'OrderCode', title: '订单号', type: 'text'},
     {field: 'StyleCode', title: '款号', type: 'text'},
     {field: 'Qty', title: '总数量', type: 'number'},
-    {field: 'MCycle', title: '订单周期', type: 'number'},
+    {field: 'OrderZQ', title: '订单周期', type: 'number'},
     {field: 'ProduceName', title: '款式描述', type: 'enum'},
     {field: 'HDWorkName', title: '后道主工序', type: 'enum'},
     {field: 'XDRate', title: '下单把握度', type: 'enum'},
@@ -51,7 +51,7 @@ const COLUMNS: AppColumnDef[] = [
     {field: 'JHDate', title: '计划下单期', width: 100, dataType: 'date'},
     {field: 'QRDate', title: '确认下单期', width: 100, dataType: 'date'},
     {field: 'WCDate', title: '尾货期', width: 100, dataType: 'date'},
-    {field: 'MCycle', title: '订单周期', width: 80, dataType: 'number', sortable: true},
+    {field: 'OrderZQ', title: '订单周期', width: 80, dataType: 'number', sortable: true},
     {field: 'ZHDate', title: '走货期', width: 100, dataType: 'date'},
     // 阶段列：1 选中 / 0 未选中，渲染成复选框
     {field: 'SSStep', title: '产能阶段', width: 100, dataType: 'boolean'},

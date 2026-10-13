@@ -6,6 +6,6 @@ export const addCommand: PreorderCommandFactory = ({openForm}) => ({
     key: 'add',
     label: '新增',
     icon: <PlusOutlined/>,
-    permission: '新增',
+    menuCode: 'A1449617-681E-4D06-9F0F-BADC138B6BFE',
     onClick: () => openForm('add', null),
 });

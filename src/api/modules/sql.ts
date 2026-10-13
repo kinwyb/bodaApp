@@ -1,5 +1,7 @@
 import {ApiError, http} from '../request';
-import type {ApiResponse} from "@/api";
+// ApiResponse 在 ../types 里，别从 "@/api"（barrel）引 —— api 内部的模块引 barrel 会绕回自己，
+// 轻则多一层循环，重则像 modules/yupai.ts 那样在模块评估期踩到未初始化的导出
+import type {ApiResponse} from "../types";
 
 export const DataSource = {
     /**

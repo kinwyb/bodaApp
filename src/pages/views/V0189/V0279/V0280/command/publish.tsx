@@ -9,6 +9,7 @@ export const publishCommand: PreorderCommandFactory = ({message, modal, getSelec
     icon: <SendOutlined/>,
     permission: '发布',
     disabled: !hasSelection,
+    menuCode:'80382851-5467-4E1D-AE1F-ECB532BC2542',
     onClick: () => {
         const targets = getSelectedRows();
         if (targets.length === 0) {

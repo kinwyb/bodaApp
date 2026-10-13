@@ -8,6 +8,7 @@ export const editCommand: PreorderCommandFactory = ({message, getSelectedRows, h
     icon: <EditOutlined/>,
     permission: '编辑',
     disabled: !hasSelection,
+    menuCode:'A1DEEB48-5BDC-4A2D-8B99-BEF7334E4C19',
     onClick: () => {
         const target = getSelectedRows()[0];
         if (!target) {

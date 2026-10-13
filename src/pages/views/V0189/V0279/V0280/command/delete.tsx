@@ -9,6 +9,7 @@ export const deleteCommand: PreorderCommandFactory = ({message, modal, getSelect
     label: '取消',
     icon: <CloseOutlined/>,
     disabled: !hasSelection,
+    menuCode:'B956B76C-387B-4898-8B19-D457DDCB51C0',
     onClick: () => {
         const targets = getSelectedRows();
         if (targets.length < 1) {

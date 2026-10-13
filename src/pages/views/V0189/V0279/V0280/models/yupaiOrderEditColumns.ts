@@ -5,7 +5,7 @@ import {
     registerAntdInputEditor,
     registerAntdNumberEditor, registerAntdSelectEditor,
 } from '@/components/vtable-editors/register';
-import {YupaiMachineSizeHeader} from '@/api/modules/yupai';
+import {yupaiApi, YupaiMachineSizeHeader} from '@/api/modules/yupai';
 import {DETAIL_FIELD_RULES, yupaiService} from '@/services/yupai';
 import {isBlank, toStringOrEmpty} from "@/utils";
 
@@ -33,9 +33,9 @@ export interface yupaiOrderDetailRow {
     /** 后道主工序 */
     HDWorkName: string;
     /** 中码下机克重（未填为 null） */
-    ZZMWeight: number | null;
+    MWeight: number | null;
     /** 中码下机时间（未填为 null） */
-    ZZMTime: number | null;
+    MCycle: number | null;
     /** 缝制工时（未填为 null） */
     MSewWt: number | null;
 
@@ -81,8 +81,8 @@ const DETAIL_COLUMNS: AppColumnDef[] = [
     {field: 'Color', title: '预估颜色', width: 140},
     {field: 'TSWorkName', title: '特殊工序', width: 110},
     {field: 'HDWorkName', title: '后道主工序', width: 100},
-    {field: 'ZZMWeight', title: '中码下机克重', width: 108, dataType: 'number'},
-    {field: 'ZZMTime', title: '中码下机时间', width: 108, dataType: 'number'},
+    {field: 'MWeight', title: '中码下机克重', width: 108, dataType: 'number'},
+    {field: 'MCycle', title: '中码下机时间', width: 108, dataType: 'number'},
     {field: 'MSewWt', title: '缝制工时', width: 88, dataType: 'number'},
     ...YupaiMachineSizeHeader.map((title, index) => ({
         field: `MCSize${index + 1}`,
@@ -145,15 +145,26 @@ Object.entries(DETAIL_FIELD_RULES).forEach(([field, rule]) => {
                 // 订单号从页面同步进来（见上面的 currentOrderCode）。值先取到局部变量：
                 // 下面要 await，模块级变量期间可能被别处改写。
                 const orderCode = currentOrderCode;
-                if (!orderCode) {
-                    // 还没有订单号（新增时用户没填 / 没检测），无从判重
-                    return undefined;
+                if (orderCode) {
+                    const selfId = toStringOrEmpty(dataRow?.YupaiOrderID);
+                    const res = await yupaiService.queryOrder(orderCode, value);
+                    // 排除自己那一行：同一订单里**别的**款式用了这个款号才算重复
+                    if (res.data?.some((item) => String(item.ID) !== selfId)) {
+                        return "该订单下款号已存在";
+                    }
                 }
-                const selfId = toStringOrEmpty(dataRow?.YupaiOrderID);
-                const res = await yupaiService.queryOrder(orderCode, value);
-                // 排除自己那一行：同一订单里**别的**款式用了这个款号才算重复
-                if (res.data?.some((item) => String(item.ID) !== selfId)) {
-                    return "该订单下款号已存在";
+                // 款式基础数据获取
+                const styleName = await yupaiApi.styleName(value);
+                if (styleName.data) {
+                    row.setField("ProduceName", styleName.data);
+                }
+                const styleDefaultValue = await yupaiApi.styleDefaultValue(value);
+                if (styleDefaultValue.data) {
+                    row.setFields({
+                        MCycle:styleDefaultValue.data.MCycle,
+                        MWeight:styleDefaultValue.data.MWeight,
+                        HDWorkName:styleDefaultValue.data.HDWorkName,
+                    })
                 }
                 return undefined;
             }
@@ -206,8 +217,8 @@ export function createDetailRow(id: string): yupaiOrderDetailRow {
         Color: '',
         TSWorkName: '',
         HDWorkName: '',
-        ZZMWeight: null,
-        ZZMTime: null,
+        MWeight: null,
+        MCycle: null,
         MSewWt: null,
     } as yupaiOrderDetailRow;
     YupaiMachineSizeHeader.forEach((_, index) => {

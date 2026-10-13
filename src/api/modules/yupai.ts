@@ -1,6 +1,12 @@
 import {http} from '../request';
 import type {ApiResponse, PageQuery} from '../types';
-import {sqlApi} from "@/api";
+// 必须从兄弟模块 ./sql 直接引（别引 "@/api" 这个 barrel）：barrel 里 yupai 排在 sql 前面，
+// 会形成 yupai → barrel → yupai 的循环 —— 下面的 YupaiOrderMapping 是顶层常量、
+// 评估时就要读 S / N，此时它们还没初始化：浏览器报
+// `Uncaught ReferenceError: Cannot access 'S' before initialization`，
+// SSR 下则是静默拿到 undefined（mapping 变成 {type: undefined}，转换全错）。
+import {N, S, sqlApi, type FieldConfig, type FieldMapping} from './sql';
+import {toDayjs, toStringOrEmpty} from "@/utils";
 
 /** 尺码列标题，按界面原样展示 */
 export const YupaiMachineSizeHeader = [
@@ -33,7 +39,7 @@ export interface YupaiOrderQuery extends PageQuery {
     filters?: string;
 }
 
-/** 预订单列表记录，字段与后端 /preorders 返回一致 */
+/** 预订单列表记录，字段与后端预订单信息返回一致 */
 export interface YupaiOrder {
     ID: string;
     /** 预订日期 */
@@ -84,14 +90,10 @@ export interface YupaiOrder {
     TSWorkName: string;
     /** 预估颜色 */
     Color: string;
-    /** 订单周期 */
+    /** 中码下机时间 */
     MCycle: string;
-    /** 织造周期 */
-    ZZCycle: number;
-    /** 米重 */
+    /** 中码克重 */
     MWeight: string;
-    /** 织造米重 */
-    ZZMWeight: number;
     /** 缝制重量 */
     MSewWt: number;
     /** 产地工厂 */
@@ -120,9 +122,74 @@ export interface YupaiOrder {
     CreateUser: string;
     UpdateTime: string;
     UpdateUser: string;
+    OrderZQ: number;
 
     /** 其余字段按原样保留 */
     [key: string]: unknown;
+}
+
+/**
+ * 预订单字段匹配
+ */
+export const YupaiOrderMapping: FieldMapping<YupaiOrder> = {
+    ID: {type: "string", field: "YupaiOrderID"},
+    YPDate: S,
+    Ywy: S,
+    YwyNo: S,
+    OrderCode: S,
+    Qty: N,
+    StyleCode: S,
+    ProduceName: S,
+    Number: N,
+    JHDate: S,
+    QRDate: S,
+    WCDate: S,
+    ZHDate: S,
+    XDRate: S,
+    Memo: S,
+    YLDate: S,
+    FLDate: S,
+    BZFLDate: S,
+    YLZLDate: S,
+    YLDHDate: S,
+    ZQCheckDate: S,
+    ZQCheckMemo: S,
+    HDWorkName: S,
+    TSWorkName: S,
+    Color: S,
+    MCycle: S,
+    MWeight: S,
+    MSewWt: N,
+    WorkPlace: S,
+    KnitOrgID: S,
+    OrgID: S,
+    SSStep: N,
+    QMStep: N,
+    WaitCustStep: N,
+    WaitOrderStep: N,
+    OtherStep: S,
+    Status: N,
+    CreateTime: S,
+    CreateUser: S,
+    UpdateTime: S,
+    UpdateUser: S,
+    DepartmentID: S,
+    OrderZQ: {
+        type: "number", convert: (v, row) => {
+            console.log("OrderZQ: ", v)
+            const QRDate = toDayjs(row["QRDate"])
+            const WCDate = toDayjs(row["WCDate"])
+            const ZHDate = toDayjs(row["ZHDate"])
+            if (WCDate) {
+                return WCDate.diff(QRDate,'day')
+            }
+            return ZHDate?.diff(QRDate,'day')
+        }
+    },
+    ...YupaiMachineSizeHeader.reduce<Record<string, FieldConfig>>((acc, _, index) => {
+        acc[`MCSize${index + 1}`] = {type: "number", field: `MC_SIZE${index + 1}`};
+        return acc;
+    }, {}),
 }
 
 /** 变更清单记录（list/change 接口返回） */
@@ -198,5 +265,44 @@ export const yupaiApi = {
         return {
             code: 0,
         }
-    }
+    },
+
+    /**
+     * 获取款式描述
+     * @param styleCode 款号
+     */
+    styleName: async (styleCode: string): Promise<ApiResponse<string>> => {
+        const sqlString = "SELECT name FROM [BDDMS].[dbo].[baj_material] WHERE name like ? AND code LIKE ? ORDER BY code DESC"
+        const result = await sqlApi.query({SQL: sqlString, Args: [styleCode + "[吖-座]%", "388%"]})
+        if (result.data) {
+            return {
+                code: 0,
+                data: toStringOrEmpty(result.data.DataVals?.[0]["name"])
+            }
+        }
+        return {
+            code: 0,
+        }
+    },
+
+    /**
+     * 获取款式默认值
+     * @param styleCode 款号
+     */
+    styleDefaultValue: async (styleCode: string): Promise<ApiResponse<YupaiOrder>> => {
+        const sqlString = "SELECT * FROM [transitDB].[dbo].[YupaiOrder] WHERE StyleCode = ? ORDER BY UpdateTime DESC"
+        const result = await sqlApi.query({SQL: sqlString, Args: [styleCode]})
+        if (result.data && result.data.DataVals && result.data.DataVals.length > 0) {
+            const oldOrder = result.data.parse<YupaiOrder>(YupaiOrderMapping)
+            if (oldOrder) {
+                return {
+                    code: 0,
+                    data: oldOrder
+                }
+            }
+        }
+        return {
+            code: 0,
+        }
+    },
 };

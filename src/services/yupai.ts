@@ -25,7 +25,7 @@ export const yupaiService = {
             params.push(styleCode)
         }
         sqlString = sqlString + " ORDER BY UpdateTime DESC";
-        let result = await sqlApi.query({SQL: sqlString})
+        let result = await sqlApi.query({SQL: sqlString, Args: params})
         if (result.code != 0) {
             return {
                 code: result.code,
@@ -92,11 +92,13 @@ export const yupaiService = {
                 acc[`MCSize${index + 1}`] = {type: "number", field: `MC_SIZE${index + 1}`};
                 return acc;
             }, {}),
-        }) ?? undefined
+        })
 
         return {
             code: result.code,
-            data: (orders ?? []) as YupaiOrder[],
+            // parseToList 返回的就是完整的 YupaiOrder[]（缺列的字段由 mapping 的
+            // type 默认值补齐），不需要再断言一次
+            data: orders ?? [],
         }
     },
 
@@ -196,7 +198,7 @@ export function validateYupaiOrderDetailRows(
             const existing = result[rowKey];
             // 该格已经有更根本的问题（为空 / 格式不规范）就别覆盖它 —— 那两个先解决
             if (existing?.StyleCode) return;
-            result[rowKey] = { ...(existing ?? {}), StyleCode: `款号 ${styleCode} 在明细中重复` };
+            result[rowKey] = {...(existing ?? {}), StyleCode: `款号 ${styleCode} 在明细中重复`};
         });
     });
 
