@@ -22,7 +22,7 @@ import {
 } from './yupaiOrderEditColumns.ts';
 import {validateYupaiOrderDetailRows, yupaiService} from "@/services/yupai.ts";
 import {
-    DATE_FORMAT,
+    DATE_FORMAT, formatDateTime, isBlank,
     isBlankExcept, now,
     toDateString,
     toDayjs,
@@ -30,6 +30,8 @@ import {
     toNumberOrZero,
     toStringOrEmpty
 } from '@/utils';
+import {useAuth} from "@/store/auth-context.ts";
+import {SUPER_ADMIN_USER_ID} from "@/services";
 
 /**
  * 右键菜单图标：直接用 antd 图标。
@@ -133,7 +135,7 @@ const isEmptyRow = (row: Record<string, unknown> | null): boolean => {
     if (row == null) {
         return true;
     }
-    return isBlankExcept(row, ["_id", "YupaiOrderID"])
+    return isBlankExcept(row, ["_id", "YupaiOrderID", "DataVersion"])
 }
 
 /**
@@ -165,6 +167,7 @@ const buildDetailRows = (records?: YupaiOrder[] | null, withNewLine: boolean = f
             MWeight: toNumberOrNullIfZero(record.MWeight),
             MCycle: toNumberOrNullIfZero(record.MCycle),
             MSewWt: toNumberOrNullIfZero(record.MSewWt),
+            DataVersion: record.DataVersion,
         };
         YupaiMachineSizeHeader.forEach((_, index) => {
             const field = `MCSize${index + 1}`;
@@ -201,9 +204,11 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                                                             }) => {
         const {message} = App.useApp();
         const [form] = Form.useForm<yupaiOrderFormValues>();
+        const {userInfo} = useAuth();
         const [saving, setSaving] = useState(false);
         const [checking, setChecking] = useState(false);
         const [detailRows, setDetailRows] = useState<yupaiOrderDetailRow[]>([]);
+        const [hideDatas, setHideDatas] = useState<YupaiOrder[]>([]);
         /** 校验不通过的单元格：「行主键#字段」→ 提示文案 */
         const [cellErrors, setCellErrors] = useState<Record<string, string>>({});
         const [employeeOpen, setEmployeeOpen] = useState(false);
@@ -242,6 +247,7 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                 // 订单号是模块级共享的（详情行的款号查重要用它限定范围），关弹窗时清掉，
                 // 免得下一个弹窗（可能是别的订单）读到上一单的号
                 setCurrentOrderCode('');
+                setHideDatas([]);
                 return;
             }
             setToolbarLocked(isView || isEdit);
@@ -281,6 +287,7 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                             onCancel();
                             return;
                         }
+                        setHideDatas(res.data.filter(o => o.ID != record.ID && o.OrderCode == record.OrderCode));
                         setToolbarLocked(true);
                     } else { //没有有效的订单信息，就相当于新增
                         form.setFieldsValue(buildValues(record))
@@ -335,8 +342,13 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                 const anchor = delRowKey
                     ? next.findIndex((row) => String(row._id) === delRowKey)
                     : -1;
-                if (anchor < 0 || anchor >= prev.length) { //无效的下标，不更新任何数据
+                const row = next.find(row => String(row._id) === delRowKey);
+                if (anchor < 0 || anchor >= prev.length || !row) { //无效的下标，不更新任何数据
                     return prev
+                }
+                if (!isBlank(row.YupaiOrderID)) {
+                    void message.warning("该行数据已保存请前往列表页取消")
+                    return prev;
                 }
                 next.splice(anchor, 1);
                 if (next.length < 1) {
@@ -365,7 +377,11 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                             menuKey: 'insertRowBelow'
                         }] : []),
                         ...(allowNewLine ? [{text: '新增行', menuKey: 'appendRow'}] : []),
-                        ...(rowKey ? [{text: '删除行', menuKey: 'deleteRow', icon: MENU_ICON_DELETE}] : []),
+                        ...(rowKey && isBlank(record?.YupaiOrderID) ? [{
+                            text: '删除行',
+                            menuKey: 'deleteRow',
+                            icon: MENU_ICON_DELETE
+                        }] : []),
                     ]);
                 },
                 onClick: ({menuKey, record}) => {
@@ -474,7 +490,7 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                 if (res.data && res.data.length > 0) {
                     if (res.data[0].Status < 2) { //未发布的订单，看看当前用户是否有全操作
                         const departments = (await yupaiApi.userDepartment()).data ?? []
-                        if (departments && departments.includes(res.data[0].DepartmentID)) { //进入编辑状态
+                        if (userInfo?.UserID == SUPER_ADMIN_USER_ID || departments.includes(res.data[0].DepartmentID)) { //进入编辑状态
                             form.resetFields();
                             form.setFieldsValue(buildValues(res.data[0]));
                             setDetailRows(buildDetailRows(res.data, true));
@@ -492,10 +508,15 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                     if (ywyResult.data) {
                         form.setFieldsValue({
                             Ywy: ywyResult.data.EmployeeName,
-                            // 工号取 EmployeeNo（别写成 EmployeeName，那样存进去的是姓名）
                             YwyNo: ywyResult.data.EmployeeNo,
                             DepartmentID: ywyResult.data.DepartmentID
                         });
+                    } else {
+                        form.setFieldsValue({
+                            Ywy: userInfo?.EmpName ?? '',
+                            YwyNo: userInfo?.EmpID ?? '',
+                            // 这里少部门信息
+                        })
                     }
                     setCellErrors({});
                     setOrderChecked(true);
@@ -540,51 +561,97 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
             let values: yupaiOrderFormValues;
             try {
                 values = await form.validateFields();
+                if (values.ZHDate?.isBefore(values.QRDate)) {
+                    // 走货期小于确认下单日期
+                    if (values.WCDate && values.WCDate.isAfter(values.ZHDate)) {
+                        values.ZHDate = values.WCDate.add(3, 'day')
+                    }
+                    if (values.ZHDate?.isBefore(values.QRDate)) {
+                        void message.error("走货期无效");
+                        return;
+                    }
+                }
             } catch {
                 return;
             }
-
-            // 提交载荷用**后端形态**（YupaiOrderDto，日期是字符串）——
-            // 业务模型 YupaiOrder 的日期是 Dayjs，塞不进请求体
-            const payload: Partial<YupaiOrderDto> = {
-                OrderCode: values.OrderCode ?? '',
-                YPDate: toDateString(values.YPDate),
-                Ywy: values.Ywy ?? '',
-                // 业务员工号 / 部门 id：值来自「快速选择业务员」或检测订单号时的联动，
-                // 表单里是 hidden 的 Form.Item（注册过才取得到，见 Ywy 下面那段注释）
-                YwyNo: values.YwyNo ?? '',
-                DepartmentID: values.DepartmentID ?? '',
-                WorkPlace: values.WorkPlace ?? '',
-                JHDate: toDateString(values.JHDate),
-                QRDate: toDateString(values.QRDate),
-                WCDate: toDateString(values.WCDate),
-                ZHDate: toDateString(values.ZHDate),
-                YLDate: toDateString(values.YLDate),
-                FLDate: toDateString(values.FLDate),
-                BZFLDate: toDateString(values.BZFLDate),
-                XDRate: values.XDRate ?? '',
-                Qty: Number(values.Qty) || 0,
-                Memo: values.Memo ?? '',
-                ZQCheckDate: toDateString(values.ZQCheckDate),
-                ZQCheckMemo: values.ZQCheckMemo ?? '',
-            };
-            const firstRow = detailRows[0];
-            if (firstRow) {
-                payload.StyleCode = String(firstRow.StyleCode ?? '');
-                // 行数据里的「未填」是 null，提交时折回 0（后端字段非空）
-                payload.Number = toNumberOrZero(firstRow.Number);
-                payload.ProduceName = firstRow.ProduceName;
-                payload.Color = firstRow.Color;
-                payload.TSWorkName = firstRow.TSWorkName;
-                payload.HDWorkName = firstRow.HDWorkName;
-                payload.ZZMWeight = toNumberOrZero(firstRow.ZZMWeight);
-                payload.MSewWt = toNumberOrZero(firstRow.MSewWt);
+            let newDataRows = detailRows.filter(row => !isBlank(row)).map((row): Partial<YupaiOrderDto> => {
+                return {
+                    ID: toStringOrEmpty(row.YupaiOrderID),
+                    OrderCode: toStringOrEmpty(values.OrderCode),
+                    YPDate: toDateString(values.YPDate),
+                    Ywy: toStringOrEmpty(values.Ywy),
+                    YwyNo: toStringOrEmpty(values.YwyNo),
+                    DepartmentID: toStringOrEmpty(values.DepartmentID),
+                    WorkPlace: toStringOrEmpty(values.WorkPlace),
+                    JHDate: toDateString(values.JHDate),
+                    QRDate: toDateString(values.QRDate),
+                    WCDate: toDateString(values.WCDate),
+                    ZHDate: toDateString(values.ZHDate),
+                    YLDate: toDateString(values.YLDate),
+                    FLDate: toDateString(values.FLDate),
+                    BZFLDate: toDateString(values.BZFLDate),
+                    XDRate: toStringOrEmpty(values.XDRate),
+                    Qty: toNumberOrZero(values.Qty),
+                    Memo: toStringOrEmpty(values.Memo),
+                    ZQCheckDate: toDateString(values.ZQCheckDate),
+                    ZQCheckMemo: toStringOrEmpty(values.ZQCheckMemo),
+                    StyleCode: toStringOrEmpty(row.StyleCode),
+                    Number: toNumberOrZero(row.Number),
+                    ProduceName: toStringOrEmpty(row.ProduceName),
+                    Color: toStringOrEmpty(row.Color),
+                    TSWorkName: toStringOrEmpty(row.TSWorkName),
+                    HDWorkName: toStringOrEmpty(row.HDWorkName),
+                    MWeight: toStringOrEmpty(row.MWeight),
+                    MSewWt: toNumberOrZero(row.MSewWt),
+                    MCycle: toStringOrEmpty(row.MCycle),
+                    DataVersion: row.DataVersion,
+                    ...YupaiMachineSizeHeader.reduce((acc, _, index) => {
+                        acc[`MCSize${index + 1}`] = toNumberOrZero(row[`MCSize${index + 1}`])
+                        return acc
+                    }, {} as Record<string, number>),
+                }
+            })
+            const newHideRows = hideDatas.map((row): Partial<YupaiOrderDto> => {
+                return {
+                    ...row,
+                    OrderCode: toStringOrEmpty(values.OrderCode),
+                    YPDate: toDateString(values.YPDate),
+                    Ywy: toStringOrEmpty(values.Ywy),
+                    YwyNo: toStringOrEmpty(values.YwyNo),
+                    DepartmentID: toStringOrEmpty(values.DepartmentID),
+                    WorkPlace: toStringOrEmpty(values.WorkPlace),
+                    JHDate: toDateString(values.JHDate),
+                    QRDate: toDateString(values.QRDate),
+                    WCDate: toDateString(values.WCDate),
+                    ZHDate: toDateString(values.ZHDate),
+                    YLDate: toDateString(values.YLDate),
+                    FLDate: toDateString(values.FLDate),
+                    BZFLDate: toDateString(values.BZFLDate),
+                    YLDHDate: toDateString(row.YLZLDate),
+                    YLZLDate: toDateString(row.YLDHDate),
+                    CreateTime: formatDateTime(row.CreateTime),
+                    UpdateTime: formatDateTime(row.UpdateTime),
+                    XDRate: toStringOrEmpty(values.XDRate),
+                    Qty: toNumberOrZero(values.Qty),
+                    Memo: toStringOrEmpty(values.Memo),
+                    ZQCheckDate: toDateString(values.ZQCheckDate),
+                    ZQCheckMemo: toStringOrEmpty(values.ZQCheckMemo),
+                }
+            })
+            newDataRows.push(...newHideRows)
+            const totalNum = newDataRows.reduce((acc, row) => acc + toNumberOrZero(row.Number), 0);
+            if (totalNum < 1) {
+                void message.error("总数量不能为空");
+                return;
             }
+            newDataRows = newDataRows.map((row) => {
+                row.Qty = totalNum;
+                return row
+            });
 
             setSaving(true);
             try {
-                if (mode === 'edit' && record) await yupaiApi.update(record.ID, payload);
-                else await yupaiApi.create(payload);
+                await yupaiApi.save(newDataRows);
                 message.success(mode === 'edit' ? '保存成功' : '新增成功');
                 onSaved();
             } catch (error) {
@@ -592,7 +659,7 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
             } finally {
                 setSaving(false);
             }
-        }, [detailRows, form, message, mode, onSaved, record]);
+        }, [detailRows, form, message, mode, onSaved, record, hideDatas]);
 
         const modalTitle = isView ? '查看预订单' : isEdit ? '编辑预订单' : '新增预订单';
 
@@ -711,7 +778,8 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                     >
                         <div className="preorder-form-toolbar">
                             <span className="pf-label">订单号</span>
-                            <Form.Item name="OrderCode" noStyle>
+                            <Form.Item name="OrderCode" noStyle
+                                       rules={[{required: true, message: '订单号不能为空'}]}>
                                 <Input
                                     style={{width: 150}}
                                     // allowClear 必须恒定：它决定 antd 要不要套 affix（后缀）容器 ——
@@ -721,6 +789,7 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                                     allowClear
                                     placeholder="订单号"
                                     readOnly={toolbarLocked}
+
                                 />
                             </Form.Item>
                             {isAdd && (
@@ -729,7 +798,8 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                                 </Button>
                             )}
                             <span className="pf-label pf-toolbar-gap">预排日期</span>
-                            <Form.Item name="YPDate" noStyle>
+                            <Form.Item name="YPDate" noStyle
+                                       rules={[{required: true, message: '预排日期不能为空'}]}>
                                 <DatePicker
                                     style={{width: 150}}
                                     format={DATE_FORMAT}
@@ -755,7 +825,7 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
 
                             <div className="pf-row">
                                 <Field label="业务员" required>
-                                    <Form.Item name="Ywy" noStyle>
+                                    <Form.Item name="Ywy" noStyle rules={[{required: true, message: '业务员不能为空'}]}>
                                         <Input style={{width: 120}} readOnly allowClear={false}/>
                                     </Form.Item>
                                     <Button
@@ -785,8 +855,8 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                                 <Form.Item name="DepartmentID" hidden>
                                     <Input/>
                                 </Form.Item>
-                                <Field label="产地">
-                                    <Form.Item name="WorkPlace" noStyle>
+                                <Field label="产地" required>
+                                    <Form.Item name="WorkPlace" noStyle rules={[{required: true, message: '产地不能为空'}]}>
                                         <Select
                                             style={{width: 150}}
                                             placeholder="请选择"
@@ -825,11 +895,10 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                             </div>
 
                             <div className="pf-row">
-                                <Field label="尾货期" required>
+                                <Field label="尾货期">
                                     <Form.Item
                                         name="WCDate"
                                         noStyle
-                                        rules={[{required: true, message: '请选择尾货期'}]}
                                     >
                                         <DatePicker
                                             style={{width: 150}}
@@ -857,8 +926,9 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                             </div>
 
                             <div className="pf-row">
-                                <Field label="原料可下单期">
-                                    <Form.Item name="YLDate" noStyle>
+                                <Field label="原料可下单期" required>
+                                    <Form.Item name="YLDate" noStyle
+                                               rules={[{required: true, message: '请选择原料可下单期'}]}>
                                         <DatePicker
                                             style={{width: 150}}
                                             format={DATE_FORMAT}
@@ -867,8 +937,9 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                                         />
                                     </Form.Item>
                                 </Field>
-                                <Field label="缝制辅料可下单期">
-                                    <Form.Item name="FLDate" noStyle>
+                                <Field label="缝制辅料可下单期" required>
+                                    <Form.Item name="FLDate" noStyle
+                                               rules={[{required: true, message: '请选择缝制辅料可下单期'}]}>
                                         <DatePicker
                                             style={{width: 150}}
                                             format={DATE_FORMAT}
@@ -877,8 +948,9 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                                         />
                                     </Form.Item>
                                 </Field>
-                                <Field label="包装辅料提供期">
-                                    <Form.Item name="BZFLDate" noStyle>
+                                <Field label="包装辅料提供期" required>
+                                    <Form.Item name="BZFLDate" noStyle
+                                               rules={[{required: true, message: '请选择包装辅料提供期'}]}>
                                         <DatePicker
                                             style={{width: 150}}
                                             format={DATE_FORMAT}

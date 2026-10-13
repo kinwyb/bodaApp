@@ -154,8 +154,9 @@ export const DETAIL_FIELD_RULES: Record<string, (value: unknown) => string | und
         return undefined;
     },
     ProduceName: (value) => (isBlank(value) ? '款式描述不能为空' : undefined),
-    ZZMWeight: (value) => (toNumberOrZero(value) <= 0 ? '中码下机克重不能为空' : undefined),
-    ZZMTime: (value) => (toNumberOrZero(value) <= 0 ? '中码下机时间不能为空' : undefined),
+    MWeight: (value) => (toNumberOrZero(value) <= 0 ? '中码下机克重不能为空' : undefined),
+    MCycle: (value) => (toNumberOrZero(value) <= 0 ? '中码下机时间不能为空' : undefined),
+    HDWorkName: (value) => (isBlank(value) ? '后道主工序不能为空' : undefined),
 };
 
 /**

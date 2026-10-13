@@ -38,6 +38,7 @@ export interface yupaiOrderDetailRow {
     MCycle: number | null;
     /** 缝制工时（未填为 null） */
     MSewWt: number | null;
+    DataVersion: number;
 
     /** 尺码分布，字段名 MCSize1 ~ MCSize9，对应下面 SIZE_HEADERS 的顺序（未填为 null） */
     [key: string]: unknown;
@@ -220,6 +221,7 @@ export function createDetailRow(id: string): yupaiOrderDetailRow {
         MWeight: null,
         MCycle: null,
         MSewWt: null,
+        DataVersion: 0,
     } as yupaiOrderDetailRow;
     YupaiMachineSizeHeader.forEach((_, index) => {
         row[`MCSize${index + 1}`] = null;

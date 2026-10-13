@@ -137,6 +137,7 @@ export interface YupaiOrderDto {
     CreateUser: string;
     UpdateTime: string;
     UpdateUser: string;
+    DataVersion: number;
 
     /** 其余字段按原样保留 */
     [key: string]: unknown;
@@ -216,6 +217,7 @@ export const YupaiOrderMapping: FieldMapping<YupaiOrderDto> = {
     UpdateTime: S,
     UpdateUser: S,
     DepartmentID: S,
+    DataVersion:N,
     ...YupaiMachineSizeHeader.reduce<Record<string, FieldConfig>>((acc, _, index) => {
         acc[`MCSize${index + 1}`] = {type: "number", field: `MC_SIZE${index + 1}`};
         return acc;
@@ -264,11 +266,8 @@ export const yupaiApi = {
     list: (query: YupaiOrderQuery = {}) => http.get<YupaiOrderDto[]>('/plan/yupaiOrder/list', {...query, isDel: 0}),
     /** 最近发生变化的明细 */
     changes: () => http.get<YupaiOrderChange[]>('/plan/yupaiOrder/list/change'),
-    /** 新增预订单。载荷是**后端形态**（日期给字符串），所以用 DTO 而不是业务模型 */
-    create: (payload: Partial<YupaiOrderDto>) => http.post<YupaiOrderDto>('/preorders', payload),
-    /** 修改预订单。载荷同上 */
-    update: (id: string, payload: Partial<YupaiOrderDto>) =>
-        http.put<YupaiOrderDto>(`/preorders/${encodeURIComponent(id)}`, payload),
+    /** 保存预订单。载荷是**后端形态**（日期给字符串），所以用 DTO 而不是业务模型 */
+    save: (payload: Partial<YupaiOrderDto>[]) => http.post<YupaiOrderDto>('/plan/yupaiOrder/save', payload),
     /** 删除预订单 */
     delete: (payload: YupaiOrderDel) => http.delete<string>('/plan/yupaiOrder/del', {Memo: payload.Memo}, {"body": payload.ID}),
     /** 发布预订单 */
@@ -282,7 +281,7 @@ export const yupaiApi = {
     defaultYwy: async (orderPrefix: string): Promise<ApiResponse<YupaiOrderDefaultYwy>> => {
         const sqlString = "SELECT a.EmployeeName,a.EmployeeNo,b.DepartmentID,b.Department FROM [transitDB].[dbo].[YupaiOrderYwy] a INNER JOIN [BDDMS].dbo.Employee b ON a.EmployeeNo = b.EmployeeNo where a.OrderPrefix = ?"
         const result = await sqlApi.query({SQL: sqlString, Args: [orderPrefix]})
-        if (result.data) {
+        if (result.data && (result.data.DataVals?.length ?? 0) > 0) {
             return {
                 code: 0,
                 data: {
