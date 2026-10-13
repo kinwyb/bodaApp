@@ -187,6 +187,14 @@ export interface FieldConfig {
     type?: FieldType;
     /** 自定义转换函数，优先级高于 type */
     convert?: (value: string, row: Record<string, string>) => unknown;
+    /**
+     * 兜底值：SQL 结果里**没有这一列**（或转换失败、convert 返回空）时写进结果的值。
+     * 不配就按 `type` 取类型默认值（见 defaultValueByType：'' / 0 / false / null）。
+     *
+     * 配 `undefined` 视为没配 —— 否则又会把 undefined 带进结果，
+     * 「返回完整的 T」这个承诺就不成立了（那还不如退回 Partial<T>）。
+     */
+    default?: unknown;
 }
 
 /** mapping：键 = 对象属性名，值 = 字段配置 */
@@ -226,9 +234,34 @@ function convertByFieldType(raw: string, type: FieldType): unknown {
     }
 }
 
-/** 按 ColumnDataType 转换（用于 field / toDataTable） */
+/**
+ * 字段「查不到值」时的类型默认值（`FieldConfig.default` 优先于它）。
+ *
+ * 存在的理由：`parse` / `parseToList` 承诺返回**完整的 T**（不再是 Partial<T>），
+ * 那么每个字段都必须有值可写 —— 这就是「SQL 里没这一列」时写进去的东西。
+ * 少了它，「字段全都在」就不再是构造上的保证，返回 T 只能靠一句无根据的断言。
+ *
+ * 日期没有天然的零值（Date 不像 number 有 0），给 null ——
+ * 项目里的判空工具（`isEmptyDate` / `isBlank`）都认 null 为空。
+ * 若某个日期字段实际声明成 string 想拿空串，用 `default: ''` 覆盖即可。
+ */
+function defaultValueByType(type: FieldType): unknown {
+    switch (type) {
+        case 'number':
+            return 0;
+        case 'boolean':
+            return false;
+        case 'date':
+            return null;
+        case 'string':
+        default:
+            return '';
+    }
+}
+
+/** 按 ColumnDataType 转换（用于 field / toDataTable / parse 的未声明列） */
 function convertByColumnType<T = string>(
-    value: string | undefined,
+    value: string | null | undefined,
     type?: ColumnDataType,
 ): T | undefined {
     if (value == null) return value as unknown as T;
@@ -281,19 +314,29 @@ export class SQLResult {
     // ----------------------------------------------------------
 
     /**
-     * 解析单行为对象
-     * @param mapping 字段配置，键 = 对象属性名，值 = { field?, type?, convert? }
+     * 解析单行为对象。
+     *
+     * 返回的是**完整的 T**（不是 Partial<T>）：结果里没有对应列的字段写
+     * `FieldConfig.default`，没配则写类型默认值（'' / 0 / false / null）。
+     * 所以调用方读属性不需要 `?.`，也不用把结果断言成 T ——
+     * **只要字段写进了 mapping，运行时就一定有值，不会是 undefined**
+     * （想表达「没这一列」用 `default: null` 之类，别指望 undefined）。
+     *
+     * mapping 只负责「转换 / 重命名 / 兜底」的字段；SQL 返回的**其余列会以列名为属性名
+     * 一并带出来**（按后端声明的列类型转换，详见 mapRow），不会出现「查回来了却读不到」。
+     *
+     * @param mapping 字段配置，键 = 对象属性名，值 = { field?, type?, convert?, default? }
      * @param index   行索引，默认 0
      */
-    parse<T extends object>(mapping: FieldMapping<T>, index = 0): Partial<T> | null {
+    parse<T extends object>(mapping: FieldMapping<T>, index = 0): T | null {
         if (!this.DataVals || index >= this.DataVals.length) return null;
         return this.mapRow(mapping, this.DataVals[index]);
     }
 
     /**
-     * 解析成对象数组
+     * 解析成对象数组（每个元素都是完整的 T，见 parse）
      */
-    parseToList<T extends object>(mapping: FieldMapping<T>): Array<Partial<T>> | null {
+    parseToList<T extends object>(mapping: FieldMapping<T>): T[] | null {
         if (!this.DataVals) return null;
         return this.DataVals.map((row) => this.mapRow(mapping, row));
     }
@@ -395,37 +438,84 @@ export class SQLResult {
     // 内部：单行映射
     // ----------------------------------------------------------
 
-    private mapRow<T extends object>(
-        mapping: FieldMapping<T>,
-        row: Record<string, string>,
-    ): Partial<T> {
-        const result: Partial<T> = {};
+    /**
+     * 单行映射：**每个字段都会写值**，返回完整对象。
+     *
+     * 分两遍，缺一不可：
+     *
+     * ① **按 mapping 走**（保证 T 的具名字段一个不少，且带上转换 / 重命名 / 兜底）：
+     *    - 三种「没值」的情况统一走兜底值（FieldConfig.default，其次按 type 的类型默认值）：
+     *      · SQL 结果里没有这一列（含值为 null）
+     *      · convert / 类型转换抛异常
+     *      · convert 自己返回了 undefined / null
+     *      原来第一、二种是被跳过的（`raw === undefined` 就 continue / catch 后什么都不写），
+     *      结果对象会缺 key —— 这就是 Partial<T> 的来源。
+     *    - 也必须走这一遍，因为：列名 ≠ 属性名（`field: 'MC_SIZE1'` → `MCSize1`）；
+     *      SQL 没返回某一列时，只有 mapping 里有 type/default，才补得出默认值；
+     *      另外属性名可能压根不是任何列名。
+     *
+     * ② **按 Headers（SQL 真正返回的列）补一遍**：mapping 没提到的列以**列名**为属性名带出来，
+     *    取值按后端声明的列类型转换（与 `field()` 同一套）。不走这一遍的话，
+     *    `SELECT *` 查回来的列在结果里根本读不到（读到 undefined），哪怕 SQL 明明返回了 ——
+     *    对带索引签名的 T（如 YupaiOrder 的 `[key: string]: unknown`）编译器也不会提醒。
+     *    想改某列的形态（转成字符串 / 换属性名 / 给默认值）就把它写进 mapping，会走 ①。
+     *
+     * 两遍的优先级：mapping 先写，补列时跳过「已用掉的列名」和「已存在的属性名」，
+     * 所以 mapping 永远说了算。
+     *
+     * 「mapping 覆盖 T 的全部具名字段」由 FieldMapping<T> 的全必填类型保证：少写一个 key 编译不过。
+     */
+    private mapRow<T extends object>(mapping: FieldMapping<T>, row: Record<string, string>): T {
+        const result: Record<string, unknown> = {};
+        /** mapping 已经用掉的 SQL 列名（含 field 映射过去的），补列时不能重复写一遍 */
+        const usedColumns = new Set<string>();
 
         for (const key of Object.keys(mapping) as Array<keyof T>) {
-            const config = mapping[key] as FieldConfig | undefined;
-            if (!config) continue;
-
+            // 类型上 mapping 的每个键都有配置，这里的兜底只是防运行时手抖
+            const config = (mapping[key] as FieldConfig | undefined) ?? {};
             // field 缺省时用属性名同名匹配
             const fieldName = config.field ?? (key as string);
-            const raw = row[fieldName];
-            if (raw === undefined) continue;
+            usedColumns.add(fieldName);
+            const raw = row[fieldName] as string | null | undefined;
+            const fallback =
+                config.default !== undefined
+                    ? config.default
+                    : defaultValueByType(config.type ?? 'string');
+
+            if (raw === undefined || raw === null) {
+                result[key as string] = fallback;
+                continue;
+            }
 
             try {
                 const value = config.convert
                     ? config.convert(raw, row)
                     : convertByFieldType(raw, config.type ?? 'string');
 
-                (result as Record<string, unknown>)[key as string] = value;
+                result[key as string] = value === undefined || value === null ? fallback : value;
             } catch {
-                // 转换失败保持缺省，和 C# 的 catch 行为一致
+                // 转换失败用兜底值（原来这里是「跳过这个字段」，和 C# 的 catch 行为一致 ——
+                // 但跳过会让返回的对象缺 key，与返回 T 的承诺冲突）
+                result[key as string] = fallback;
             }
         }
 
-        return result;
+        // ② SQL 返回、但 mapping 没声明的列：原样带出来（属性名 = 列名）
+        for (const column of this.Headers) {
+            if (usedColumns.has(column)) continue;
+            // 列名与 mapping 写出的属性名撞车时以 mapping 为准（别覆盖掉转换过的值）
+            if (column in result) continue;
+            const raw = row[column] as string | null | undefined;
+            // 这一行没有这个列（Headers 与实际数据对不上）就跳过，免得凭空多一个 undefined 字段
+            if (raw === undefined) continue;
+            result[column] = convertByColumnType(raw, this.getColumnType(column));
+        }
+
+        return result as T;
     }
 }
 
-// SQLResul parse 用法
+// SQLResult parse 用法
 // const list = result.parseToList<YupaiOrder>({
 //     ID: { type: 'number' },
 //     Status: {
@@ -435,6 +525,8 @@ export class SQLResult {
 //         field: 'CreateTime',
 //         convert: (v) => new Date(v).toLocaleString(),
 //     },
+//     // SQL 里没有这一列时想给别的值就配 default；不配则按 type 给 '' / 0 / false / null
+//     Memo: { type: 'string', default: '-' },
 // });
 
 /**
