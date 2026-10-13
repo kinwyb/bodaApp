@@ -190,18 +190,38 @@ export interface FieldConfig {
     /** 自定义转换函数，优先级高于 type */
     convert?: (value: string, row: Record<string, string>) => unknown;
     /**
+     * 「允许没有」：SQL 里没有这一列（或值为 null、转换失败、convert 返回空）时，
+     * 写 **undefined 且整个 key 都不写**，而不是类型默认值。
+     *
+     * 给 T 里声明成可选的字段用（`Memo?: string`）—— 让「真的没有」和
+     * 「查到了空值」在结果里区分得开：'' / 0 / false / null 属于后者
+     * （有这个字段，值是空），undefined（key 不存在）才是前者。
+     *
+     * 优先级在 `default` 之下：两处都配了以 `default` 为准。
+     */
+    optional?: boolean;
+    /**
      * 兜底值：SQL 结果里**没有这一列**（或转换失败、convert 返回空）时写进结果的值。
      * 不配就按 `type` 取类型默认值（见 defaultValueByType：'' / 0 / false / null）。
      *
      * 配 `undefined` 视为没配 —— 否则又会把 undefined 带进结果，
      * 「返回完整的 T」这个承诺就不成立了（那还不如退回 Partial<T>）。
+     * **要 undefined 请用 `optional: true`**，别写 `default: undefined`。
      */
     default?: unknown;
 }
 
-/** mapping：键 = 对象属性名，值 = 字段配置 */
+/**
+ * mapping：键 = 对象属性名，值 = 字段配置。
+ *
+ * `-?` 不能省：T 里声明成可选的字段（`Memo?: string`）如果不加它，mapped type 会保留
+ * 可选修饰 → 这个字段在 mapping 里**可以不写** → 结果对象上连 key 都没有
+ * （读出来是 undefined，而兜底逻辑根本没参与），
+ * 「mapping 覆盖 T 全部具名字段」这个编译期保证也就形同虚设了。
+ * 加上之后漏写报 TS2741；想让可选字段在缺列时就是 undefined，写 `{optional: true}`。
+ */
 export type FieldMapping<T> = {
-    [K in keyof T]: FieldConfig;
+    [K in keyof T]-?: FieldConfig;
 };
 
 /** 简化版 DataTable 的列定义 */
@@ -319,15 +339,16 @@ export class SQLResult {
      * 解析单行为对象。
      *
      * 返回的是**完整的 T**（不是 Partial<T>）：结果里没有对应列的字段写
-     * `FieldConfig.default`，没配则写类型默认值（'' / 0 / false / null）。
-     * 所以调用方读属性不需要 `?.`，也不用把结果断言成 T ——
-     * **只要字段写进了 mapping，运行时就一定有值，不会是 undefined**
-     * （想表达「没这一列」用 `default: null` 之类，别指望 undefined）。
+     * `FieldConfig.default`，没配则按 `type` 写类型默认值（'' / 0 / false / null）。
+     *
+     * 唯一例外是配了 `optional: true` 的字段 —— 那种字段「没有」就该是「没有」，
+     * 结果对象上**连 key 都不写**，读出来是 undefined（见 FieldConfig.optional）。
+     * 所以调用方读属性一般不用 `?.`，除非该字段确实声明成可选并配了 optional。
      *
      * mapping 只负责「转换 / 重命名 / 兜底」的字段；SQL 返回的**其余列会以列名为属性名
      * 一并带出来**（按后端声明的列类型转换，详见 mapRow），不会出现「查回来了却读不到」。
      *
-     * @param mapping 字段配置，键 = 对象属性名，值 = { field?, type?, convert?, default? }
+     * @param mapping 字段配置，键 = 对象属性名，值 = { field?, type?, convert?, optional?, default? }
      * @param index   行索引，默认 0
      */
     parse<T extends object>(mapping: FieldMapping<T>, index = 0): T | null {
@@ -441,15 +462,17 @@ export class SQLResult {
     // ----------------------------------------------------------
 
     /**
-     * 单行映射：**每个字段都会写值**，返回完整对象。
+     * 单行映射：**每个字段都会写值**，返回完整对象（唯一例外是 `optional: true`，见下）。
      *
      * 分两遍，缺一不可：
      *
      * ① **按 mapping 走**（保证 T 的具名字段一个不少，且带上转换 / 重命名 / 兜底）：
-     *    - 三种「没值」的情况统一走兜底值（FieldConfig.default，其次按 type 的类型默认值）：
+     *    - 三种「没值」的情况统一走兜底：
      *      · SQL 结果里没有这一列（含值为 null）
      *      · convert / 类型转换抛异常
      *      · convert 自己返回了 undefined / null
+     *      兜底值三级（见 FieldConfig）：`default` → `optional`（写 undefined，且整个 key 不写）
+     *      → 按 type 的类型默认值。配了 `optional: true` 的字段就是上面那句「唯一例外」。
      *      原来第一、二种是被跳过的（`raw === undefined` 就 continue / catch 后什么都不写），
      *      结果对象会缺 key —— 这就是 Partial<T> 的来源。
      *    - 也必须走这一遍，因为：列名 ≠ 属性名（`field: 'MC_SIZE1'` → `MCSize1`）；
@@ -479,13 +502,31 @@ export class SQLResult {
             const fieldName = config.field ?? (key as string);
             usedColumns.add(fieldName);
             const raw = row[fieldName] as string | null | undefined;
+            /**
+             * 三级兜底：`default` 优先；其次 `optional`（缺就是真缺，不给默认值）；
+             * 最后才按 `type` 取类型默认值。
+             * 注意 `default: undefined` 仍视为没配 —— undefined 的唯一出口是 `optional: true`。
+             */
             const fallback =
                 config.default !== undefined
                     ? config.default
-                    : defaultValueByType(config.type ?? 'string');
+                    : config.optional
+                        ? undefined
+                        : defaultValueByType(config.type ?? 'string');
+
+            /**
+             * 写兜底值。兜底为 undefined（即 `optional: true` 且没配 default）时
+             * **整个 key 都不写**：写一个值为 undefined 的键会凭空多出一个 key，
+             * 按 Object.keys 判空的 isBlankExcept / Object.keys(row).length 会看到它，
+             * 而「字段不存在」与「字段值是 undefined」不该混作一谈。
+             */
+            const writeFallback = (): void => {
+                if (fallback === undefined) return;
+                result[key as string] = fallback;
+            };
 
             if (raw === undefined || raw === null) {
-                result[key as string] = fallback;
+                writeFallback();
                 continue;
             }
 
@@ -494,11 +535,12 @@ export class SQLResult {
                     ? config.convert(raw, row)
                     : convertByFieldType(raw, config.type ?? 'string');
 
-                result[key as string] = value === undefined || value === null ? fallback : value;
+                if (value === undefined || value === null) writeFallback();
+                else result[key as string] = value;
             } catch {
                 // 转换失败用兜底值（原来这里是「跳过这个字段」，和 C# 的 catch 行为一致 ——
                 // 但跳过会让返回的对象缺 key，与返回 T 的承诺冲突）
-                result[key as string] = fallback;
+                writeFallback();
             }
         }
 
