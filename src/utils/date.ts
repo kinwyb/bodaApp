@@ -24,6 +24,18 @@ export const DATE_FORMAT = 'YYYY-MM-DD';
 export const DATETIME_FORMAT = 'YYYY-MM-DD HH:mm:ss';
 
 /**
+ * 当前时间（`Dayjs`）。
+ *
+ * 取「现在」统一走它，别各处直接 `dayjs()` / `new Date()` —— 集中一个入口，
+ * 将来要统一时区、或者在测试里冻结时间，只改这一处。
+ *
+ * 需要字符串就套 `formatDate(now())` / `formatDateTime(now())`。
+ */
+export function now(): Dayjs {
+  return dayjs();
+}
+
+/**
  * 是不是「空日期」：空值、后端占位值（0001-01-01）都算。
  *
  * 已经是 `Dayjs` 的（业务模型转好的）只看它是否有效 —— 那边空日期统一给 `null`，

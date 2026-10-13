@@ -65,7 +65,7 @@ registerAntdSelectEditor(DETAIL_HDWORK_EDITOR, {
 });
 
 /** 这些数值列允许小数，其余数值列按整数处理 */
-const DECIMAL_FIELDS = new Set(['ZZMWeight', 'ZZMTime', 'MSewWt']);
+const DECIMAL_FIELDS = new Set(['MWeight', 'MCycle', 'MSewWt']);
 
 /** 按列的数据类型挑编辑器：数值列用 InputNumber，其余用 Input */
 function editorOf(column: AppColumnDef): string {

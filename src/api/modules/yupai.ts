@@ -263,7 +263,7 @@ export const yupaiApi = {
     /** 列表：返回后端原始形状（不含派生字段）。要业务模型请走 yupaiService.list */
     list: (query: YupaiOrderQuery = {}) => http.get<YupaiOrderDto[]>('/plan/yupaiOrder/list', {...query, isDel: 0}),
     /** 最近发生变化的明细 */
-    changes: () => http.get<YupaiOrderChange[]>('/plan/yupaiOrder/list/changes'),
+    changes: () => http.get<YupaiOrderChange[]>('/plan/yupaiOrder/list/change'),
     /** 新增预订单。载荷是**后端形态**（日期给字符串），所以用 DTO 而不是业务模型 */
     create: (payload: Partial<YupaiOrderDto>) => http.post<YupaiOrderDto>('/preorders', payload),
     /** 修改预订单。载荷同上 */
