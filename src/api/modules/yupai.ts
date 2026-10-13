@@ -5,7 +5,8 @@ import type {ApiResponse, PageQuery} from '../types';
 // 评估时就要读 S / N，此时它们还没初始化：浏览器报
 // `Uncaught ReferenceError: Cannot access 'S' before initialization`，
 // SSR 下则是静默拿到 undefined（mapping 变成 {type: undefined}，转换全错）。
-import {N, S, sqlApi, type FieldConfig, type FieldMapping} from './sql';
+import type {Dayjs} from 'dayjs';
+import {N, S, OpS, sqlApi, type FieldConfig, type FieldMapping} from './sql';
 import {toStringOrEmpty} from "@/utils";
 
 /** 尺码列标题，按界面原样展示 */
@@ -50,7 +51,13 @@ export interface YupaiOrderQuery extends PageQuery {
  */
 export interface YupaiOrderDto {
     ID: string;
-    /** 预订日期 */
+    /**
+     * 预订日期。
+     *
+     * **如实写 `string`**：后端 HTTP 直返走的只是 `response.json()`（纯解析 JSON 文本），
+     * 日期不会被变成别的类型；SQL 路径的 mapping 也用 `S` / `OpS` 原样保留。
+     * 转成 `Dayjs` 是**业务模型**（YupaiOrder）的事，由 `toYupaiOrder` 做。
+     */
     YPDate: string;
     /** 业务员 */
     Ywy: string;
@@ -67,29 +74,29 @@ export interface YupaiOrderDto {
     /** 款式数量 */
     Number: number;
     /** 计划下单期 */
-    JHDate: string;
+    JHDate?: string;
     /** 确认下单期 */
-    QRDate: string;
+    QRDate?: string;
     /** 尾货期 */
-    WCDate: string;
+    WCDate?: string;
     /** 走货期 */
-    ZHDate: string;
+    ZHDate?: string;
     /** 下单把握度 */
     XDRate: string;
     /** 备注 */
     Memo: string;
     /** 原料可下单期 */
-    YLDate: string;
+    YLDate?: string;
     /** 发料期 */
-    FLDate: string;
+    FLDate?: string;
     /** 包装发料期 */
-    BZFLDate: string;
+    BZFLDate?: string;
     /** 原料资料日期 */
-    YLZLDate: string;
+    YLZLDate?: string;
     /** 原料到货日期 */
-    YLDHDate: string;
+    YLDHDate?: string;
     /** 中期验货日期 */
-    ZQCheckDate: string;
+    ZQCheckDate?: string;
     /** 中期验货要求 */
     ZQCheckMemo: string;
     /** 后道主工序 */
@@ -135,20 +142,33 @@ export interface YupaiOrderDto {
     [key: string]: unknown;
 }
 
+/** 转成 `Dayjs` 的日期字段（与 YupaiOrderDto 里声明成日期的字段一一对应） */
+type YupaiDateField =
+    | 'YPDate' | 'JHDate' | 'QRDate' | 'WCDate' | 'ZHDate'
+    | 'YLDate' | 'FLDate' | 'BZFLDate' | 'YLZLDate' | 'YLDHDate' | 'ZQCheckDate'
+    | 'CreateTime' | 'UpdateTime';
+
 /**
- * 预订单**业务模型** = 后端字段 + 派生字段。
+ * 预订单**业务模型** = 后端字段 + 派生字段，日期字段已转成 `Dayjs | null`。
  *
- * 派生字段一律由 `toYupaiOrder`（services/yupai.ts）补上，两条数据入口共用它：
- * HTTP 直返（yupaiService.list）和 SQL 路径（yupaiService.queryOrder）。
- * 别再在 mapping 的 convert 里、或者页面里各算一遍 —— 那样必然漂移。
+ * 为什么是 mapped type 而不是 `interface extends`：DTO 的日期是 `string`，
+ * 而 `Dayjs` 不是 `string` 的子类型，子接口「重定义」会直接报 TS2430（实测）；
+ * `Omit` 也不行 —— DTO 带宽索引签名，`Omit` 会把具名字段一起丢掉（实测 `om.ID` 退化成
+ * `unknown`）。mapped type 是唯一能「只换日期字段、不重复其余字段」的写法。
+ *
+ * 日期一律由 `toYupaiOrder`（services/yupai.ts）转好，两条数据入口共用它：
+ * HTTP 直返（yupaiService.list）与 SQL 路径（yupaiService.queryOrder）。
+ * 取不到有效日期就是 `null`（不是 undefined），用的时候 `v ? v.diff(...) : null` 即可。
  */
-export interface YupaiOrder extends YupaiOrderDto {
+export type YupaiOrder = {
+    [K in keyof YupaiOrderDto]-?: K extends YupaiDateField ? Dayjs | null : YupaiOrderDto[K];
+} & {
     /**
      * 订单周转期（天）：确认下单期(QRDate) → 尾货期(WCDate)，没有尾货期就退到走货期(ZHDate)。
      * 基准 QRDate 无效时是 null —— 「几天」无从谈起，别拿 0 跟「同一天」混淆。
      */
     OrderZQ: number | null;
-}
+};
 
 /**
  * 预订单字段匹配
@@ -163,18 +183,18 @@ export const YupaiOrderMapping: FieldMapping<YupaiOrderDto> = {
     StyleCode: S,
     ProduceName: S,
     Number: N,
-    JHDate: S,
-    QRDate: S,
-    WCDate: S,
-    ZHDate: S,
+    JHDate: OpS,
+    QRDate: OpS,
+    WCDate: OpS,
+    ZHDate: OpS,
     XDRate: S,
     Memo: S,
-    YLDate: S,
-    FLDate: S,
-    BZFLDate: S,
-    YLZLDate: S,
-    YLDHDate: S,
-    ZQCheckDate: S,
+    YLDate: OpS,
+    FLDate: OpS,
+    BZFLDate: OpS,
+    YLZLDate: OpS,
+    YLDHDate: OpS,
+    ZQCheckDate: OpS,
     ZQCheckMemo: S,
     HDWorkName: S,
     TSWorkName: S,
@@ -196,9 +216,6 @@ export const YupaiOrderMapping: FieldMapping<YupaiOrderDto> = {
     UpdateTime: S,
     UpdateUser: S,
     DepartmentID: S,
-    // OrderZQ 不写在这里：它是派生字段（由 QRDate / WCDate / ZHDate 算出），
-    // 由 services/yupai.ts 的 toYupaiOrder 统一补 —— 写在 mapping 里只有 SQL 路径生效，
-    // HTTP 直返那条路没有 mapping，两处算法必然漂移。
     ...YupaiMachineSizeHeader.reduce<Record<string, FieldConfig>>((acc, _, index) => {
         acc[`MCSize${index + 1}`] = {type: "number", field: `MC_SIZE${index + 1}`};
         return acc;
@@ -247,11 +264,11 @@ export const yupaiApi = {
     list: (query: YupaiOrderQuery = {}) => http.get<YupaiOrderDto[]>('/plan/yupaiOrder/list', {...query, isDel: 0}),
     /** 最近发生变化的明细 */
     changes: () => http.get<YupaiOrderChange[]>('/plan/yupaiOrder/list/changes'),
-    /** 新增预订单 */
-    create: (payload: Partial<YupaiOrder>) => http.post<YupaiOrder>('/preorders', payload),
-    /** 修改预订单 */
-    update: (id: string, payload: Partial<YupaiOrder>) =>
-        http.put<YupaiOrder>(`/preorders/${encodeURIComponent(id)}`, payload),
+    /** 新增预订单。载荷是**后端形态**（日期给字符串），所以用 DTO 而不是业务模型 */
+    create: (payload: Partial<YupaiOrderDto>) => http.post<YupaiOrderDto>('/preorders', payload),
+    /** 修改预订单。载荷同上 */
+    update: (id: string, payload: Partial<YupaiOrderDto>) =>
+        http.put<YupaiOrderDto>(`/preorders/${encodeURIComponent(id)}`, payload),
     /** 删除预订单 */
     delete: (payload: YupaiOrderDel) => http.delete<string>('/plan/yupaiOrder/del', {Memo: payload.Memo}, {"body": payload.ID}),
     /** 发布预订单 */

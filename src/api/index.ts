@@ -23,5 +23,5 @@ export { employeeApi } from './modules/employee';
 export type { EmployeeQuery, EmployeeRecord } from './modules/employee';
 export { loginApi } from './modules/login';
 export type { UserInfo, LoginParams } from './modules/login';
-export { sqlApi,S,N,B,D } from './modules/sql';
+export { sqlApi,S,N,B,OpS,OpN,OpB } from './modules/sql';
 export type { SQLResult,SQLProcedure,SQLQuery } from './modules/sql';

@@ -1,10 +1,12 @@
-import {sqlApi, S, N, YupaiMachineSizeHeader, yupaiApi} from "@/api";
+import {sqlApi, YupaiMachineSizeHeader, yupaiApi} from "@/api";
 import type {ApiResponse, YupaiOrder, YupaiOrderDto, YupaiOrderQuery} from "@/api";
-import type {FieldConfig} from "@/api/modules/sql.ts";
 import {isBlank, isBlankExcept, toDayjs, toNumberOrZero, toStringOrEmpty} from "@/utils";
+import {YupaiOrderMapping} from "@/api/modules/yupai.ts";
 
 /**
  * 订单周转期（天）：确认下单期(QRDate) → 尾货期(WCDate)，没有尾货期就退到走货期(ZHDate)。
+ *
+ * 入参故意用 `unknown`：DTO 的日期是字符串、业务模型的是 `Dayjs | null`，两种都靠 `toDayjs` 归一。
  *
  * 基准无效就返回 null —— 没有基准，「几天」无从谈起。
  *
@@ -27,17 +29,42 @@ export function calcOrderZQ(order: {
 }
 
 /**
- * 后端 DTO → 业务模型：补齐所有派生字段。
+ * 后端 DTO → 业务模型：**把日期转成 `Dayjs` + 补齐派生字段**。
  *
- * **两条数据入口共用这一个加工器**（派生逻辑只有一份）：
- * - HTTP 直返：`yupaiService.list` —— http.get 的泛型只是类型断言，后端没返回 OrderZQ；
- * - SQL 路径：`yupaiService.queryOrder` —— parse 出来是后端形状，再过一遍这里。
+ * **两条数据入口共用这一个加工器**：
+ * - HTTP 直返：`yupaiService.list` —— `http.get` 的泛型只是类型断言，后端返回里
+ *   既没有 OrderZQ，日期也还是字符串（`'2025-09-01'` / `'2025-09-01 16:37:50'`）；
+ * - SQL 路径：`yupaiService.queryOrder` —— mapping 用 `S` / `OpS` 原样保留字符串，
+ *   形态与 HTTP 完全一致，只是同样没有 OrderZQ。
  *
- * 不放在 mapping 的 convert 里，是因为那样只有 SQL 路径生效：HTTP 那条路没有 mapping，
- * 算法必然漂移（`YupaiOrderMapping` 和 services 里那份 mapping 已经漂过一次了）。
+ * 所以它做两件事：
+ * 1. 把日期转成 `Dayjs | null`（取不到有效日期就是 null）—— `YupaiOrder` 上那句
+ *    `Dayjs | null` 才是真的；
+ * 2. 补 `OrderZQ` 这类派生字段。
+ *
+ * 为什么日期不在 mapping 里转：HTTP 那条路根本没有 mapping，只有 SQL 路径生效，
+ * 两条路必然漂移（`YupaiOrderMapping` 和 services 里那份 mapping 已经漂过一次）。
+ * 现在两条路的 DTO 都是纯字符串，日期加工只有这一处。
  */
 export function toYupaiOrder(dto: YupaiOrderDto): YupaiOrder {
-    return {...dto, OrderZQ: calcOrderZQ(dto)};
+    return {
+        ...dto,
+        // 别依赖 `...dto` 把日期原样带过来 —— 那样 YupaiOrder 上的 Dayjs 类型就是假的
+        YPDate: toDayjs(dto.YPDate) ?? null,
+        JHDate: toDayjs(dto.JHDate) ?? null,
+        QRDate: toDayjs(dto.QRDate) ?? null,
+        WCDate: toDayjs(dto.WCDate) ?? null,
+        ZHDate: toDayjs(dto.ZHDate) ?? null,
+        YLDate: toDayjs(dto.YLDate) ?? null,
+        FLDate: toDayjs(dto.FLDate) ?? null,
+        BZFLDate: toDayjs(dto.BZFLDate) ?? null,
+        YLZLDate: toDayjs(dto.YLZLDate) ?? null,
+        YLDHDate: toDayjs(dto.YLDHDate) ?? null,
+        ZQCheckDate: toDayjs(dto.ZQCheckDate) ?? null,
+        CreateTime: toDayjs(dto.CreateTime) ?? null,
+        UpdateTime: toDayjs(dto.UpdateTime) ?? null,
+        OrderZQ: calcOrderZQ(dto),
+    };
 }
 
 /**
@@ -91,56 +118,7 @@ export const yupaiService = {
                 errmsg: result.data.ErrMsg ?? "查询失败",
             }
         }
-        const orders = result.data.parseToList<YupaiOrderDto>({
-            ID: {type: "string", field: "YupaiOrderID"},
-            YPDate: S,
-            Ywy: S,
-            YwyNo: S,
-            OrderCode: S,
-            Qty: N,
-            StyleCode: S,
-            ProduceName: S,
-            Number: N,
-            JHDate: S,
-            QRDate: S,
-            WCDate: S,
-            ZHDate: S,
-            XDRate: S,
-            Memo: S,
-            YLDate: S,
-            FLDate: S,
-            BZFLDate: S,
-            YLZLDate: S,
-            YLDHDate: S,
-            ZQCheckDate: S,
-            ZQCheckMemo: S,
-            HDWorkName: S,
-            TSWorkName: S,
-            Color: S,
-            MCycle: S,
-            ZZCycle: N,
-            MWeight: S,
-            ZZMWeight: N,
-            MSewWt: N,
-            WorkPlace: S,
-            KnitOrgID: S,
-            OrgID: S,
-            SSStep: N,
-            QMStep: N,
-            WaitCustStep: N,
-            WaitOrderStep: N,
-            OtherStep: S,
-            Status: N,
-            CreateTime: S,
-            CreateUser: S,
-            UpdateTime: S,
-            UpdateUser: S,
-            DepartmentID: S,
-            ...YupaiMachineSizeHeader.reduce<Record<string, FieldConfig>>((acc, _, index) => {
-                acc[`MCSize${index + 1}`] = {type: "number", field: `MC_SIZE${index + 1}`};
-                return acc;
-            }, {}),
-        })
+        const orders = result.data.parseToList<YupaiOrderDto>(YupaiOrderMapping)
 
         return {
             code: result.code,

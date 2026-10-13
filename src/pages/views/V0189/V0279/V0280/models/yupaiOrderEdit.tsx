@@ -2,7 +2,7 @@ import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {App, Button, DatePicker, Form, Input, InputNumber, Modal, Select, Skeleton} from 'antd';
 import {DeleteOutlined} from '@ant-design/icons';
 import dayjs, {type Dayjs} from 'dayjs';
-import {ApiError, employeeApi, yupaiApi, YupaiMachineSizeHeader, type YupaiOrder} from '@/api';
+import {ApiError, employeeApi, yupaiApi, YupaiMachineSizeHeader, type YupaiOrder, type YupaiOrderDto} from '@/api';
 import {
     VTable,
     type VTableApi,
@@ -154,8 +154,8 @@ const buildDetailRows = (records?: YupaiOrder[] | null, withNewLine: boolean = f
             Color: String(record.Color ?? ''),
             TSWorkName: String(record.TSWorkName ?? ''),
             HDWorkName: String(record.HDWorkName ?? ''),
-            ZZMWeight: toNumberOrNullIfZero(record.ZZMWeight),
-            ZZMTime: toNumberOrNullIfZero(record.ZZMTime),
+            MWeight: toNumberOrNullIfZero(record.MWeight),
+            MCycle: toNumberOrNullIfZero(record.MCycle),
             MSewWt: toNumberOrNullIfZero(record.MSewWt),
         };
         YupaiMachineSizeHeader.forEach((_, index) => {
@@ -234,8 +234,8 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
         }
         setToolbarLocked(isView || isEdit);
         setIsLoading(isEdit);
-        form.resetFields();
         if (!isEdit || !record) {
+            form.resetFields();
             form.setFieldsValue(buildValues(record));
             setDetailRows(buildDetailRows(record ? [record] : null));
             setOrderChecked(false);
@@ -252,6 +252,7 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                 if (res.data && res.data.length > 0 && res.data[0].Status < 2) {
                     const matchOrder = res.data.filter(o => o.ID == record.ID);
                     if (matchOrder && matchOrder.length > 0) {
+                        form.resetFields();
                         form.setFieldsValue(buildValues(matchOrder[0]));
                         setDetailRows(buildDetailRows(matchOrder));
                     } else {
@@ -525,7 +526,9 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
             return;
         }
 
-        const payload: Partial<YupaiOrder> = {
+        // 提交载荷用**后端形态**（YupaiOrderDto，日期是字符串）——
+        // 业务模型 YupaiOrder 的日期是 Dayjs，塞不进请求体
+        const payload: Partial<YupaiOrderDto> = {
             OrderCode: values.OrderCode ?? '',
             YPDate: toDateString(values.YPDate),
             Ywy: values.Ywy ?? '',
@@ -605,7 +608,7 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
             onCancel={onCancel}
         >
             {isLoading ? (
-                <Skeleton active paragraph={{rows: 6}}/>
+                    <Skeleton active paragraph={{rows: 6}}/>
             ) : (
                 <Form
                     form={form}
