@@ -503,3 +503,8 @@ body {
   padding-top:10px;
   padding-bottom: 22px;
 }
+
+/* 「已下订单复制」的订单号输入框：和上方标题拉开一点距离 */
+.copy-order-confirm {
+  padding-top: 10px;
+}

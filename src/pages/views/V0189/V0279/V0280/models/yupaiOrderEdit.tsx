@@ -12,6 +12,7 @@ import {
     type VTableMenuConfig
 } from '@/components/VTable';
 import {EmployeeQuickSelect} from '@/components/quick-select';
+import type {FormMode} from '@/components/commands';
 import {alignMenuIcons, toMenuIcon} from '@/components/menuIcon';
 import {
     buildPreorderDetailColumns,
@@ -65,7 +66,13 @@ interface yupaiOrderFormValues {
 
 export interface yupaiOrderFormModalProps {
     open: boolean;
-    mode: 'add' | 'edit' | 'view';
+    /**
+     * 表单模式（语义见 `FormMode`）。
+     *
+     * 本页用到四种：新增（空白表单）/ 编辑（改原单）/ 查看 / **复制**（拿一条已有订单当底稿新建，
+     * 见「已下订单复制」：订单号不复制、明细清掉主键，提交落成新记录）。
+     */
+    mode: FormMode;
     record?: YupaiOrder | null;
     workPlaces: string[];
     disabled?: boolean;
@@ -181,6 +188,29 @@ const buildDetailRows = (records?: YupaiOrder[] | null, withNewLine: boolean = f
     return result;
 };
 
+/**
+ * 复制：把原单的**全部款式**带出来，但每行换一个新主键、并清空 `YupaiOrderID`。
+ *
+ * 清空 `YupaiOrderID` 是「复制」与「编辑」的分界：handleSave 拿它当提交的 `ID`，
+ * 非空后端就按「更新」处理 —— 那样复制出来的单会直接改掉原订单的款式，
+ * 而不是新增一份（原单已被下单，更不能动）。
+ *
+ * 主键换新而不是沿用原来的 ID：主键在页面上代表「这一行是谁」，
+ * 复制出来的行是**新行**，沿用旧主键会让「删除行」「标红定位」都指向原单那一行。
+ *
+ * `DataVersion` 一并归零：它跟着 `ID` 走（已有行的乐观锁版本），
+ * 新行没有版本可言 —— 这里的 0 与 `createDetailRow` 新建行保持一致。
+ *
+ * 末尾补一行空白行，与「检测」带出订单时的体验保持一致（要加新款直接填）。
+ */
+const buildCopyDetailRows = (records: YupaiOrder[]): yupaiOrderDetailRow[] =>
+    buildDetailRows(records, true).map((row) => ({
+        ...row,
+        _id: nextDraftRowKey(),
+        YupaiOrderID: '',
+        DataVersion: 0,
+    }));
+
 const Field: React.FC<{
     label: string;
     required?: boolean;
@@ -229,7 +259,10 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
         const isView = mode === 'view';
         const isEdit = mode === 'edit';
         const isAdd = mode === 'add';
+        /** 复制：数据从一条已有订单带出来，但落库是新增（见 buildCopyDetailRows） */
+        const isCopy = mode === 'copy';
 
+        // 复制不带「未检测」这个状态：数据已经按订单号查过一遍，进来就是可编辑的
         const detailLocked = isView || (isAdd && !orderChecked);
 
         useEffect(() => {
@@ -239,7 +272,7 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                 // 换成真正的表单 + 详情表格 —— 等于往一个正在消失的容器里新建一张 canvas 表格。
                 // 表格会以 0 尺寸初始化、留下坏掉的场景图，之后再 resize 就抛
                 // 「Cannot read properties of null (reading 'element')」，序号列也跟着错乱。
-                // 下次打开时开头会用 setIsLoading(isEdit) 重新定值，不会残留。
+                // 下次打开时开头会用 setIsLoading(isEdit || isCopy) 重新定值，不会残留。
                 setEmployeeOpen(false);
                 setOrderChecked(false);
                 setToolbarLocked(false);
@@ -251,7 +284,50 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                 return;
             }
             setToolbarLocked(isView || isEdit);
-            setIsLoading(isEdit);
+            // 编辑与复制都要先按订单号把订单取回来（编辑是对比选中那条，复制是要全部款式），
+            // 两者首帧都先走骨架屏，别按「已加载」渲染一帧再被顶掉（见上面 isLoading 初值的说明）
+            setIsLoading(isEdit || isCopy);
+            if (isCopy && record) {
+                let cancel = false;
+                const loadCopyOrder = async () => {
+                    try {
+                        const res = await yupaiService.queryOrder(record.OrderCode);
+                        if (cancel) {
+                            return;
+                        }
+                        if (!res.data || res.data.length === 0) {
+                            // 从命令弹窗查到、到表单打开这一小段时间里数据被删掉了（或已被置为删除）。
+                            // 这里同样不翻 isLoading —— 理由与编辑分支一致：别往正在消失的弹窗里建详情表格。
+                            void message.error(`订单号 ${record.OrderCode} 不存在`);
+                            onCancel();
+                            return;
+                        }
+                        form.resetFields();
+                        // 订单号**不复制**：复制出来的是新单，必须换新号（表单里它是必填），
+                        // 其余主信息按最新数据带出，日期区间等联动值交给下面的渲染逻辑自己取
+                        form.setFieldsValue({...buildValues(res.data[0]), OrderCode: ''});
+                        // 日期边界与原单对齐（同编辑分支）：这些边界本该跟着确认可下单期走，
+                        // 不设的话「走货期」的下限会退回组件初始值（今天），原单的日期可能早于它
+                        if (res.data[0].QRDate) {
+                            setMaxFLDate(res.data[0].QRDate);
+                            setMaxYLDate(res.data[0].QRDate);
+                            setMinWCDate(res.data[0].QRDate);
+                            setMinZHDate(res.data[0].QRDate);
+                        }
+                        setDetailRows(buildCopyDetailRows(res.data));
+                        // 复制不涉及「原单中被隐藏的其它款式」：全部款式都在明细里，没有要顺带更新的行
+                        setHideDatas([]);
+                        setCellErrors({});
+                        setIsLoading(false);
+                    } catch (error) {
+                        void message.error(error instanceof ApiError ? error.message : '预订单信息获取失败');
+                    }
+                };
+                void loadCopyOrder();
+                return () => {
+                    cancel = true;
+                };
+            }
             if (!isEdit || !record) {
                 form.resetFields();
                 form.setFieldsValue(buildValues(record));
@@ -306,7 +382,7 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
             return () => {
                 cancel = true;
             }
-        }, [form, open, record]);
+        }, [form, open, record, mode]);
 
         // 列定义只描述展示，是否可编辑由下面的 editableFields 决定
         const detailColumns = useMemo(() => buildPreorderDetailColumns(), []);
@@ -367,7 +443,8 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
         const detailMenu = useMemo<VTableMenuConfig>(
             () => ({
                 contextMenuItems: ({rowIndex, record}) => {
-                    if (detailLocked || !isAdd) return [];
+                    // 复制出来的是新单，明细行可增删（同新增）；只有编辑/查看才禁掉
+                    if (detailLocked || !(isAdd || isCopy)) return [];
                     const rowKey = String(record?._id ?? '');
                     const allowNewLine = !isEmptyRow(detailRows[detailRows.length - 1]);
                     const allowNewNextLine = !isEmptyRow(record ?? null);
@@ -391,7 +468,7 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                     else if (menuKey === 'deleteRow' && rowKey) deleteDetailRow(rowKey);
                 },
             }),
-            [addDetailRow, detailLocked, isAdd, detailRows, deleteDetailRow],
+            [addDetailRow, detailLocked, isAdd, isCopy, detailRows, deleteDetailRow],
         );
 
         /**
@@ -488,7 +565,11 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
             try {
                 const res = await yupaiService.queryOrder(code);
                 if (res.data && res.data.length > 0) {
-                    if (res.data[0].Status < 2) { //未发布的订单，看看当前用户是否有全操作
+                    // ⚠️ 复制模式下**跳过**「检出未发布订单 → 转编辑」这一段：
+                    // 那会把刚带出来的底稿整份换成别人的订单，而且明细行会带着原单的主键
+                    // （保存时改的是那张单，不是复制）。复制时订单号已存在只提示「被占用」，
+                    // 用户换个新号即可 —— 这里不代他做决定。
+                    if (!isCopy && res.data[0].Status < 2) { //未发布的订单，看看当前用户是否有全操作
                         const departments = (await yupaiApi.userDepartment()).data ?? []
                         if (userInfo?.UserID == SUPER_ADMIN_USER_ID || departments.includes(res.data[0].DepartmentID)) { //进入编辑状态
                             form.resetFields();
@@ -527,7 +608,7 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
             } finally {
                 setChecking(false);
             }
-        }, [form, message, record]);
+        }, [form, message, isCopy, userInfo]);
 
         const handleSave = useCallback(async () => {
             // 先全量校验详情表：有错就标红并拦住提交，避免把不合法的数据发给后端
@@ -652,16 +733,16 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
             setSaving(true);
             try {
                 await yupaiApi.save(newDataRows);
-                message.success(mode === 'edit' ? '保存成功' : '新增成功');
+                message.success(isEdit ? '保存成功' : isCopy ? '复制成功' : '新增成功');
                 onSaved();
             } catch (error) {
                 message.error(error instanceof ApiError ? error.message : '保存失败');
             } finally {
                 setSaving(false);
             }
-        }, [detailRows, form, message, mode, onSaved, record, hideDatas]);
+        }, [detailRows, form, message, onSaved, hideDatas, isEdit, isCopy]);
 
-        const modalTitle = isView ? '查看预订单' : isEdit ? '编辑预订单' : '新增预订单';
+        const modalTitle = isView ? '查看预订单' : isEdit ? '编辑预订单' : isCopy ? '复制预订单' : '新增预订单';
 
         // DatePicker: open={false} 阻止打开, inputReadOnly 阻止输入
         // Select: open={false} 阻止下拉, allowClear=false 阻止清除
@@ -792,7 +873,7 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
 
                                 />
                             </Form.Item>
-                            {isAdd && (
+                            {(isAdd || isCopy) && (
                                 <Button loading={checking} disabled={disabled} onClick={handleCheck}>
                                     检测
                                 </Button>

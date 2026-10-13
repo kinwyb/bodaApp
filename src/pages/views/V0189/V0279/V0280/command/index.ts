@@ -2,6 +2,7 @@ import {useCommands} from '@/components/commands';
 import type {CommandItem} from '@/components/CommandBar';
 import {addCommand} from './add';
 import {autoWidthCommand} from './autoWidth';
+import {copyOrderedCommand} from './copyOrdered';
 import {deleteCommand} from './delete';
 import {editCommand} from './edit';
 import {exportCommand} from './exportExcel';
@@ -9,7 +10,8 @@ import {publishCommand} from './publish';
 import {refreshCommand} from './refresh';
 import {
     authPlaceholderCommand,
-    copyPlaceholderCommands,
+    changeDatePlaceholderCommand,
+    copyPlaceholderCommand,
     workflowPlaceholderCommands,
 } from './placeholders';
 import type {PreorderCommandContext, PreorderCommandFactory} from './types';
@@ -21,7 +23,9 @@ const preorderCommandFactories: PreorderCommandFactory[] = [
     addCommand,
     editCommand,
     deleteCommand,
-    copyPlaceholderCommands,
+    copyPlaceholderCommand,
+    copyOrderedCommand,
+    changeDatePlaceholderCommand,
     publishCommand,
     workflowPlaceholderCommands,
     refreshCommand,

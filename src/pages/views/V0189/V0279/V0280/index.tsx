@@ -2,6 +2,7 @@ import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {App} from 'antd';
 import {ApiError, yupaiApi, type YupaiOrderQuery, type YupaiOrder, YupaiMachineSizeHeader} from '@/api';
 import {CommandBar} from '@/components/CommandBar';
+import type {FormMode} from '@/components/commands';
 import {FilterTable} from '@/components/FilterTable';
 import {PageBreadcrumb} from '@/components/PageBreadcrumb';
 import type {VTableApi, VTableCellStyleHook, VTableMenuConfig} from '@/components/VTable';
@@ -23,7 +24,7 @@ const PreorderPage: React.FC<ViewPageProps> = ({view, trail}) => {
     const [query, setQuery] = useState<YupaiOrderQuery>({});
     const [changedCells, setChangedCells] = useState<Record<string, string[]>>({});
     const [formOpen, setFormOpen] = useState(false);
-    const [formMode, setFormMode] = useState<'add' | 'edit' | 'view'>('add');
+    const [formMode, setFormMode] = useState<FormMode>('add');
     const [editingRecord, setEditingRecord] = useState<YupaiOrder | null>(null);
     const tableRef = useRef<VTableApi | null>(null);
 
@@ -101,7 +102,7 @@ const PreorderPage: React.FC<ViewPageProps> = ({view, trail}) => {
     }, [dataSource, tableRef]);
 
     /** 打开表单弹窗：命令按钮 / 右键菜单 / 双击行共用一个入口 */
-    const openForm = useCallback((mode: 'add' | 'edit' | 'view', record: YupaiOrder | null) => {
+    const openForm = useCallback((mode: FormMode, record: YupaiOrder | null) => {
         setFormMode(mode);
         setEditingRecord(record);
         setFormOpen(true);
@@ -177,8 +178,16 @@ const PreorderPage: React.FC<ViewPageProps> = ({view, trail}) => {
     );
 
     const workPlaces = useMemo(
-        () => [...new Set(dataSource.map((r) => String(r.WorkPlace ?? '')))].filter(Boolean).sort(),
-        [dataSource],
+        () => [
+            ...new Set([
+                ...dataSource.map((r) => String(r.WorkPlace ?? '')),
+                // 正在编辑/查看/复制的那条也要算进去：它可能不在当前页数据里
+                // （复制是按订单号查出来的，产地很可能不在本页），
+                // 漏了它 Select 就没有这个选项 —— 选走了原值以后再也选不回来
+                String(editingRecord?.WorkPlace ?? ''),
+            ]),
+        ].filter(Boolean).sort(),
+        [dataSource, editingRecord],
     );
 
     const summary = useCallback((records: Array<Record<string, unknown>>): Record<string, unknown> => {
@@ -247,7 +256,8 @@ const PreorderPage: React.FC<ViewPageProps> = ({view, trail}) => {
                 onSaved={() => {
                     setFormOpen(false);
                     tableRef.current?.clearSelection();
-                    if (formMode === 'add') setQuery((prev) => ({...prev, page: 1}));
+                    // 新增与复制都落成新记录，回第一页看结果；编辑留在当前页刷新
+                    if (formMode === 'add' || formMode === 'copy') setQuery((prev) => ({...prev, page: 1}));
                     else void loadData(query);
                 }}
             />
