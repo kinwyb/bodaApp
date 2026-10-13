@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { Button } from 'antd';
-import { usePermission } from '@/store/permission';
+import { usePermission } from '@/store/permission-context';
 import { AuthButton } from './Permission';
 
 export interface CommandItem {

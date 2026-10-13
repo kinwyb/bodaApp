@@ -5,7 +5,8 @@ import zhCN from 'antd/locale/zh_CN';
 import dayjs from 'dayjs';
 import 'dayjs/locale/zh-cn';
 
-import { AuthProvider, useAuth } from './store/auth';
+import { AuthProvider } from './store/auth';
+import { useAuth } from './store/auth-context';
 import { PermissionProvider } from './store/permission';
 import LoginPage from './pages/LoginPage';
 import MainLayout from './layouts/MainLayout';

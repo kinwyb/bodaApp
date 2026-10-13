@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { App } from 'antd';
 import { ApiError, powerApi, type DesktopMenu } from '../api';
 import {
@@ -6,35 +6,16 @@ import {
   buildPermissionIndex,
   collectAllViewIds,
   SUPER_ADMIN_USER_ID,
-  type MenuActionItem,
 } from '../services';
-import { useAuth } from './auth';
+import { useAuth } from './auth-context';
+import { PermissionContext, type PermissionContextValue } from './permission-context';
 
-export interface PermissionContextValue {
-  /** 菜单权限是否加载中 */
-  loading: boolean;
-  /** 按权限过滤后的可见菜单树 */
-  menu: DesktopMenu[];
-  /** 菜单 View -> 该菜单的按钮权限 */
-  actions: Map<string, MenuActionItem[]>;
-  /** 系统菜单中的按钮节点：MenuCode -> 节点 */
-  buttons: Map<string, DesktopMenu>;
-  /** 按按钮 MenuCode 判断是否有权限 */
-  hasButton: (menuCode: string) => boolean;
-  /** 按页面 View 判断菜单权限 */
-  hasMenu: (view: string) => boolean;
-}
-
-const PermissionContext = createContext<PermissionContextValue | null>(null);
-
-export function usePermission(): PermissionContextValue {
-  const context = useContext(PermissionContext);
-  if (!context) {
-    throw new Error('usePermission 必须在 PermissionProvider 内使用');
-  }
-  return context;
-}
-
+/**
+ * 菜单权限的持有者。
+ *
+ * 本文件**只导出组件**（PermissionProvider）—— 上下文与 usePermission 在 ./permission-context，
+ * 否则 Fast Refresh 会因「组件 + 非组件混合导出」而失效（详见该文件的说明）。
+ */
 export const PermissionProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { message } = App.useApp();
   const { userInfo } = useAuth();

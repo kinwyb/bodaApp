@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ApiError,
   clearToken,
@@ -9,6 +9,7 @@ import {
   type ApiResponse,
   type UserInfo,
 } from '../api';
+import { AuthContext, type AuthContextType, type AuthStatus } from './auth-context';
 
 /**
  * 用户信息缓存键：凭据有效时先用它渲染，避免首屏空白。
@@ -17,48 +18,6 @@ import {
  * 登录态一律以「后端确认过的 token」为准（见 AuthStatus）。
  */
 const USER_INFO_KEY = 'boda_user';
-
-/**
- * 登录态。
- *
- * - checking        本地有 token，正在向后端确认它是否仍然可用
- * - authenticated   后端确认通过，可以进主界面
- * - unauthenticated 没有 token，或 token 已被判定失效
- */
-export type AuthStatus = 'checking' | 'authenticated' | 'unauthenticated';
-
-interface AuthContextType {
-  /**
-   * 当前登录用户信息，未登录时为 null。
-   * 各页面统一用 `const { userInfo } = useAuth()` 获取。
-   */
-  userInfo: UserInfo | null;
-  /** 登录态，路由守卫据此决定放行还是回登录页 */
-  status: AuthStatus;
-  /** 是否已通过后端确认（等价于 status === 'authenticated'） */
-  isAuthenticated: boolean;
-  /**
-   * 登录：写入 token 并拉取用户信息。
-   * 失败时抛出 ApiError（errmsg 可直接展示给用户）。
-   */
-  login: (username: string, password: string) => Promise<void>;
-  /** 退出登录：清 token、清缓存，服务端登出失败不阻塞本地 */
-  logout: () => void;
-  /** 重新拉取当前用户信息，token 变化或资料更新后可用 */
-  refreshUserInfo: () => Promise<UserInfo | null>;
-}
-
-const AuthContext = createContext<AuthContextType>({
-  userInfo: null,
-  status: 'unauthenticated',
-  isAuthenticated: false,
-  login: async () => {},
-  logout: () => {},
-  refreshUserInfo: async () => null,
-});
-
-/** 全局用户信息的唯一入口 */
-export const useAuth = () => useContext(AuthContext);
 
 function readCachedUserInfo(): UserInfo | null {
   try {
@@ -91,6 +50,12 @@ function fetchUserInfoOnce(): Promise<ApiResponse<UserInfo>> {
   return bootstrapUserInfoRequest;
 }
 
+/**
+ * 登录态的持有者。
+ *
+ * 本文件**只导出组件**（AuthProvider）—— 上下文与 useAuth 在 ./auth-context，
+ * 否则 Fast Refresh 会因「组件 + 非组件混合导出」而失效（详见该文件的说明）。
+ */
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // 初始态：没有 token 直接就是未登录；有 token 则先挂起，等后端确认后再放行。
   // 这样「重启后带着失效 token」不会先闪进主界面再被接口错误淹没。

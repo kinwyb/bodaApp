@@ -25,8 +25,8 @@ import {
   UserOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../store/auth';
-import { usePermission } from '../store/permission';
+import { useAuth } from '../store/auth-context';
+import { usePermission } from '../store/permission-context';
 import { TabsContext, type TabsApi } from '../store/tabs';
 import type { DesktopMenu } from '../api';
 import { isNavigableMenu } from '../services';

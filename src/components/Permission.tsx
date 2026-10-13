@@ -1,7 +1,7 @@
 import React from 'react';
 import { Button } from 'antd';
 import type { ButtonProps } from 'antd';
-import { usePermission } from '../store/permission';
+import { usePermission } from '../store/permission-context';
 
 export interface PermissionProps {
   /** 按钮的 MenuCode */

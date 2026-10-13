@@ -1,7 +1,7 @@
 import React from 'react';
 import { App, Button, Card, Form, Input, Typography } from 'antd';
 import { LockOutlined, UserOutlined } from '@ant-design/icons';
-import { useAuth } from '../store/auth';
+import { useAuth } from '../store/auth-context';
 import { ApiError } from '../api';
 import { useNavigate } from 'react-router-dom';
 
