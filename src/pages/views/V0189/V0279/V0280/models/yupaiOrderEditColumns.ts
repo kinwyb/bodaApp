@@ -1,7 +1,6 @@
 import type {ColumnsDefine} from '@visactor/vtable';
 import {buildColumns, type AppColumnDef} from '@/components/columnBuilder';
 import {
-    ANTD_INPUT_EDITOR,
     registerAntdInputEditor,
     registerAntdNumberEditor, registerAntdSelectEditor,
 } from '@/components/vtable-editors/register';
@@ -44,36 +43,18 @@ export interface yupaiOrderDetailRow {
     [key: string]: unknown;
 }
 
-// ─── 编辑器：按字段类型注册 antd 控件 ────────────────────────────────────────
+// ─── 编辑器：字段 → 控件类型（唯一判定处） ──────────────────────────────────
 
-/** 整数值（款式数量、尺码件数）：0 起步，不允许小数 */
-const DETAIL_INT_EDITOR = 'preorder-detail-int';
-/** 小数值（克重、下机时间、缝制工时）：0 起步，允许小数 */
-const DETAIL_DECIMAL_EDITOR = 'preorder-detail-decimal';
-const DETAIL_HDWORK_EDITOR = 'preorder-detail-hdwork';
 const hdWorkNames = [
     '拷边', '缝杯', '粘合', '包边', '人字车', '带刀款', '生理裤', '密拉',
     '拉花边', '短裤拉花边', '拉皮双针', '四针六线', '空卷', '上拉链',
 ];
 
-// VTable 只认「已注册的编辑器名」，先注册再挂到列上
-registerAntdInputEditor(ANTD_INPUT_EDITOR);
-registerAntdNumberEditor(DETAIL_INT_EDITOR, {min: 0, precision: 0});
-registerAntdNumberEditor(DETAIL_DECIMAL_EDITOR, {min: 0});
-registerAntdSelectEditor(DETAIL_HDWORK_EDITOR, {
-    // 工序名本身就是值和文案，转成 options 用 map 即可
-    options: hdWorkNames.map((name) => ({value: name, label: name})),
-});
+/** 后道主工序的候选值：工序名本身就是值和文案 */
+const HD_WORK_OPTIONS = hdWorkNames.map((name) => ({value: name, label: name}));
 
 /** 这些数值列允许小数，其余数值列按整数处理 */
 const DECIMAL_FIELDS = new Set(['MWeight', 'MCycle', 'MSewWt']);
-
-/** 按列的数据类型挑编辑器：数值列用 InputNumber，其余用 Input */
-function editorOf(column: AppColumnDef): string {
-    if (column.field === 'HDWorkName') return DETAIL_HDWORK_EDITOR;
-    if (column.dataType !== 'number') return ANTD_INPUT_EDITOR;
-    return DECIMAL_FIELDS.has(column.field) ? DETAIL_DECIMAL_EDITOR : DETAIL_INT_EDITOR;
-}
 
 const DETAIL_COLUMNS: AppColumnDef[] = [
     {field: 'StyleCode', title: '款号', width: 96},
@@ -93,18 +74,8 @@ const DETAIL_COLUMNS: AppColumnDef[] = [
     })),
 ];
 
-// ─── 单字段校验规则对应的编辑器 ──────────────────────────────────────────────
+// ─── 单字段校验规则 ──────────────────────────────────────────────────────────
 
-/**
- * 有单字段校验规则的字段，各自注册一个**具名**编辑器。
- *
- * 为什么不复用上面的通用名：VTable 的编辑器注册表是全局的，而且同名「先注册者生效」
- * （见 register.ts 的 registerOnce）—— 共用 `preorder-detail-int` 的话同名只注册一次，
- * 「哪个字段配哪条规则」就区分不出来了，所以有规则的字段各自占一个名字。
- *
- * 规则取自 services 的 DETAIL_FIELD_RULES，和保存前的整表校验是同一份，
- * 保证不会出现「编辑器放行了、保存时又被拦下」。
- */
 /**
  * 当前弹窗里的订单号 —— 给编辑器的 validator 读。
  *
@@ -123,22 +94,33 @@ export const setCurrentOrderCode = (orderCode: string): void => {
     currentOrderCode = orderCode;
 };
 
-const RULED_FIELD_EDITORS: Record<string, string> = {};
-Object.entries(DETAIL_FIELD_RULES).forEach(([field, rule]) => {
-    const column = DETAIL_COLUMNS.find((item) => item.field === field);
-    // 规则字段不在表里就跳过（字段名写错时的典型症状），下面会退回到通用编辑器
-    if (!column) return;
-    const name = `preorder-detail-rule-${field}`;
-    if (column.dataType === 'number') {
-        registerAntdNumberEditor(
-            name,
-            {min: 0, ...(DECIMAL_FIELDS.has(field) ? {} : {precision: 0})},
-            {validator: (value) => rule(value)},
-        );
-    } else if (field === 'StyleCode') {
+/**
+ * 给详情表的每个字段注册**它自己的**具名编辑器，返回编辑器名。
+ *
+ * **控件类型只在这一处判定**（列定义 → 控件），单字段校验只是往同一个编辑器上挂一个 validator。
+ *
+ * ⚠️ 曾经不是这样，于是坏了：以前是「公共名的编辑器 + 带校验的字段再注册一个」两套，
+ * 取名字时用 `带校验的 ?? 公共的` 兜底 —— 后道主工序明明注册了 Select，
+ * 但它同时是 DETAIL_FIELD_RULES 里的字段（「不能为空」），名字被「带校验的 Input」顶掉，
+ * 实际编辑时是输入框；那个 Select 注册成了永远没人引用的死代码。
+ * 校验和控件分两处判定，迟早会对不上。
+ *
+ * 名字里带字段名是必须的：VTable 的编辑器注册表是全局的、同名幂等且**先注册者生效**
+ * （见 register.ts 的 registerOnce），每个字段各占一个名字才不会发生看不见的覆盖。
+ */
+function registerDetailEditor(column: AppColumnDef): string {
+    const {field, dataType} = column;
+    const name = `preorder-detail-${field}`;
+    // 规则取自 services 的 DETAIL_FIELD_RULES，与保存前的整表校验是同一份，
+    // 保证不会出现「编辑器放行了、保存时又被拦下」
+    const rule = DETAIL_FIELD_RULES[field];
+    const options = rule ? {validator: (value: unknown) => rule(value)} : {};
+
+    if (field === 'StyleCode') {
+        // 款号是特例：除了自己的规则，还要按订单号查重、并带出款式描述与默认值
         registerAntdInputEditor(name, {}, {
             validator: async (value, row) => {
-                const err = rule(value);
+                const err = DETAIL_FIELD_RULES.StyleCode(value);
                 if (!isBlank(err)) {
                     return err;
                 }
@@ -170,11 +152,27 @@ Object.entries(DETAIL_FIELD_RULES).forEach(([field, rule]) => {
                 return undefined;
             }
         });
-    } else {
-        registerAntdInputEditor(name, {}, {validator: (value) => rule(value)});
+        return name;
     }
-    RULED_FIELD_EDITORS[field] = name;
-});
+
+    if (field === 'HDWorkName') {
+        // 后道主工序是枚举，用下拉（选项固定，工序名本身就是值和文案）
+        registerAntdSelectEditor(name, {options: HD_WORK_OPTIONS}, options);
+        return name;
+    }
+
+    if (dataType === 'number') {
+        registerAntdNumberEditor(
+            name,
+            {min: 0, ...(DECIMAL_FIELDS.has(field) ? {} : {precision: 0})},
+            options,
+        );
+        return name;
+    }
+
+    registerAntdInputEditor(name, {}, options);
+    return name;
+}
 
 /** 详情表格可编辑字段 -> 编辑器名，交给 VTable 的 editableFields */
 export const DETAIL_EDITOR_FIELDS: Record<string, string> = Object.fromEntries(
@@ -193,8 +191,8 @@ export const DETAIL_EDITOR_FIELDS: Record<string, string> = Object.fromEntries(
                 }
             }
         }
-        // 配了单字段规则的字段走它自己的具名编辑器（带提交前拦截），其余按类型取通用编辑器
-        return [column.field, RULED_FIELD_EDITORS[column.field] ?? editorOf(column)];
+        // 控件类型与单字段校验一起在这里决定（见 registerDetailEditor）
+        return [column.field, registerDetailEditor(column)];
     }),
 );
 
