@@ -6,7 +6,7 @@ import type {ApiResponse, PageQuery} from '../types';
 // `Uncaught ReferenceError: Cannot access 'S' before initialization`，
 // SSR 下则是静默拿到 undefined（mapping 变成 {type: undefined}，转换全错）。
 import {N, S, sqlApi, type FieldConfig, type FieldMapping} from './sql';
-import {toDayjs, toStringOrEmpty} from "@/utils";
+import {toStringOrEmpty} from "@/utils";
 
 /** 尺码列标题，按界面原样展示 */
 export const YupaiMachineSizeHeader = [
@@ -39,8 +39,16 @@ export interface YupaiOrderQuery extends PageQuery {
     filters?: string;
 }
 
-/** 预订单列表记录，字段与后端预订单信息返回一致 */
-export interface YupaiOrder {
+/**
+ * 预订单记录：**后端接口真实返回的形状**（字段与后端返回一致），不含派生字段。
+ *
+ * 与 YupaiOrder 分开的理由：`http.get<YupaiOrder[]>` 那种写法是纯类型断言（见 request.ts 的
+ * `payload = await response.json() as ApiResponse<T>`），运行时不做任何加工 ——
+ * 类型上声明了 OrderZQ 也拿不到，只会让 `order.OrderZQ` 编译通过、运行时是 undefined。
+ * 拆成两个类型后，「想读派生字段就必须过加工层」才是编译期的事
+ * （加工层见 services/yupai.ts 的 toYupaiOrder）。
+ */
+export interface YupaiOrderDto {
     ID: string;
     /** 预订日期 */
     YPDate: string;
@@ -122,16 +130,30 @@ export interface YupaiOrder {
     CreateUser: string;
     UpdateTime: string;
     UpdateUser: string;
-    OrderZQ: number;
 
     /** 其余字段按原样保留 */
     [key: string]: unknown;
 }
 
 /**
+ * 预订单**业务模型** = 后端字段 + 派生字段。
+ *
+ * 派生字段一律由 `toYupaiOrder`（services/yupai.ts）补上，两条数据入口共用它：
+ * HTTP 直返（yupaiService.list）和 SQL 路径（yupaiService.queryOrder）。
+ * 别再在 mapping 的 convert 里、或者页面里各算一遍 —— 那样必然漂移。
+ */
+export interface YupaiOrder extends YupaiOrderDto {
+    /**
+     * 订单周转期（天）：确认下单期(QRDate) → 尾货期(WCDate)，没有尾货期就退到走货期(ZHDate)。
+     * 基准 QRDate 无效时是 null —— 「几天」无从谈起，别拿 0 跟「同一天」混淆。
+     */
+    OrderZQ: number | null;
+}
+
+/**
  * 预订单字段匹配
  */
-export const YupaiOrderMapping: FieldMapping<YupaiOrder> = {
+export const YupaiOrderMapping: FieldMapping<YupaiOrderDto> = {
     ID: {type: "string", field: "YupaiOrderID"},
     YPDate: S,
     Ywy: S,
@@ -174,18 +196,9 @@ export const YupaiOrderMapping: FieldMapping<YupaiOrder> = {
     UpdateTime: S,
     UpdateUser: S,
     DepartmentID: S,
-    OrderZQ: {
-        type: "number", convert: (v, row) => {
-            console.log("OrderZQ: ", v)
-            const QRDate = toDayjs(row["QRDate"])
-            const WCDate = toDayjs(row["WCDate"])
-            const ZHDate = toDayjs(row["ZHDate"])
-            if (WCDate) {
-                return WCDate.diff(QRDate,'day')
-            }
-            return ZHDate?.diff(QRDate,'day')
-        }
-    },
+    // OrderZQ 不写在这里：它是派生字段（由 QRDate / WCDate / ZHDate 算出），
+    // 由 services/yupai.ts 的 toYupaiOrder 统一补 —— 写在 mapping 里只有 SQL 路径生效，
+    // HTTP 直返那条路没有 mapping，两处算法必然漂移。
     ...YupaiMachineSizeHeader.reduce<Record<string, FieldConfig>>((acc, _, index) => {
         acc[`MCSize${index + 1}`] = {type: "number", field: `MC_SIZE${index + 1}`};
         return acc;
@@ -230,7 +243,8 @@ export interface YupaiOrderDefaultYwy {
 }
 
 export const yupaiApi = {
-    list: (query: YupaiOrderQuery = {}) => http.get<YupaiOrder[]>('/plan/yupaiOrder/list', {...query, isDel: 0}),
+    /** 列表：返回后端原始形状（不含派生字段）。要业务模型请走 yupaiService.list */
+    list: (query: YupaiOrderQuery = {}) => http.get<YupaiOrderDto[]>('/plan/yupaiOrder/list', {...query, isDel: 0}),
     /** 最近发生变化的明细 */
     changes: () => http.get<YupaiOrderChange[]>('/plan/yupaiOrder/list/changes'),
     /** 新增预订单 */
@@ -289,11 +303,11 @@ export const yupaiApi = {
      * 获取款式默认值
      * @param styleCode 款号
      */
-    styleDefaultValue: async (styleCode: string): Promise<ApiResponse<YupaiOrder>> => {
+    styleDefaultValue: async (styleCode: string): Promise<ApiResponse<YupaiOrderDto>> => {
         const sqlString = "SELECT * FROM [transitDB].[dbo].[YupaiOrder] WHERE StyleCode = ? ORDER BY UpdateTime DESC"
         const result = await sqlApi.query({SQL: sqlString, Args: [styleCode]})
         if (result.data && result.data.DataVals && result.data.DataVals.length > 0) {
-            const oldOrder = result.data.parse<YupaiOrder>(YupaiOrderMapping)
+            const oldOrder = result.data.parse<YupaiOrderDto>(YupaiOrderMapping)
             if (oldOrder) {
                 return {
                     code: 0,

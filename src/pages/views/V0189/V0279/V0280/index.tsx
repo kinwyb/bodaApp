@@ -6,6 +6,7 @@ import {FilterTable} from '@/components/FilterTable';
 import {PageBreadcrumb} from '@/components/PageBreadcrumb';
 import type {VTableApi, VTableCellStyleHook, VTableMenuConfig} from '@/components/VTable';
 import type {ViewPageProps} from '@/pages/types';
+import {yupaiService} from '@/services/yupai.ts';
 import {buildPreorderColumns, preorderFilterFields} from './columns';
 import YupaiOrderEdit from './models/yupaiOrderEdit';
 import {usePreorderCommands} from './command';
@@ -32,7 +33,9 @@ const PreorderPage: React.FC<ViewPageProps> = ({view, trail}) => {
             tableRef.current?.clearSelection();
             setLoading(true);
             try {
-                const res = await yupaiApi.list(params);
+                // 走 services 而不是 yupaiApi.list：派生字段（OrderZQ 等）要在那一层补齐，
+                // http 直返的形状里没有它们
+                const res = await yupaiService.list(params);
                 setDataSource(res.data ?? []);
                 setTotal(res.page?.total ?? 0);
             } catch (error) {

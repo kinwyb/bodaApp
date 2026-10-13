@@ -1,12 +1,60 @@
-import {sqlApi, S, N, YupaiMachineSizeHeader} from "@/api";
-import type {ApiResponse, YupaiOrder,} from "@/api";
+import {sqlApi, S, N, YupaiMachineSizeHeader, yupaiApi} from "@/api";
+import type {ApiResponse, YupaiOrder, YupaiOrderDto, YupaiOrderQuery} from "@/api";
 import type {FieldConfig} from "@/api/modules/sql.ts";
-import {isBlank, isBlankExcept, toNumberOrZero, toStringOrEmpty} from "@/utils";
+import {isBlank, isBlankExcept, toDayjs, toNumberOrZero, toStringOrEmpty} from "@/utils";
+
+/**
+ * 订单周转期（天）：确认下单期(QRDate) → 尾货期(WCDate)，没有尾货期就退到走货期(ZHDate)。
+ *
+ * 基准无效就返回 null —— 没有基准，「几天」无从谈起。
+ *
+ * ⚠️ 不能写成 `WCDate.diff(toDayjs(QRDate), 'day')`：toDayjs 对空值/占位值/非法日期
+ * 一律给 undefined，而 dayjs 的 diff 拿 undefined 会**退化成 now** —— 实测
+ * `dayjs('2026-03-11').diff(undefined, 'day')` = -216（今天 2026-10-13），
+ * 于是 OrderZQ 静默变成「距今天数」这种看着完全正常的数字，极难发现。
+ */
+export function calcOrderZQ(order: {
+    QRDate?: unknown;
+    WCDate?: unknown;
+    ZHDate?: unknown;
+}): number | null {
+    const qr = toDayjs(order.QRDate);
+    if (!qr) return null;
+    const wc = toDayjs(order.WCDate);
+    if (wc) return wc.diff(qr, 'day');
+    const zh = toDayjs(order.ZHDate);
+    return zh ? zh.diff(qr, 'day') : null;
+}
+
+/**
+ * 后端 DTO → 业务模型：补齐所有派生字段。
+ *
+ * **两条数据入口共用这一个加工器**（派生逻辑只有一份）：
+ * - HTTP 直返：`yupaiService.list` —— http.get 的泛型只是类型断言，后端没返回 OrderZQ；
+ * - SQL 路径：`yupaiService.queryOrder` —— parse 出来是后端形状，再过一遍这里。
+ *
+ * 不放在 mapping 的 convert 里，是因为那样只有 SQL 路径生效：HTTP 那条路没有 mapping，
+ * 算法必然漂移（`YupaiOrderMapping` 和 services 里那份 mapping 已经漂过一次了）。
+ */
+export function toYupaiOrder(dto: YupaiOrderDto): YupaiOrder {
+    return {...dto, OrderZQ: calcOrderZQ(dto)};
+}
 
 /**
  * 预订单服务
  */
 export const yupaiService = {
+
+    /**
+     * 预订单列表（HTTP 直返）。
+     *
+     * 必须在这里过一遍 toYupaiOrder：`http.get<YupaiOrderDto[]>` 的泛型是纯断言，
+     * 后端返回里没有 OrderZQ，不补的话页面拿到的是「类型说有、运行时没有」。
+     */
+    async list(query: YupaiOrderQuery = {}): Promise<ApiResponse<YupaiOrder[]>> {
+        const res = await yupaiApi.list(query);
+        return {...res, data: res.data?.map(toYupaiOrder)};
+    },
 
     /**
      * 预订单信息查询
@@ -43,7 +91,7 @@ export const yupaiService = {
                 errmsg: result.data.ErrMsg ?? "查询失败",
             }
         }
-        const orders = result.data.parseToList<YupaiOrder>({
+        const orders = result.data.parseToList<YupaiOrderDto>({
             ID: {type: "string", field: "YupaiOrderID"},
             YPDate: S,
             Ywy: S,
@@ -96,9 +144,9 @@ export const yupaiService = {
 
         return {
             code: result.code,
-            // parseToList 返回的就是完整的 YupaiOrder[]（缺列的字段由 mapping 的
-            // type 默认值补齐），不需要再断言一次
-            data: orders ?? [],
+            // parse 出来的是后端形状（YupaiOrderDto），派生字段由 toYupaiOrder 补 ——
+            // 与 HTTP 直返那条路共用同一份算法
+            data: orders?.map(toYupaiOrder) ?? [],
         }
     },
 
