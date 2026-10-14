@@ -80,3 +80,26 @@ export const copyOrderedCommand: PreorderCommandFactory = ({message, modal, open
         });
     },
 });
+
+/** 演示占位（发布按钮之前）：复制 / 变更日志，接入业务时拆出去单独成文件即可。
+ *  「已下订单复制」已接入业务，见 ./copyOrdered.tsx */
+export const copyCommand: PreorderCommandFactory = ({message, getSelectedRows, hasSelection, openForm}) => ({
+    key: 'copy',
+    label: '复制',
+    icon: <CopyOutlined/>,
+    disabled: !hasSelection,
+    dividerBefore: true,
+    onClick: () => {
+        const targets = getSelectedRows();
+        if (targets.length < 1) {
+            void message.warning('请选择一条数据');
+            return;
+        }
+        const orderCode = targets[0].OrderCode;
+        if (!orderCode) {
+            void message.warning("目标数据订单号空,无法复制")
+            return;
+        }
+        openForm('copy', targets[0]);
+    }
+})

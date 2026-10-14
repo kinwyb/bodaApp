@@ -1,7 +1,6 @@
 import {
     ApartmentOutlined,
     CalendarOutlined,
-    CopyOutlined,
     FieldTimeOutlined,
     SafetyCertificateOutlined,
     SettingOutlined,
@@ -28,11 +27,6 @@ function demo(
         ...extra,
     };
 }
-
-/** 演示占位（发布按钮之前）：复制 / 变更日志，接入业务时拆出去单独成文件即可。
- *  「已下订单复制」已接入业务，见 ./copyOrdered.tsx */
-export const copyPlaceholderCommand: PreorderCommandFactory = ({message}) =>
-    demo(message, 'copy', '复制', <CopyOutlined/>, {dividerBefore: true});
 
 export const changeDatePlaceholderCommand: PreorderCommandFactory = ({message}) =>
     demo(message, 'changeDate', '变更日志', <CalendarOutlined/>, {dividerBefore: true});

@@ -160,6 +160,17 @@ export const DETAIL_FIELD_RULES: Record<string, (value: unknown) => string | und
 };
 
 /**
+ * 检测预订单是否为空
+ * @param row
+ */
+export function isEmptyYupaiOrder(row: Record<string, unknown> | null): boolean {
+    if (!row) {
+        return true;
+    }
+    return isBlankExcept(row, ["_id", "YupaiOrderID", "DataVersion"]);
+}
+
+/**
  * 预订单详情行的整行校验（纯函数，不发请求）
  *
  * 返回「行主键 → 字段 → 提示文案」，没有问题时返回空对象。
@@ -184,9 +195,10 @@ export function validateYupaiOrderDetailRows(
     const styleCodeRows = new Map<string, string[]>();
 
     for (const row of rows) {
-        if (isBlankExcept(row, ["_id", "YupaiOrderID"])) {
+        if (isEmptyYupaiOrder(row)) {
             continue;
         }
+        console.log("row", row);
         const rowKey = String(row._id ?? '');
         // 没有主键的行不参与校验：否则它们会挤在同一个键上互相覆盖
         if (!rowKey) continue;

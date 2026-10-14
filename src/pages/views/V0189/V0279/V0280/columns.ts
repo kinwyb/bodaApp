@@ -70,6 +70,12 @@ const COLUMNS: AppColumnDef[] = [
     {field: 'Memo', title: '备注', width: 190},
     {field: 'YLDate', title: '原料可下单期', width: 110, dataType: 'date'},
     {field: 'YLZLDate', title: '原料资料日期', width: 110, dataType: 'date'},
+    {field: 'YLDHDate', title: '原料计划到货期', width: 110, dataType: 'date'},
+    {field: 'FLDate', title: '辅料可下单期', width: 110, dataType: 'date'},
+    {field: 'BZFLDate', title: '包装辅料提供期', width: 110, dataType: 'date'},
+    {field: 'MWeight', title: '中码下机克重', width: 110, dataType: 'number'},
+    {field: 'MCycle', title: '中码下机时间', width: 110, dataType: 'number'},
+    {field: 'MSewWt', title: '缝制工时', width: 110, dataType: 'number'},
     ...YupaiMachineSizeHeader.map((title, index) => {
         const fieldName = `MCSize${index + 1}`;
         return {

@@ -21,10 +21,10 @@ import {
     setCurrentOrderCode,
     type yupaiOrderDetailRow,
 } from './yupaiOrderEditColumns.ts';
-import {validateYupaiOrderDetailRows, yupaiService} from "@/services/yupai.ts";
+import {isEmptyYupaiOrder, validateYupaiOrderDetailRows, yupaiService} from "@/services/yupai.ts";
 import {
     DATE_FORMAT, formatDateTime, isBlank,
-    isBlankExcept, now,
+    now,
     toDateString,
     toDayjs,
     toNumberOrNullIfZero,
@@ -133,17 +133,6 @@ const buildValues = (record?: YupaiOrder | null): yupaiOrderFormValues => {
         ZQCheckMemo: String(record.ZQCheckMemo ?? ''),
     };
 };
-
-/**
- * 判断明细行是否为空
- * @param row
- */
-const isEmptyRow = (row: Record<string, unknown> | null): boolean => {
-    if (row == null) {
-        return true;
-    }
-    return isBlankExcept(row, ["_id", "YupaiOrderID", "DataVersion"])
-}
 
 /**
  * 未落库的空白 / 新增行的临时主键。
@@ -263,7 +252,7 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
         const isCopy = mode === 'copy';
 
         // 复制不带「未检测」这个状态：数据已经按订单号查过一遍，进来就是可编辑的
-        const detailLocked = isView || (isAdd && !orderChecked);
+        const detailLocked = isView || (isAdd && !orderChecked) || (isCopy && !orderChecked);
 
         useEffect(() => {
             if (!open) {
@@ -305,7 +294,19 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                         form.resetFields();
                         // 订单号**不复制**：复制出来的是新单，必须换新号（表单里它是必填），
                         // 其余主信息按最新数据带出，日期区间等联动值交给下面的渲染逻辑自己取
-                        form.setFieldsValue({...buildValues(res.data[0]), OrderCode: ''});
+                        form.setFieldsValue({
+                            ...buildValues(res.data[0]),
+                            OrderCode: '',
+                            YPDate: now(),
+                            JHDate: undefined,
+                            QRDate: undefined,
+                            WCDate: undefined,
+                            ZHDate: undefined,
+                            YLDate: undefined,
+                            FLDate: undefined,
+                            BZFLDate: undefined,
+                            ZQCheckDate: undefined,
+                        });
                         // 日期边界与原单对齐（同编辑分支）：这些边界本该跟着确认可下单期走，
                         // 不设的话「走货期」的下限会退回组件初始值（今天），原单的日期可能早于它
                         if (res.data[0].QRDate) {
@@ -319,6 +320,7 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                         setHideDatas([]);
                         setCellErrors({});
                         setIsLoading(false);
+                        setOrderChecked(false); //复制的订单要锁定详情直到订单号检测成功
                     } catch (error) {
                         void message.error(error instanceof ApiError ? error.message : '预订单信息获取失败');
                     }
@@ -403,7 +405,7 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                 const index = anchor >= 0 ? anchor + 1 : next.length;
                 if (index > 0) {
                     const data = prev[index - 1];
-                    if (data && isEmptyRow(data)) { //如果原本就是一行空数据，那就不再新增空行了
+                    if (data && isEmptyYupaiOrder(data)) { //如果原本就是一行空数据，那就不再新增空行了
                         return prev
                     }
                 }
@@ -446,8 +448,8 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                     // 复制出来的是新单，明细行可增删（同新增）；只有编辑/查看才禁掉
                     if (detailLocked || !(isAdd || isCopy)) return [];
                     const rowKey = String(record?._id ?? '');
-                    const allowNewLine = !isEmptyRow(detailRows[detailRows.length - 1]);
-                    const allowNewNextLine = !isEmptyRow(record ?? null);
+                    const allowNewLine = !isEmptyYupaiOrder(detailRows[detailRows.length - 1]);
+                    const allowNewNextLine = !isEmptyYupaiOrder(record ?? null);
                     return alignMenuIcons([
                         ...(rowIndex >= 0 && rowKey && allowNewNextLine ? [{
                             text: '在下方插入行',

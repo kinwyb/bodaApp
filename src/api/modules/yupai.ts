@@ -87,9 +87,9 @@ export interface YupaiOrderDto {
     Memo: string;
     /** 原料可下单期 */
     YLDate?: string;
-    /** 发料期 */
+    /** 缝制辅料下单期 */
     FLDate?: string;
-    /** 包装发料期 */
+    /** 包装辅料提供期 */
     BZFLDate?: string;
     /** 原料资料日期 */
     YLZLDate?: string;
