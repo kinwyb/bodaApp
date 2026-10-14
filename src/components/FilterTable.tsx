@@ -13,6 +13,7 @@ import {
   type VTableCellTooltipHook,
   type VTableCellValueChangeInfo,
   type VTableMenuConfig,
+  type VTableSelectedRowChangeInfo,
 } from './VTable';
 
 const DEFAULT_PAGE_SIZE = 30;
@@ -100,6 +101,11 @@ export interface FilterTableProps {
   onPageChange?: (page: number, pageSize: number) => void;
   /** 选中变化（点击/框选/Ctrl+A 全选），回传选中行数 */
   onActiveSelectionChange?: (info: { rowCount: number }) => void;
+  /**
+   * 当前激活行变化，回传整行数据（鼠标点选/框选、键盘上下行移动都会触发）。
+   * 语义与例外见 VTable 的 onSelectedChange（Ctrl+A 与选中清空回传「没有激活行」，点表头不回调）。
+   */
+  onSelectedChange?: (info: VTableSelectedRowChangeInfo) => void;
   /** 单元格点击 */
   onCellClick?: (info: VTableCellInfo) => void;
   /** 单元格双击 */
@@ -152,6 +158,7 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
       onFilterChange,
       onPageChange,
       onActiveSelectionChange,
+      onSelectedChange,
       onCellClick,
       onCellDblClick,
     },
@@ -357,6 +364,7 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
             exportOptions={exportOptions}
             menu={menu}
             onActiveSelectionChange={handleActiveSelectionChange}
+            onSelectedChange={onSelectedChange}
             onCellClick={onCellClick}
             onCellDblClick={onCellDblClick}
           />

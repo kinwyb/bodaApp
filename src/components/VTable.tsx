@@ -265,6 +265,43 @@ export interface VTableSelection {
 }
 
 /**
+ * 当前激活行的信息，即 `onSelectedChange` 的回调参数。
+ *
+ * 「激活行」取 VTable 的 `select.cellPos` —— 那是**最后激活的那个单元格**（单击、Shift 扩展、
+ * 拖拽框选、键盘方向键都会在流程里写它，见 `es/state/select/update-position.js`），
+ * 按行取就是「当前激活的这一行」。
+ *
+ * 另外要求这一行确实还在选中范围里：Ctrl 点选把一行取消掉之后 cellPos 仍停在那行，
+ * 但它已经不是选中行了，这时会回传「没有激活行」——
+ * 免得页面拿着一行已经被取消勾选的数据当选中行用。
+ */
+export interface VTableSelectedRowChangeInfo {
+  /**
+   * 当前激活行的数据 —— 就是页面传进 records 里的那条记录本身（引号相等，可直接引用 / 修改）。
+   * 「没有激活行」时为 undefined：选中被清空（点画布空白处、clearSelection、换数据）、
+   * 只点中表头、激活的那行被 Ctrl 取消勾选。
+   */
+  record?: Record<string, unknown>;
+  /** VTable 行号（含表头行）；没有激活行时为 -1 */
+  row: number;
+  /** 数据行下标（不含表头，0 起，跟随显示顺序）；没有激活行时为 -1 */
+  rowIndex: number;
+  /** 行主键；没有激活行时为空串 */
+  rowKey: string;
+  /** 是否底部统计行（统计行不参与选中，正常不会出现在这里） */
+  isSummaryRow: boolean;
+}
+
+/** 没有激活行时的空信息（每次回传都是副本，页面改到不会污染下一次回调） */
+const EMPTY_SELECTED_ROW: VTableSelectedRowChangeInfo = {
+  record: undefined,
+  row: -1,
+  rowIndex: -1,
+  rowKey: '',
+  isSummaryRow: false,
+};
+
+/**
  * 某一行在当前表格里的数据（getRowByIndex 的返回值）。
  *
  * 这里的「行号」指**数据行下标**：0 起、不含表头，传 0 就是界面上显示的第一行数据。
@@ -520,6 +557,25 @@ export interface VTableProps {
   onCellDblClick?: (info: VTableCellInfo) => void;
   /** 选中变化（点击 / 框选 / Ctrl+A 全选），回传选中的行数 */
   onActiveSelectionChange?: (info: { rowCount: number }) => void;
+  /**
+   * 当前激活行变化回调：回传「当前激活的那一行」的整行数据（`info.record`）。
+   *
+   * 触发时机：单击、Shift 扩展、拖拽框选、Ctrl 点选（含被 Ctrl 取消勾选），
+   * 以及**键盘上下左右移动选中**（方向键走 selectCell，最终同样派发选中变化）——
+   * 这些都是「当前激活行」发生变化的时刻。左右移动只是换列、行没变，不会触发。
+   *
+   * 三处例外：
+   * - Ctrl+A 全选：**回写「没有激活行」**（`record: undefined`）。那一刻 cellPos 还停在上次
+   *   点过的那一格上，拿它当激活行是错的，所以主动清一次，免得页面留着过期的当前行。
+   * - 选中被清空：同样回写 undefined（点画布空白处、`clearSelection()`、换了一页数据）。
+   * - 点表头（整列选中）：静默不回调 —— 那不是选中一行数据，页面上的当前行保持不动。
+   *
+   * 只在**行**变化时回调：同一行里换点另一列不会重复触发 —— 要「每次点击都通知」请用 onCellClick。
+   *
+   * 与 onActiveSelectionChange 的分工：那个报「选了几行」（驱动按钮 disabled），
+   * 这个报「哪一行是激活行 + 它的数据」（驱动右侧详情、编辑态等）。多选时激活行只有一个。
+   */
+  onSelectedChange?: (info: VTableSelectedRowChangeInfo) => void;
 }
 
 const THEME: themes.TableTheme = themes.DEFAULT.extends({
@@ -595,13 +651,33 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
   onCellClick,
   onCellDblClick,
   onActiveSelectionChange,
+  onSelectedChange,
 }, ref) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const tableRef = useRef<ListTable | null>(null);
   /** 构造时的完整 options：updateOption 需要完整配置，否则 theme / 行高等会被重置为默认值 */
   const optionsRef = useRef<ListTableConstructorOptions | null>(null);
-  const handlers = useRef({ onCellClick, onCellDblClick, onCellValueChange, onActiveSelectionChange });
-  handlers.current = { onCellClick, onCellDblClick, onCellValueChange, onActiveSelectionChange };
+  const handlers = useRef({
+    onCellClick,
+    onCellDblClick,
+    onCellValueChange,
+    onActiveSelectionChange,
+    onSelectedChange,
+  });
+  handlers.current = {
+    onCellClick,
+    onCellDblClick,
+    onCellValueChange,
+    onActiveSelectionChange,
+    onSelectedChange,
+  };
+  /**
+   * 上一次回调出去的激活行，用来避免「同一行里换一列」这类重复通知。
+   * 用行号 + 行主键一起比对：行号相同但主键不同（排序/换页后正好落在同一行号）算另一行。
+   */
+  const lastSelectedRowRef = useRef<{ row: number; rowKey: string } | null>(null);
+  /** 建表 effect 与几个 useCallback 都会锁住闭包，激活行的回调统一走 ref 取最新实现 */
+  const emitSelectedRowRef = useRef<(force?: boolean) => void>(() => {});
   /**
    * 上一次实际铺过底色的**区间坐标**（不是行号）。
    *
@@ -742,9 +818,12 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
       host.scenegraph.recreateAllSelectRangeComponents?.();
       host.scenegraph.updateNextFrame?.();
 
-      // 改范围不会派发 selected_cell，整行底色与对外行数得自己补一次
+      // 改范围不会派发 selected_cell，整行底色、对外行数与激活行都得自己补一次。
+      // 补激活行时若被 toggle 掉的正好是当前激活行，emitSelectedRow 会因为它已不在选中范围里
+      // 而回传「没有激活行」—— 正是想要的结果。
       paintSelectedRows();
       handlers.current.onActiveSelectionChange?.({ rowCount: selected.size });
+      emitSelectedRowRef.current();
     },
     [paintSelectedRows],
   );
@@ -913,6 +992,64 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
   cellStyleRef.current = cellStyle;
   const cellTooltipRef = useRef(cellTooltip);
   cellTooltipRef.current = cellTooltip;
+
+  /**
+   * 读「当前激活行」并回调给页面（onSelectedChange）。
+   *
+   * 激活行取 VTable 的 `select.cellPos`（最后激活的单元格，鼠标点选与键盘移动都会写它），
+   * 按行取就是「当前激活的这一行」。
+   * 三个会让它「不算激活行」的例外，都回传「没有激活行」（record 为 undefined）：
+   * - **点表头**：cellPos 落在表头行，那只是整列选中，不是选中了一行数据；
+   * - **被 Ctrl 取消勾选**：cellPos 仍停在那一行，但它已经不在选中范围里了，
+   *   这时若还报它是激活行，页面会拿着一条已被取消勾选的数据当选中行用；
+   * - **Ctrl+A 全选**（`select.isSelectAll`）：cellPos 停在上次点过的那一格上
+   *   （全选走 `updateSelectPos(-1,-1,isSelectAll=true)`，根本不更新 cellPos），不能拿它冒充激活行。
+   *
+   * force 用于「数据整体换了一批」这种行号与主键都没变、但已经不是同一行的场景。
+   */
+  const emitSelectedRow = useCallback(
+    (force = false) => {
+      const table = tableRef.current;
+      if (!table) return;
+      const select = table.stateManager?.select;
+      const headerLevel = table.columnHeaderLevelCount;
+      let next: VTableSelectedRowChangeInfo = { ...EMPTY_SELECTED_ROW };
+      // 全选时没有单一激活行：cellPos 是陈旧的，直接不看它
+      const pos = select?.isSelectAll ? undefined : select?.cellPos;
+      if (pos && pos.col >= 0 && pos.row >= headerLevel) {
+        const ranges = (select?.ranges ?? []) as Array<{
+          start: { row: number };
+          end: { row: number };
+        }>;
+        // 必须在选中范围里才算激活行（Ctrl 取消勾选后 cellPos 仍停在原处，靠这一条排除）
+        if (collectRowIndexes(ranges, headerLevel).has(pos.row)) {
+          const rowIndex = pos.row - headerLevel;
+          const record = rowsRef.current[rowIndex] as Record<string, unknown> | undefined;
+          if (record) {
+            next = {
+              record,
+              row: pos.row,
+              rowIndex,
+              rowKey: rowKeyByIndexRef.current[rowIndex] ?? '',
+              isSummaryRow: isSummaryRow(pos.row, headerLevel),
+            };
+          }
+        }
+      }
+      // 「没有激活行」记 null，与「激活行就是第 0 行」区分开
+      const key = next.record ? { row: next.row, rowKey: next.rowKey } : null;
+      const last = lastSelectedRowRef.current;
+      const same =
+        key === null
+          ? last === null
+          : last !== null && last.row === key.row && last.rowKey === key.rowKey;
+      if (same && !force) return;
+      lastSelectedRowRef.current = key;
+      handlers.current.onSelectedChange?.(next);
+    },
+    [isSummaryRow],
+  );
+  emitSelectedRowRef.current = emitSelectedRow;
 
   /**
    * 按内容自适应所有列宽。
@@ -1220,6 +1357,20 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     // 原生选中变化：先给选中的行铺整行底色，再通知外部
     table.on('selected_cell', () => {
       paintSelectedRows();
+      /**
+       * 当前激活行的回调（onSelectedChange）。这里走到的情况有：鼠标点选 / 框选 / Ctrl 点选、
+       * 键盘上下左右移动（方向键最终也会走 selectCell → selected_cell）。
+       *
+       * - Ctrl+A 全选：必须回写「没有激活行」，全选那一刻 cellPos 还停在上次点过的那一格上，
+       *   拿它当激活行是错的（emitSelectedRow 内部按 isSelectAll 判空）；
+       * - 落在表头行（点表头 = 整列选中）：静默跳过，不回调也不清页面状态 —— 那不是选中了一行数据；
+       * - 其余（数据行）：如实回传鼠标/键盘当前激活的那一行。
+       */
+      const selectAll = table.stateManager?.select?.isSelectAll === true;
+      const pos = table.stateManager?.select?.cellPos;
+      if (selectAll || (pos && pos.col >= 0 && pos.row >= table.columnHeaderLevelCount)) {
+        emitSelectedRowRef.current();
+      }
       if (!handlers.current.onActiveSelectionChange) return;
       // 直接按选中范围算行数：getSelectedCellInfos 会把每个格子的信息都构造出来，
       // Ctrl+A 全选时是 O(行×列) 的对象分配，而 ranges 只有几段
@@ -1235,6 +1386,8 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     // 选中被清空（点画布空白处等）：底色一并撤掉，否则会留在那儿
     table.on('selected_clear', () => {
       paintSelectedRows();
+      // 激活行跟着回写「没有激活行」（能走到这里就没有「最后点选的那一行」了）
+      emitSelectedRowRef.current();
       handlers.current.onActiveSelectionChange?.({ rowCount: 0 });
     });
     // 悬停到单元格：页面给了文案就当 tooltip 显示（校验错误「为什么红」靠它）
@@ -1361,6 +1514,10 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     scheduleBottomFrozen(table, summaryRef.current ? 1 : 0);
     // 换页 / 换数据后重置选中：铺过的底色一并撤掉（行号在新数据里已经没意义了）
     clearPaintedRows();
+    // 激活行同理：换了一批数据后，就算行号与主键恰好没变，也不再是同一条记录，
+    // 所以去重状态清空、无条件回写一次「没有激活行」
+    lastSelectedRowRef.current = null;
+    emitSelectedRowRef.current(true);
     // 主动通知外部归零：clearSelected() 不一定触发 selected_clear（它只在框选结束时触发），
     // 不回调的话页面那边的「选中行数」会停在旧值上
     handlers.current.onActiveSelectionChange?.({ rowCount: 0 });
@@ -1458,6 +1615,8 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     if (!table) return;
     clearPaintedRows();
     table.clearSelected();
+    // 选中没了就没有激活行了（clearSelected 不派发 selected_clear，得自己补）
+    emitSelectedRowRef.current();
     handlers.current.onActiveSelectionChange?.({ rowCount: 0 });
   }, [clearPaintedRows]);
 
