@@ -1,10 +1,10 @@
 import {CloseOutlined, ExclamationCircleOutlined} from '@ant-design/icons';
 import {Input} from 'antd';
 import {ApiError, yupaiApi} from '@/api';
-import type {PreorderCommandFactory} from './types';
+import type {YupaiOrderCommandFactory} from './types';
 
 /** 取消（删除）订单：支持批量，确认时必须填写删除原因 */
-export const deleteCommand: PreorderCommandFactory = ({message, modal, getSelectedRows, hasSelection, reload}) => ({
+export const deleteCommand: YupaiOrderCommandFactory = ({message, modal, getSelectedRows, hasSelection, reload}) => ({
     key: 'cancel',
     label: '取消',
     icon: <CloseOutlined/>,

@@ -1,6 +1,5 @@
 import {
     ApartmentOutlined,
-    CalendarOutlined,
     FieldTimeOutlined,
     SafetyCertificateOutlined,
     SettingOutlined,
@@ -9,11 +8,11 @@ import {
 } from '@ant-design/icons';
 import type {ReactNode} from 'react';
 import type {CommandItem} from '@/components/CommandBar';
-import type {PreorderCommandContext, PreorderCommandFactory} from './types';
+import type {YupaiOrderCommandContext, YupaiOrderCommandFactory} from './types';
 
 /** 生成一个演示占位命令：点击只弹一句提示 */
 function demo(
-    message: PreorderCommandContext['message'],
+    message: YupaiOrderCommandContext['message'],
     key: string,
     label: string,
     icon: ReactNode,
@@ -28,11 +27,8 @@ function demo(
     };
 }
 
-export const changeDatePlaceholderCommand: PreorderCommandFactory = ({message}) =>
-    demo(message, 'changeDate', '变更日志', <CalendarOutlined/>, {dividerBefore: true});
-
 /** 演示占位（发布按钮之后）：已下单 / 分批 / 预订的阶段 / 工段产地 / 计划部设定 */
-export const workflowPlaceholderCommands: PreorderCommandFactory = ({message}) => [
+export const workflowPlaceholderCommands: YupaiOrderCommandFactory = ({message}) => [
     demo(message, 'ordered', '已下单', <TagOutlined/>),
     demo(message, 'assign', '分批', <ApartmentOutlined/>, {dividerBefore: true}),
     demo(message, 'stage', '预订的阶段', <FieldTimeOutlined/>),
@@ -41,5 +37,5 @@ export const workflowPlaceholderCommands: PreorderCommandFactory = ({message}) =
 ];
 
 /** 演示占位（命令条末尾）：权限 */
-export const authPlaceholderCommand: PreorderCommandFactory = ({message}) =>
+export const authPlaceholderCommand: YupaiOrderCommandFactory = ({message}) =>
     demo(message, 'auth', '权限', <SafetyCertificateOutlined/>, {dividerBefore: true, permission: '权限管理'});

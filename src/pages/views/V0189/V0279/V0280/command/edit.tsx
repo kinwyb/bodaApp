@@ -1,8 +1,8 @@
 import {EditOutlined} from '@ant-design/icons';
-import type {PreorderCommandFactory} from './types';
+import type {YupaiOrderCommandFactory} from './types';
 
 /** 修改：取选中的第一条，打开编辑表单 */
-export const editCommand: PreorderCommandFactory = ({message, getSelectedRows, hasSelection, openForm}) => ({
+export const editCommand: YupaiOrderCommandFactory = ({message, getSelectedRows, hasSelection, openForm}) => ({
     key: 'edit',
     label: '修改',
     icon: <EditOutlined/>,

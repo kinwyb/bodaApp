@@ -33,6 +33,18 @@ export interface CommandContext<TRecord = Record<string, unknown>, TQuery = unkn
     tableRef: RefObject<VTableApi | null>;
     /** 当前选中的业务行（页面负责过滤统计行等非业务数据） */
     getSelectedRows: () => TRecord[];
+    /**
+     * 当前**激活**的那一行 —— 鼠标最后点选 / 键盘方向键移动到的行（页面负责过滤统计行等非业务数据）。
+     * 没有激活行时为 null（Ctrl+A 全选、选中被清空、只点中表头这几种情况）。
+     *
+     * 与 getSelectedRows 的分工：那个是「选中的集合」（多选时有好几条，看不出用户此刻聚焦的是哪一条），
+     * 这个只回答「当前聚焦的是哪一条」。
+     *
+     * **存成值而不是取值函数**：命令项的 disabled 是渲染时算的，必须跟着激活行一起重算。
+     * 页面接表格的 onSelectedChange 写进 state 即可（表格只在「行」变化时回调，同行内换列不触发，
+     * 所以不会因为点同行的另一列而白重渲染）。
+     */
+    activeRow: TRecord | null;
     /** 是否有选中行，驱动按钮 disabled */
     hasSelection: boolean;
     /** 当前查询条件 */

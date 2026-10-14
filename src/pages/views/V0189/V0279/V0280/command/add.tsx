@@ -1,8 +1,8 @@
 import {PlusOutlined} from '@ant-design/icons';
-import type {PreorderCommandFactory} from './types';
+import type {YupaiOrderCommandFactory} from './types';
 
 /** 新增预订单：打开空白表单 */
-export const addCommand: PreorderCommandFactory = ({openForm}) => ({
+export const addCommand: YupaiOrderCommandFactory = ({openForm}) => ({
     key: 'add',
     label: '新增',
     icon: <PlusOutlined/>,

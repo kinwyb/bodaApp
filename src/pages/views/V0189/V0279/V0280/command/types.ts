@@ -2,6 +2,6 @@ import type {CommandContext, CommandFactory} from '@/components/commands';
 import type {YupaiOrder, YupaiOrderQuery} from '@/api';
 
 /** 本页命令的上下文类型 */
-export type PreorderCommandContext = CommandContext<YupaiOrder, YupaiOrderQuery>;
+export type YupaiOrderCommandContext = CommandContext<YupaiOrder, YupaiOrderQuery>;
 /** 本页命令的工厂类型 */
-export type PreorderCommandFactory = CommandFactory<YupaiOrder, YupaiOrderQuery>;
+export type YupaiOrderCommandFactory = CommandFactory<YupaiOrder, YupaiOrderQuery>;

@@ -1,9 +1,9 @@
 import {ExportOutlined} from '@ant-design/icons';
 import dayjs from 'dayjs';
-import type {PreorderCommandFactory} from './types';
+import type {YupaiOrderCommandFactory} from './types';
 
 /** 导出当前页到 Excel：走 VTable 内部的 TableExportPlugin，文件名不用带 .xlsx（插件会补） */
-export const exportCommand: PreorderCommandFactory = ({message, tableRef}) => ({
+export const exportCommand: YupaiOrderCommandFactory = ({message, tableRef}) => ({
     key: 'export',
     label: '导出',
     icon: <ExportOutlined/>,

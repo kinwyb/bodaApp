@@ -2,7 +2,7 @@ import {CopyOutlined} from '@ant-design/icons';
 import {Input} from 'antd';
 import {ApiError, type YupaiOrder} from '@/api';
 import {yupaiService} from '@/services/yupai';
-import type {PreorderCommandFactory} from './types';
+import type {YupaiOrderCommandFactory} from './types';
 
 /**
  * 已下订单复制：先按订单号把订单查出来，再打开一份「复制」表单。
@@ -16,7 +16,7 @@ import type {PreorderCommandFactory} from './types';
  * 表单自己还会按订单号再查一次（要的是**全部**款式），这里的查询只做存在性校验：
  * 查到的数据不带走，避免把「命令层查到的快照」和「表单打开时的实时数据」两份混着用。
  */
-export const copyOrderedCommand: PreorderCommandFactory = ({message, modal, openForm}) => ({
+export const copyOrderedCommand: YupaiOrderCommandFactory = ({message, modal, openForm}) => ({
     key: 'copyOrdered',
     label: '已下订单复制',
     icon: <CopyOutlined/>,
@@ -83,7 +83,7 @@ export const copyOrderedCommand: PreorderCommandFactory = ({message, modal, open
 
 /** 演示占位（发布按钮之前）：复制 / 变更日志，接入业务时拆出去单独成文件即可。
  *  「已下订单复制」已接入业务，见 ./copyOrdered.tsx */
-export const copyCommand: PreorderCommandFactory = ({message, getSelectedRows, hasSelection, openForm}) => ({
+export const copyCommand: YupaiOrderCommandFactory = ({message, getSelectedRows, hasSelection, openForm}) => ({
     key: 'copy',
     label: '复制',
     icon: <CopyOutlined/>,

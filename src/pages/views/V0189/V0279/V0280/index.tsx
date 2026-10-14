@@ -5,13 +5,18 @@ import {CommandBar} from '@/components/CommandBar';
 import type {FormMode} from '@/components/commands';
 import {FilterTable} from '@/components/FilterTable';
 import {PageBreadcrumb} from '@/components/PageBreadcrumb';
-import type {VTableApi, VTableCellStyleHook, VTableMenuConfig} from '@/components/VTable';
+import type {
+    VTableApi,
+    VTableCellStyleHook,
+    VTableMenuConfig,
+    VTableSelectedRowChangeInfo,
+} from '@/components/VTable';
 import type {ViewPageProps} from '@/pages/types';
 import {yupaiService} from '@/services/yupai.ts';
 import {buildPreorderColumns, preorderFilterFields} from './columns';
 import YupaiOrderEdit from './models/yupaiOrderEdit';
 import {usePreorderCommands} from './command';
-import type {PreorderCommandContext} from './command';
+import type {YupaiOrderCommandContext} from './command';
 
 /** V0189_V0279_V0280 计划管理 > 预订单 > 预订单管理 */
 const PreorderPage: React.FC<ViewPageProps> = ({view, trail}) => {
@@ -21,6 +26,11 @@ const PreorderPage: React.FC<ViewPageProps> = ({view, trail}) => {
     const [total, setTotal] = useState(0);
     /** 选中的行数：只用来驱动按钮 disabled，行数据本身一律向表格要（见 getActiveRows） */
     const [activeRowCount, setActiveRowCount] = useState(0);
+    /**
+     * 当前激活的那一行（鼠标点选 / 键盘方向键移动到的行）；没有则为 null。
+     * 存成 state 是因为命令项的 disabled 要在渲染时按它算（见 command/changeLog.tsx）。
+     */
+    const [activeRow, setActiveRow] = useState<YupaiOrder | null>(null);
     const [query, setQuery] = useState<YupaiOrderQuery>({});
     const [changedCells, setChangedCells] = useState<Record<string, string[]>>({});
     const [formOpen, setFormOpen] = useState(false);
@@ -101,6 +111,25 @@ const PreorderPage: React.FC<ViewPageProps> = ({view, trail}) => {
         ) as YupaiOrder[];
     }, [dataSource, tableRef]);
 
+    /**
+     * 表格回传「当前激活行」时同步到 state。
+     *
+     * 表格只在**行**变化时回调（同行内换列不触发），所以点同行的另一列不会白重渲染；
+     * 换页 / 换数据时表格会回写一次「没有激活行」，这里跟着清空，不会留着上一页的过期行。
+     */
+    const handleSelectedChange = useCallback(
+        (info: VTableSelectedRowChangeInfo) => {
+            const record = info.record as YupaiOrder | undefined;
+            // 统计行、以及不属于当前页数据的行都不算（与 getActiveRows 同一条过滤）
+            if (!record || info.isSummaryRow) {
+                setActiveRow(null);
+                return;
+            }
+            setActiveRow(dataSource.some((d) => d.ID === record.ID) ? record : null);
+        },
+        [dataSource],
+    );
+
     /** 打开表单弹窗：命令按钮 / 右键菜单 / 双击行共用一个入口 */
     const openForm = useCallback((mode: FormMode, record: YupaiOrder | null) => {
         setFormMode(mode);
@@ -114,18 +143,19 @@ const PreorderPage: React.FC<ViewPageProps> = ({view, trail}) => {
     }, [loadData, query]);
 
     /** 命令的公共依赖：业务动作全部在 command/ 目录，页面只负责装配状态 */
-    const commandContext = useMemo<PreorderCommandContext>(
+    const commandContext = useMemo<YupaiOrderCommandContext>(
         () => ({
             message,
             modal,
             tableRef,
             getSelectedRows: getActiveRows,
+            activeRow,
             hasSelection,
             query,
             reload,
             openForm,
         }),
-        [message, modal, tableRef, getActiveRows, hasSelection, query, reload, openForm],
+        [message, modal, tableRef, getActiveRows, activeRow, hasSelection, query, reload, openForm],
     );
     const commands = usePreorderCommands(commandContext);
 
@@ -237,6 +267,7 @@ const PreorderPage: React.FC<ViewPageProps> = ({view, trail}) => {
                         setQuery((prev) => ({...prev, page, pageSize}));
                     }}
                     onActiveSelectionChange={(info) => setActiveRowCount(info.rowCount)}
+                    onSelectedChange={handleSelectedChange}
                     onCellDblClick={(info) => {
                         // 统计行不是真实单据，不打开详情
                         if (info.isSummaryRow) return;
