@@ -4,7 +4,7 @@ import { PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons'
 import type { ColumnsDefine } from '@visactor/vtable';
 import { ApiError, viewApi, type ViewRow, type ViewRowQuery, type ViewRowStatus } from '@/api';
 import { usePermission } from '@/store/permission-context';
-import { VTable } from '@/components/VTable';
+import { VTable } from '@/components/vtable';
 import { AuthButton } from '@/components/Permission';
 import type { ViewPageProps } from '@/pages/types';
 import { PageBreadcrumb } from '@/components/PageBreadcrumb';

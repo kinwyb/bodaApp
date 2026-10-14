@@ -7,7 +7,8 @@
  * 「字体颜色叫 color、背景色叫 bgColor」，**而且写错了不报错、只是样式静默不生效**
  * （与 `rowKey` 漏传同类问题）。语义化之后，字段名对齐 CSS 直觉，写错就是编译错误。
  */
-import type { IStyleOption } from '../../node_modules/@visactor/vtable/es/ts-types/column/style';
+import type { IStyleOption } from '../../../node_modules/@visactor/vtable/es/ts-types/column/style';
+import type { ListTable } from '@visactor/vtable';
 
 /**
  * 页面自定义单元格样式（语义化写法）。
@@ -144,3 +145,75 @@ type ValueMismatchKeys = {
 export type NativeStyleMatchesVTable = Expect<
   [KeysNotInNative, ValueMismatchKeys] extends [never, never] ? true : false
 >;
+
+// ─── 回调类型与 customCellStyle 插件访问 ──────────────────────────────────────
+
+/** 自定义单元格样式的回调参数 */
+export interface VTableCellStyleInfo {
+  /** 表格行号（含表头行） */
+  row: number;
+  /** 数据行索引（不含表头，0 起） */
+  rowIndex: number;
+  /** 列字段名 */
+  field: string;
+  /** 行主键（空白补足行为空串，统计行为 SUMMARY_ROW_KEY） */
+  rowKey: string;
+  /** 是否底部统计行 */
+  isSummaryRow: boolean;
+  /** 该行原始记录 */
+  record?: Record<string, unknown>;
+  /** 该单元格原始值 */
+  dataValue?: unknown;
+}
+
+/**
+ * 页面自定义单元格样式：返回的样式会合并到内置样式之上，
+ * 适合「最近变更标绿」「超期标红」这类业务提醒。
+ *
+ * 只写要改的属性（语义化名，见 VTableCellStyle）；**返回 undefined 或空对象都表示「不改」** ——
+ * 累加式写法直接 `return style` 即可，不必再判 `Object.keys(style).length`：
+ * 翻译层会把空对象变成 undefined，组件那边自然回退到原有样式。
+ */
+export type VTableCellStyleHook = (info: VTableCellStyleInfo) => VTableCellStyle | undefined;
+
+/**
+ * 单元格悬停提示：返回文案就在该单元格上显示 tooltip，返回 undefined 不显示。
+ *
+ * 与 `cellStyle` 是配套的 —— `cellStyle` 负责「把格子标红」，它负责「告诉用户为什么红」，
+ * 专治「只看到红底、看不到原因」：校验不通过时把服务层给的提示文案返回即可。
+ *
+ * 入参与 `cellStyle` 完全一致（同一个 VTableCellStyleInfo），照抄 cellStyle 里那套
+ * 行主键判断即可。实现上是在 `mouseenter_cell` 时调 VTable 的 `table.showTooltip`；
+ * 鼠标移出、滚动、选中别的格子时 VTable 自己会收起，页面不用管。
+ *
+ * 文案是**纯文本**（VTable 用 textContent 写入，不解析 HTML）。太长会自动折行，
+ * 但有字数上限（`maxWidth`），别把整段说明塞进来 —— 一句话说清「哪里不对」即可。
+ *
+ * 提示配色是固定的「错误红白」（与编辑器里的校验提示条同色，`#fff2f0` / `#cf1322`），
+ * 所以这个能力目前是给**校验错误**用的。将来若要别的语义（提醒、警告）再加配置。
+ */
+export type VTableCellTooltipHook = (info: VTableCellStyleInfo) => string | undefined;
+
+/**
+ * customCellStyle 插件的类型没有从包根导出，这里只声明实际用到的两个方法。
+ * 该插件由 BaseTable 无条件创建（`options.customCellStyle` 默认是 `[]`），所以表建好后一定拿得到。
+ *
+ * 组件内部（选中行整行铺底色）与选择模块都要用它，所以从本文件导出。
+ */
+export interface CustomCellStylePluginLike {
+  registerCustomCellStyle: (id: string, style: Record<string, unknown>) => void;
+  arrangeCustomCellStyle: (
+    cellPos: {
+      col?: number;
+      row?: number;
+      range?: { start: { col: number; row: number }; end: { col: number; row: number } };
+    },
+    customStyleId?: string,
+  ) => void;
+}
+
+/** 取表格实例上的 customCellStyle 插件（拿不到就返回 undefined，调用方自行兜底） */
+export function getStylePlugin(table: ListTable): CustomCellStylePluginLike | undefined {
+  return (table as unknown as { customCellStylePlugin?: CustomCellStylePluginLike })
+    .customCellStylePlugin;
+}

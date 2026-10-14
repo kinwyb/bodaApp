@@ -1,9 +1,9 @@
 import type {ColumnsDefine} from '@visactor/vtable';
-import {buildColumns, type AppColumnDef} from '@/components/columnBuilder';
+import {buildColumns, type AppColumnDef} from '@/components/vtable/columnBuilder';
 import {
     registerAntdInputEditor,
     registerAntdNumberEditor, registerAntdSelectEditor,
-} from '@/components/vtable-editors/register';
+} from '@/components/vtable/editors/register';
 import {yupaiApi, YupaiMachineSizeHeader} from '@/api/modules/yupai';
 import {DETAIL_FIELD_RULES, yupaiService} from '@/services/yupai';
 import {isBlank, toStringOrEmpty} from "@/utils";

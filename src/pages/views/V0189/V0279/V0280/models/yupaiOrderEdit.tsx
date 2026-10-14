@@ -10,10 +10,10 @@ import {
     type VTableCellTooltipHook,
     type VTableCellValueChangeInfo,
     type VTableMenuConfig
-} from '@/components/VTable';
+} from '@/components/vtable';
 import {EmployeeQuickSelect} from '@/components/quick-select';
 import type {FormMode} from '../command';
-import {alignMenuIcons, toMenuIcon} from '@/components/menuIcon';
+import {alignMenuIcons, toMenuIcon} from '@/components/vtable/menuIcon';
 import {
     buildPreorderDetailColumns,
     createDetailRow,

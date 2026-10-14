@@ -8,32 +8,40 @@ import React, {
   useState,
 } from 'react';
 import { Spin } from 'antd';
-import { ListTable,themes } from '@visactor/vtable';
+import { ListTable } from '@visactor/vtable';
 import type { ColumnsDefine, ListTableConstructorOptions } from '@visactor/vtable';
 import { TableExportPlugin } from '@visactor/vtable-plugins';
 import type { TableExportPluginOptions } from '@visactor/vtable-plugins';
-import { toVTableCellStyle, type VTableCellStyle } from './vtableCellStyle';
+import {
+  toVTableCellStyle,
+  type VTableCellStyleHook,
+  type VTableCellTooltipHook,
+} from './cellStyle';
+import {
+  collectRowIndexes,
+  createSelectionController,
+  type VTableSelectedRowChangeInfo,
+  type VTableSelection,
+} from './selection';
+import type { EditCellTrigger, VTableCellValueChangeInfo } from './editing';
+import type { VTableExportCsvOptions, VTableExportExcelOptions } from './export';
+import { scheduleBottomFrozen } from './frozen';
+import type { VTableMenuConfig, VTableMenuItem } from './menu';
+import { defaultCompare, type VTableSortState } from './sorting';
+import { THEME } from './theme';
+import type { StyleArgs, VTableCellInfo, VTableRowInfo } from './types';
+import { shallowEqualRecord } from './utils';
 
-/** 样式类型照旧从本模块转出，页面无需改导入路径 */
-export type { VTableCellStyle } from './vtableCellStyle';
-
-/**
- * 插件包只从根导出了 TableExportPluginOptions，没导出下面这两个子类型
- * （它们在 es/table-export/index 里，而 package.json 的 exports 字段只放开了 "." 和 "./gantt-extensions"，
- * 深路径导入会被拦），所以从 TableExportPluginOptions 上取。
- */
-export type VTableExportExcelOptions = NonNullable<TableExportPluginOptions['exportExcelOptions']>;
-export type VTableExportCsvOptions = NonNullable<TableExportPluginOptions['exportCsvOptions']>;
-export type { TableExportPluginOptions };
-
-/** 样式回调参数（VTable 未从包根导出该类型，这里按官方定义声明） */
-interface StyleArgs {
-  col: number;
-  row: number;
-  dataValue?: unknown;
-  value?: unknown;
-  table: { columnHeaderLevelCount: number };
-}
+// 本组件只负责「装配 + 事件绑定」，各功能域的实现分别在：
+//   cellStyle.ts   单元格样式语义化层 + customCellStyle 插件访问
+//   selection.ts   选中行整行底色 / Ctrl 整行 toggle / 当前激活行
+//   menu.ts        右键菜单与表头下拉的类型
+//   editing.ts     单元格编辑（触发方式、编辑结果回调）
+//   export.ts      导出 Excel / CSV 的选项类型
+//   sorting.ts     表头排序状态与比较规则
+//   theme.ts       表格主题
+//   frozen.ts      底部冻结行（统计行）
+//   types.ts       跨域基础类型（样式回调参数、单元格信息、行信息）
 
 /**
  * 统计行的主键值。
@@ -41,398 +49,6 @@ interface StyleArgs {
  * 所以业务不需要自己塞这个值；要判断统计行，用回调参数里的 isSummaryRow 即可。
  */
 export const SUMMARY_ROW_KEY = '__summary__';
-
-/** 选中行整行底色的样式 id 与配色（配色与 theme.bodyStyle.select.cellBgColor 保持一致） */
-const SELECTED_ROW_STYLE_ID = '__selected_row__';
-
-/**
- * 把行号压成尽量少的连续区间（排序 + 去重后合并相邻）。
- *
- * 不压段的话，全选会逐行构造整行 range 交给 table.selectCells —— 而 selectCells 内部对每个 range
- * 都要跑一遍完整的选中流程（BaseTable.js:1301-1306：两次 updateSelectPos + endSelectCells
- * + 选中边框重建），行数一多就明显卡。压成一段后只跑一次。
- * 勾选不连续时同样有效，能把区间数降到「连续段的个数」。
- */
-function toContinuousSegments(rows: number[]): Array<{ from: number; to: number }> {
-  const sorted = Array.from(new Set(rows)).sort((a, b) => a - b);
-  const segments: Array<{ from: number; to: number }> = [];
-  sorted.forEach((row) => {
-    const last = segments[segments.length - 1];
-    if (last && row === last.to + 1) last.to = row;
-    else segments.push({ from: row, to: row });
-  });
-  return segments;
-}
-
-/**
- * 把选中范围展开成「覆盖到的行号」集合（表头行不计）。
- * Ctrl 点击的基准要在 mousedown 时算、在 click 时用，两个事件里得用同一套展开规则。
- */
-function collectRowIndexes(
-  ranges: Array<{ start: { row: number }; end: { row: number } }>,
-  headerLevel: number,
-): Set<number> {
-  const rows = new Set<number>();
-  ranges.forEach((range) => {
-    const from = Math.max(Math.min(range.start.row, range.end.row), headerLevel);
-    const to = Math.max(range.start.row, range.end.row);
-    for (let i = from; i <= to; i += 1) rows.add(i);
-  });
-  return rows;
-}
-const SELECTED_ROW_BG = '#e6f4ff';
-
-/**
- * customCellStyle 插件的类型没有从包根导出，这里只声明实际用到的两个方法。
- * 该插件由 BaseTable 无条件创建（options.customCellStyle 默认是 []），所以表建好后一定拿得到。
- */
-interface CustomCellStylePluginLike {
-  registerCustomCellStyle: (id: string, style: Record<string, unknown>) => void;
-  arrangeCustomCellStyle: (
-    cellPos: {
-      col?: number;
-      row?: number;
-      range?: { start: { col: number; row: number }; end: { col: number; row: number } };
-    },
-    customStyleId?: string,
-  ) => void;
-}
-
-function getStylePlugin(table: ListTable): CustomCellStylePluginLike | undefined {
-  return (table as unknown as { customCellStylePlugin?: CustomCellStylePluginLike })
-    .customCellStylePlugin;
-}
-
-/** 自定义单元格样式的回调参数 */
-export interface VTableCellStyleInfo {
-  /** 表格行号（含表头行） */
-  row: number;
-  /** 数据行索引（不含表头，0 起） */
-  rowIndex: number;
-  /** 列字段名 */
-  field: string;
-  /** 行主键（空白补足行为空串，统计行为 SUMMARY_ROW_KEY） */
-  rowKey: string;
-  /** 是否底部统计行 */
-  isSummaryRow: boolean;
-  /** 该行原始记录 */
-  record?: Record<string, unknown>;
-  /** 该单元格原始值 */
-  dataValue?: unknown;
-}
-
-// 语义化样式的字段定义、翻译逻辑，以及它跟 VTable 原生样式名的契约，都在
-// ./vtableCellStyle.ts —— 那边没有 React/DOM 依赖，可以脱离浏览器单独验证。
-
-/**
- * 页面自定义单元格样式：返回的样式会合并到内置样式之上，
- * 适合「最近变更标绿」「超期标红」这类业务提醒。
- *
- * 只写要改的属性（语义化名，见 VTableCellStyle）；**返回 undefined 或空对象都表示「不改」** ——
- * 累加式写法直接 `return style` 即可，不必再判 `Object.keys(style).length`：
- * 翻译层会把空对象变成 undefined，组件那边自然回退到原有样式。
- */
-export type VTableCellStyleHook = (info: VTableCellStyleInfo) => VTableCellStyle | undefined;
-
-/**
- * 单元格悬停提示：返回文案就在该单元格上显示 tooltip，返回 undefined 不显示。
- *
- * 与 `cellStyle` 是配套的 —— `cellStyle` 负责「把格子标红」，它负责「告诉用户为什么红」，
- * 专治「只看到红底、看不到原因」：校验不通过时把服务层给的提示文案返回即可。
- *
- * 入参与 `cellStyle` 完全一致（同一个 VTableCellStyleInfo），照抄 cellStyle 里那套
- * 行主键判断即可。实现上是在 `mouseenter_cell` 时调 VTable 的 `table.showTooltip`；
- * 鼠标移出、滚动、选中别的格子时 VTable 自己会收起，页面不用管。
- *
- * 文案是**纯文本**（VTable 用 textContent 写入，不解析 HTML）。太长会自动折行，
- * 但有字数上限（`maxWidth`），别把整段说明塞进来 —— 一句话说清「哪里不对」即可。
- *
- * 提示配色是固定的「错误红白」（与编辑器里的校验提示条同色，`#fff2f0` / `#cf1322`），
- * 所以这个能力目前是给**校验错误**用的。将来若要别的语义（提醒、警告）再加配置。
- */
-export type VTableCellTooltipHook = (info: VTableCellStyleInfo) => string | undefined;
-
-/** 进入单元格编辑的触发方式 */
-export type EditCellTrigger =
-  | 'doubleclick'
-  | 'click'
-  | 'api'
-  | 'keydown'
-  | Array<'doubleclick' | 'click' | 'api' | 'keydown'>;
-
-/** 单元格编辑完成后的回调参数 */
-export interface VTableCellValueChangeInfo {
-  /** 列字段名 */
-  field: string;
-  /** 数据行索引（不含表头，0 起） */
-  rowIndex: number;
-  /** 该行原始记录 */
-  record?: Record<string, unknown>;
-  /** 编辑后的值 */
-  value: unknown;
-  /**
-   * 编辑**前**的值（单元格原来的内容），对应 VTable 原生事件里的 currentValue。
-   *
-   * 想要新旧对比必须读这个字段：VTable 提交编辑时是**直接改写 record 对象**的
-   * （DataSource.changeFieldValue → setRecordFieldValue），所以回调触发时，
-   * 页面手里那份 records 里的值已经被覆盖成新值了，回头去读同一个 record 拿不到旧值。
-   *
-   * 需要「编辑前的整行」时，`{...record, [field]: previousValue}` 拼一下即可 ——
-   * 这次提交只改了 field 这一个字段，行里其余字段本来就还是旧值。
-   */
-  previousValue?: unknown;
-}
-
-export interface VTableSortState {
-  field: string;
-  order: 'asc' | 'desc';
-}
-
-/** 默认比较：数值按大小、字符串按字典序，空值排最后 */
-function defaultCompare(a: unknown, b: unknown): number {
-  const aEmpty = a === null || a === undefined || a === '';
-  const bEmpty = b === null || b === undefined || b === '';
-  if (aEmpty && bEmpty) return 0;
-  if (aEmpty) return 1;
-  if (bEmpty) return -1;
-  if (typeof a === 'number' && typeof b === 'number') return a - b;
-  return String(a) > String(b) ? 1 : -1;
-}
-
-/** 浅比较两条记录（统计行的值都是原始类型，浅比较足够） */
-function shallowEqualRecord(
-  a: Record<string, unknown> | undefined,
-  b: Record<string, unknown> | undefined,
-): boolean {
-  if (a === b) return true;
-  if (!a || !b) return false;
-  const aKeys = Object.keys(a);
-  if (aKeys.length !== Object.keys(b).length) return false;
-  return aKeys.every((key) => a[key] === b[key]);
-}
-
-/**
- * VTable 1.26 的 bottomFrozenRowCount 不从构造参数读取，只认 internalProps，
- * 且只能在场景 clear 状态下写入，并且 setRecords 会把它重置为 0。
- * 因此顺序必须是：setRecords → clearCells → 赋值 → createSceneGraph。
- */
-function applyBottomFrozen(table: ListTable, count: number): void {
-  try {
-    const scene = (
-      table as unknown as {
-        scenegraph?: { clearCells: () => void; createSceneGraph: () => void };
-      }
-    ).scenegraph;
-    if (!scene) return;
-    // 冻结行数没变就不用重建场景（重建会替换所有单元格节点，代价大且会打断双击识别）
-    if (table.bottomFrozenRowCount === count) return;
-    scene.clearCells();
-    (table as unknown as { bottomFrozenRowCount: number }).bottomFrozenRowCount = count;
-    scene.createSceneGraph();
-  } catch {
-    // 冻结失败不影响表格基本可用性
-  }
-}
-
-/** VTable 的内部渲染是异步的，放到下一帧应用，避免被它自己重置 */
-function scheduleBottomFrozen(table: ListTable, count: number): void {
-  requestAnimationFrame(() => applyBottomFrozen(table, count));
-}
-
-export interface VTableCellInfo {
-  col: number;
-  row: number;
-  field?: string;
-  /** 是否底部统计行（统计行的 record 里只有汇总字段，不要当业务数据用） */
-  isSummaryRow: boolean;
-  /** 单元格对应的原始记录 */
-  record?: Record<string, unknown>;
-}
-
-/** 选中单元格信息：单元格所在的行列、列字段与所在行的记录 */
-export interface VTableCellSelection {
-  /** 列号（含勾选列 / 序号列） */
-  col: number;
-  /** 行号（含表头行） */
-  row: number;
-  /** 列字段名 */
-  field?: string;
-  /** 该单元格所在行的原始记录 */
-  record?: Record<string, unknown>;
-  /** 单元格显示值 */
-  value?: unknown;
-  /** 单元格原始值 */
-  dataValue?: unknown;
-}
-
-/** 表格当前选中态：行、单元格、以及最后点选的那一格 */
-export interface VTableSelection {
-  /** 选中的行数据（按行去重、行号升序） */
-  rows: Array<Record<string, unknown>>;
-  /** 选中的单元格：点选一格是一条，框选则是范围内所有格 */
-  cells: VTableCellSelection[];
-  /** 最后点选的单元格，用它可以知道「选中的是哪一列」 */
-  activeCell: VTableCellSelection | null;
-}
-
-/**
- * 当前激活行的信息，即 `onSelectedChange` 的回调参数。
- *
- * 「激活行」取 VTable 的 `select.cellPos` —— 那是**最后激活的那个单元格**（单击、Shift 扩展、
- * 拖拽框选、键盘方向键都会在流程里写它，见 `es/state/select/update-position.js`），
- * 按行取就是「当前激活的这一行」。
- *
- * 另外要求这一行确实还在选中范围里：Ctrl 点选把一行取消掉之后 cellPos 仍停在那行，
- * 但它已经不是选中行了，这时会回传「没有激活行」——
- * 免得页面拿着一行已经被取消勾选的数据当选中行用。
- */
-export interface VTableSelectedRowChangeInfo {
-  /**
-   * 当前激活行的数据 —— 就是页面传进 records 里的那条记录本身（引号相等，可直接引用 / 修改）。
-   * 「没有激活行」时为 undefined：选中被清空（点画布空白处、clearSelection、换数据）、
-   * 只点中表头、激活的那行被 Ctrl 取消勾选。
-   */
-  record?: Record<string, unknown>;
-  /** VTable 行号（含表头行）；没有激活行时为 -1 */
-  row: number;
-  /** 数据行下标（不含表头，0 起，跟随显示顺序）；没有激活行时为 -1 */
-  rowIndex: number;
-  /** 行主键；没有激活行时为空串 */
-  rowKey: string;
-  /** 是否底部统计行（统计行不参与选中，正常不会出现在这里） */
-  isSummaryRow: boolean;
-}
-
-/** 没有激活行时的空信息（每次回传都是副本，页面改到不会污染下一次回调） */
-const EMPTY_SELECTED_ROW: VTableSelectedRowChangeInfo = {
-  record: undefined,
-  row: -1,
-  rowIndex: -1,
-  rowKey: '',
-  isSummaryRow: false,
-};
-
-/**
- * 某一行在当前表格里的数据（getRowByIndex 的返回值）。
- *
- * 这里的「行号」指**数据行下标**：0 起、不含表头，传 0 就是界面上显示的第一行数据。
- * 下标跟着**显示顺序**走 —— 点列头排序后，传 0 拿到的仍是排序后显示的第一行，
- * 而不是页面 records 里的第一条。
- *
- * 提醒：各单元格回调里的 `row` 是另一套坐标（VTable 行号，**含表头**，0 起），
- * 与本方法入参差一个表头行数（分组表头会大于 1），换算要用 `table.columnHeaderLevelCount`；
- * 而回调里的 `rowIndex` 与本方法入参是同一套，可以直接传。
- */
-export interface VTableRowInfo {
-  /** 数据行下标（入参原样回传，0 起、不含表头） */
-  rowIndex: number;
-  /** 行主键值（统计行为 SUMMARY_ROW_KEY） */
-  rowKey: string;
-  /** 该行当前的数据 */
-  record: Record<string, unknown>;
-  /** 是否底部统计行（统计行里只有汇总字段，别当业务数据用） */
-  isSummaryRow: boolean;
-}
-
-/**
- * 菜单项。
- * VTable 未从包根导出 MenuListItem，这里按官方 ts-types/menu.d.ts 的 MenuListItem 声明，
- * 保证页面写 `menu.contextMenuItems` 时拿到的就是原生形态（直接透传，不做二次转换）。
- *
- * - 字符串：普通菜单项，文本与 menuKey 都等于该字符串
- * - `{ type: 'split' }`：分隔线（注意不是字符串 '-'，写 '-' 会渲染成一个文本项）
- * - `{ type: 'title' }`：分组标题
- * - `children`：二级子菜单
- *
- * 图标（`icon`）：`svg` 要传**完整的 `<svg>…</svg>` 字符串** ——
- * VTable 是把它 innerHTML 进一个 span（见 `es/components/menu/dom/logic/MenuElement.js`
- * 的 createItem），只有当内容长得像 URL 时才会改用 `<img>` 加载。
- * 所以别传裸 `<path>`（HTML 解析下不会成为 SVG 元素，什么都不显示）。
- *
- * 想直接用 antd 图标的话不用手写 svg，用 `@/components/menuIcon` 的 `toMenuIcon`：
- *
- * ```ts
- * const MENU_ICON_DELETE = toMenuIcon(<DeleteOutlined />);
- * // { text: '删除行', menuKey: 'deleteRow', icon: MENU_ICON_DELETE }
- * ```
- *
- * ⚠️ 图标是**单独占一列**的，所以同一份菜单里若有的项有图标、有的没有，没图标的项文字会顶到
- * 最左边（看起来错位）。用 `@/components/menuIcon` 的 `alignMenuIcons(items)` 包一层即可，
- * 它会自动给没图标的项补上等宽空白占位。
- *
- * 尺寸与颜色：`width` / `height` 传了才会写到那个 svg 元素上，最省事的做法是让
- * svg 自己带 `width` / `height` / `viewBox`；颜色用 `currentColor`，这样鼠标移到
- * 菜单项上（高亮改文字色）图标会一起变。
- *
- * 三个图标字段各自的生效范围：
- * - `icon`：常态图标，html 渲染模式下右键菜单 / 表头下拉都生效；
- * - `selectedIcon`：该项高亮（hover / 选中）时**替换** `icon`，只在配了 `icon.svg` 时才用得上；
- * - `stateIcon`：表头下拉的勾选态图标（默认 22px），**右键菜单里不生效**。
- */
-export type VTableMenuItem =
-  | string
-  | {
-      text?: string;
-      type?: 'title' | 'item' | 'split';
-      /** 菜单项标识，点击回调里用它区分；不传时等于 text */
-      menuKey?: string;
-      icon?: { width?: number; height?: number; svg?: string };
-      /** 高亮（hover）时替换 icon 的图标 */
-      selectedIcon?: { width?: number; height?: number; svg?: string };
-      /** 表头下拉的勾选态图标；右键菜单不生效 */
-      stateIcon?: { width?: number; height?: number; svg?: string };
-      children?: VTableMenuItem[];
-      disabled?: boolean;
-    };
-
-/** 生成菜单项时的上下文：页面据此决定这一格显示哪些菜单 */
-export interface VTableMenuContext {
-  /** 列号（含勾选列） */
-  col: number;
-  /** 行号（含表头行） */
-  row: number;
-  /** 列字段名 */
-  field?: string;
-  /** 数据行索引（不含表头）；表头行为 -1 */
-  rowIndex: number;
-  /** 该单元格所在行的原始记录；表头行 / 画布空白处为 undefined */
-  record?: Record<string, unknown>;
-  /** 是否底部统计行 */
-  isSummaryRow: boolean;
-}
-
-/** 菜单项被点击时回传的信息 */
-export interface VTableMenuClickInfo extends VTableMenuContext {
-  /** 菜单项标识（未配 menuKey 时等于菜单文本） */
-  menuKey: string;
-  /** 菜单项文本 */
-  text: string;
-  /** 该单元格显示值 */
-  value?: unknown;
-  /** 该单元格原始值 */
-  dataValue?: unknown;
-}
-
-/** 右键菜单 / 表头下拉菜单配置 */
-export interface VTableMenuConfig {
-  /**
-   * 单元格右键菜单。
-   * 传数组为固定菜单；传函数可按行列动态返回（返回空数组表示这一格不弹菜单）。
-   */
-  contextMenuItems?: VTableMenuItem[] | ((ctx: VTableMenuContext) => VTableMenuItem[]);
-  /** 表头下拉菜单（表头右侧的小三角）。不传则表头没有下拉菜单，与 VTable 默认一致 */
-  headerMenuItems?: VTableMenuItem[] | ((ctx: VTableMenuContext) => VTableMenuItem[]);
-  /** 渲染模式，默认 'html'（'canvas' 更轻，但对菜单外观的控制有限） */
-  renderMode?: 'canvas' | 'html';
-  /**
-   * 是否只在单元格 / 表头上响应右键。
-   * VTable 内部只有 `contextMenuWorkOnlyCell === false` 时才额外绑定「画布空白处」的右键，
-   * 所以不传（或传 true）时就只有单元格和表头能弹出菜单。
-   */
-  workOnlyCell?: boolean;
-  /** 菜单项点击回调（右键菜单与表头下拉菜单共用） */
-  onClick?: (info: VTableMenuClickInfo) => void;
-}
 
 /** 表格实例对外暴露的方法 */
 export interface VTableApi {
@@ -598,47 +214,6 @@ export interface VTableProps {
   onSelectedChange?: (info: VTableSelectedRowChangeInfo) => void;
 }
 
-const THEME: themes.TableTheme = themes.DEFAULT.extends({
-  underlayBackgroundColor: '#ffffff',
-  // 内容没撑满容器时，横向滚动条也贴到容器边缘，避免停在数据行下方
-  scrollStyle: { barToSide: true },
-  defaultStyle: {
-    bgColor: '#ffffff',
-    color: '#1f1f1f',
-    fontSize: 12,
-    padding: [2, 8],
-    borderColor: '#f0f0f0',
-    borderLineWidth: 1,
-  },
-  headerStyle: {
-    bgColor: '#fafafa',
-    color: '#1f1f1f',
-    fontSize: 12,
-    fontWeight: 'bold',
-    padding: [4, 8],
-    frameStyle: { borderColor: '#e8e8e8', borderLineWidth: 1 },
-  },
-  bodyStyle: {
-    bgColor: '#ffffff',
-    color: '#1f1f1f',
-    fontSize: 12,
-    padding: [2, 8],
-    // 选中整行 / 悬停整行的高亮色，横向滚动时也能看清选中的是哪一行
-    select: { inlineRowBgColor: '#e6f4ff', cellBgColor: '#e6f4ff' },
-    hover: { inlineRowBgColor: '#f5f8ff' },
-    frameStyle: { borderColor: '#f0f0f0', borderLineWidth: 1 },
-  },
-  selectionStyle: {
-    cellBorderColor: '#1677ff',
-    cellBorderLineWidth: 1,
-    cellBgColor: 'rgba(22,119,255,0.10)',
-    // 多个选中范围（Ctrl 多选）时，isCellSelected 只有在这一项等于 'replace' 时才会给范围内的格子上色，
-    // 主题默认是 'overlay'，结果就是多选一格都不上色、只剩范围边框
-    selectionFillMode: 'replace',
-  },
-  frameStyle: { borderColor: '#e8e8e8', borderLineWidth: 1 },
-});
-
 /**
  * VTable（VisActor）的 React 封装：负责实例创建、数据更新、容器自适应与销毁。
  * 表格渲染在 canvas 上，单元格内容通过 columns 的样式/类型配置，交互通过事件回调。
@@ -691,166 +266,9 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     onActiveSelectionChange,
     onSelectedChange,
   };
-  /**
-   * 上一次回调出去的激活行，用来避免「同一行里换一列」这类重复通知。
-   * 用行号 + 行主键一起比对：行号相同但主键不同（排序/换页后正好落在同一行号）算另一行。
-   */
-  const lastSelectedRowRef = useRef<{ row: number; rowKey: string } | null>(null);
-  /** 建表 effect 与几个 useCallback 都会锁住闭包，激活行的回调统一走 ref 取最新实现 */
-  const emitSelectedRowRef = useRef<(force?: boolean) => void>(() => {});
-  /**
-   * 上一次实际铺过底色的**区间坐标**（不是行号）。
-   *
-   * 必须记坐标而不是"哪些行"：arrangeCustomCellStyle 的清除是按 cellPosition 的坐标串精确匹配的
-   * （_getCustomCellStyleArrangementKey → `range:startCol,startRow,endCol,endRow`）。
-   * 拿新算出来的段去清旧条目是对不上的 —— 全选铺的是「一整块大 range」，取消某一行后段划分变成两段，
-   * 按新段坐标找不到旧条目，那一整块就清不掉，表现就是「勾选去掉了但高亮还在」。
-   */
-  const paintedSegmentsRef = useRef<Array<{ from: number; to: number }>>([]);
-  /** customCellStyle 的样式只需注册一次 */
-  const styleRegisteredRef = useRef(false);
   /** 建表 effect 只跑一次会锁住闭包，点击时要读的最新开关统一走 ref */
   const multiSelectRef = useRef(multiSelect);
   multiSelectRef.current = multiSelect;
-
-  /**
-   * 给「当前选中的行」整行铺底色 —— 走 customCellStyle，而不是 VTable 原生的选中高亮。
-   *
-   * 为什么不用原生的：多个选中范围（Ctrl 多选产生的就是多个 range）时，VTable 只给 range 覆盖到的
-   * 格子画 cellBgColor，而 Ctrl 点出来的 range 恰好是单格，所以整行铺不开
-   * （见 es/state/select/is-cell-select-highlight.js 里 getCellSelectColor 的分支判断）。
-   *
-   * customCellStyle 正好合适：样式优先级最高（core/style-helper.js 里 mergeStyle 合成在业务样式之上），
-   * 且渲染时现查；arrangeCustomCellStyle 内部还会自己 updateCellContent + updateNextFrame。
-   *
-   * 关键是**完全不动选中范围**：点一个格子就还是选中一个格子，getSelection() 行为保持原样。
-   */
-  const paintSelectedRows = useCallback(() => {
-    const table = tableRef.current;
-    const plugin = table ? getStylePlugin(table) : undefined;
-    if (!table || !plugin) return;
-
-    if (!styleRegisteredRef.current) {
-      plugin.registerCustomCellStyle(SELECTED_ROW_STYLE_ID, { bgColor: SELECTED_ROW_BG });
-      styleRegisteredRef.current = true;
-    }
-
-    // 选中范围可能跨行（框选），把覆盖到的行都算进来（与 Ctrl 点击的基准用同一套展开规则）
-    const ranges = (table.stateManager?.select?.ranges ?? []) as Array<{
-      start: { row: number };
-      end: { row: number };
-    }>;
-    const nextRows = Array.from(collectRowIndexes(ranges, table.columnHeaderLevelCount));
-
-    // arrangeCustomCellStyle 收的是 cellPosition（col / row / range 三选一），整行用 range 表达。
-    // 连续行合并成一段：逐行 arrange 每行都会走一遍 updateCellContent + updateNextFrame，全选时很亏。
-    const segmentCellPos = (from: number, to: number) => ({
-      range: {
-        start: { col: 0, row: from },
-        end: { col: table.colCount - 1, row: to },
-      },
-    });
-    // 差集按「段坐标」比对，而不是按行号重新压段：清除必须用与铺色时完全一致的坐标才能命中条目
-    const nextSegments = toContinuousSegments(nextRows);
-    const segmentKey = (seg: { from: number; to: number }) => `${seg.from}-${seg.to}`;
-    const paintedKeys = new Set(paintedSegmentsRef.current.map(segmentKey));
-    const nextKeys = new Set(nextSegments.map(segmentKey));
-    // 先撤掉不再需要的段（不传样式 id 就是清除）
-    paintedSegmentsRef.current
-      .filter((seg) => !nextKeys.has(segmentKey(seg)))
-      .forEach((seg) => plugin.arrangeCustomCellStyle(segmentCellPos(seg.from, seg.to)));
-    // 再铺上新增的段
-    nextSegments
-      .filter((seg) => !paintedKeys.has(segmentKey(seg)))
-      .forEach((seg) => {
-        plugin.arrangeCustomCellStyle(segmentCellPos(seg.from, seg.to), SELECTED_ROW_STYLE_ID);
-      });
-    paintedSegmentsRef.current = nextSegments;
-  }, []);
-
-  /** 撤掉所有已铺的行底色（换数据 / 清空选中时用，旧行号在新数据里已经没意义了） */
-  const clearPaintedRows = useCallback(() => {
-    const table = tableRef.current;
-    const plugin = table ? getStylePlugin(table) : undefined;
-    if (!table || !plugin || paintedSegmentsRef.current.length === 0) return;
-    // 按记下来的段坐标逐段清除：坐标必须与铺色时一致才能命中那些条目
-    paintedSegmentsRef.current.forEach((seg) => {
-      plugin.arrangeCustomCellStyle({
-        range: {
-          start: { col: 0, row: seg.from },
-          end: { col: table.colCount - 1, row: seg.to },
-        },
-      });
-    });
-    paintedSegmentsRef.current = [];
-  }, []);
-
-  /**
-   * 执行一次 Ctrl 点击的整行 toggle（已选中的取消、未选中的加入）。
-   *
-   * 必须自己接管 —— VTable 原生在 Ctrl 点击时只会「把点中的那一格追加进选中范围」，
-   * 所以全选之后想用 Ctrl 点掉某几行根本做不到。
-   *
-   * baseRows 是「点击前」的选中行号集合，由 mousedown 时算好传进来：
-   * Ctrl 模式下 VTable 会把点中的格子追加进 ranges，到了 click 阶段已经分不清
-   * 「这一行本来就在选中里」还是「刚刚被追加进来的」，所以基准只能在 mousedown 取。
-   */
-  const applyCtrlToggle = useCallback(
-    (row: number, baseRows: number[]) => {
-      const table = tableRef.current;
-      if (!table || row < table.columnHeaderLevelCount) return;
-
-      const selected = new Set(baseRows);
-      if (selected.has(row)) selected.delete(row);
-      else selected.add(row);
-
-      const nextRanges = toContinuousSegments(Array.from(selected)).map((seg) => ({
-        start: { col: 0, row: seg.from },
-        end: { col: table.colCount - 1, row: seg.to },
-      }));
-      /**
-       * 直接把选中范围写成目标形状，不走 table.selectCells()。
-       *
-       * selectCells 会把每个「多格 range」拆成两步：先 push 起点那一格，再靠 grabing 分支
-       * 把端点拖过去（BaseTable.js 的 selectCells 里，多格走 `updateSelectPos(start)` →
-       * `updateInteractionState(grabing)` → `updateSelectPos(end)`）。第二步一旦没生效，
-       * 范围就停在起点那一格 —— 对单行 range 看不出来（起终点同一行，行号仍然对），
-       * 但对跨行 range 就是灾难：Ctrl+A 后取消一行，剩下两段本该覆盖 1~8 和 10~末行，
-       * 实际只剩第 1 行和第 10 行。
-       *
-       * 只改 ranges、不动 interactionState，pointerup 的 endSelectCells() 照常收尾。
-       */
-      const host = table as unknown as {
-        stateManager: { select: { ranges: typeof nextRanges } };
-        scenegraph: {
-          recreateAllSelectRangeComponents?: () => void;
-          updateNextFrame?: () => void;
-        };
-      };
-      host.stateManager.select.ranges = nextRanges;
-      /**
-       * 按新 ranges 重建选中边框。不能自己 forEach 调 updateCellSelectBorder：
-       * 它每次进来都会清空「选择中」的边框集合，多段时会互相抹掉，最后只剩最后一段有线。
-       * recreateAllSelectRangeComponents 是 VTable 自己的做法 ——
-       * 清空全部 → 逐段 updateCellSelectBorder → 立刻固化到「已选中」集合，
-       * 这样每段都不会被下一段清掉。
-       */
-      host.scenegraph.recreateAllSelectRangeComponents?.();
-      host.scenegraph.updateNextFrame?.();
-
-      // 改范围不会派发 selected_cell，整行底色、对外行数与激活行都得自己补一次。
-      // 补激活行时若被 toggle 掉的正好是当前激活行，emitSelectedRow 会因为它已不在选中范围里
-      // 而回传「没有激活行」—— 正是想要的结果。
-      paintSelectedRows();
-      handlers.current.onActiveSelectionChange?.({ rowCount: selected.size });
-      emitSelectedRowRef.current();
-    },
-    [paintSelectedRows],
-  );
-
-  /** 建表 effect 只跑一次会锁住闭包，事件里统一走 ref 取最新实现 */
-  const applyCtrlToggleRef = useRef(applyCtrlToggle);
-  applyCtrlToggleRef.current = applyCtrlToggle;
 
   /**
    * Ctrl 点击的待处理信息：mousedown 时记下「点击前的选中行」与按下坐标，click 时再决定要不要 toggle。
@@ -1016,66 +434,24 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
   cellTooltipRef.current = cellTooltip;
 
   /**
-   * 解析「当前激活行」—— onSelectedChange 的推送与 VTableApi.getActiveRow 的按需取值共用这一份判定。
+   * 选择控制器（选中行整行底色 / Ctrl 整行 toggle / 当前激活行）—— 实现见 ./selection.ts。
    *
-   * 激活行取 VTable 的 `select.cellPos`（最后激活的单元格，鼠标点选与键盘移动都会写它），
-   * 按行取就是「当前激活的这一行」。
-   * 三个会让它「不算激活行」的例外，都返回「没有激活行」（record 为 undefined）：
-   * - **点表头**：cellPos 落在表头行，那只是整列选中，不是选中了一行数据；
-   * - **被 Ctrl 取消勾选**：cellPos 仍停在那一行，但它已经不在选中范围里了，
-   *   这时若还报它是激活行，页面会拿着一条已被取消勾选的数据当选中行用；
-   * - **Ctrl+A 全选**（`select.isSelectAll`）：cellPos 停在上次点过的那一格上
-   *   （全选走 `updateSelectPos(-1,-1,isSelectAll=true)`，根本不更新 cellPos），不能拿它冒充激活行。
+   * 用 ref 惰性创建一次、引用永久稳定：建表 effect 里锁住的闭包直接调它即可，
+   * 不必再往 ref 上转发方法。各 deps 都是取值函数，读到的永远是最新值。
    */
-  const resolveSelectedRow = useCallback((): VTableSelectedRowChangeInfo => {
-    const table = tableRef.current;
-    if (!table) return { ...EMPTY_SELECTED_ROW };
-    const select = table.stateManager?.select;
-    const headerLevel = table.columnHeaderLevelCount;
-    // 全选时没有单一激活行：cellPos 是陈旧的，直接不看它
-    const pos = select?.isSelectAll ? undefined : select?.cellPos;
-    if (!pos || pos.col < 0 || pos.row < headerLevel) return { ...EMPTY_SELECTED_ROW };
-    const ranges = (select?.ranges ?? []) as Array<{
-      start: { row: number };
-      end: { row: number };
-    }>;
-    // 必须在选中范围里才算激活行（Ctrl 取消勾选后 cellPos 仍停在原处，靠这一条排除）
-    if (!collectRowIndexes(ranges, headerLevel).has(pos.row)) return { ...EMPTY_SELECTED_ROW };
-    const rowIndex = pos.row - headerLevel;
-    const record = rowsRef.current[rowIndex] as Record<string, unknown> | undefined;
-    if (!record) return { ...EMPTY_SELECTED_ROW };
-    return {
-      record,
-      row: pos.row,
-      rowIndex,
-      rowKey: rowKeyByIndexRef.current[rowIndex] ?? '',
-      isSummaryRow: isSummaryRow(pos.row, headerLevel),
-    };
-  }, [isSummaryRow]);
-
-  /**
-   * 把「当前激活行」推给页面（onSelectedChange）。
-   *
-   * force 用于「数据整体换了一批」这种行号与主键都没变、但已经不是同一行的场景。
-   */
-  const emitSelectedRow = useCallback(
-    (force = false) => {
-      if (!tableRef.current) return;
-      const next = resolveSelectedRow();
-      // 「没有激活行」记 null，与「激活行就是第 0 行」区分开
-      const key = next.record ? { row: next.row, rowKey: next.rowKey } : null;
-      const last = lastSelectedRowRef.current;
-      const same =
-        key === null
-          ? last === null
-          : last !== null && last.row === key.row && last.rowKey === key.rowKey;
-      if (same && !force) return;
-      lastSelectedRowRef.current = key;
-      handlers.current.onSelectedChange?.(next);
-    },
-    [resolveSelectedRow],
-  );
-  emitSelectedRowRef.current = emitSelectedRow;
+  const selectionRef = useRef<ReturnType<typeof createSelectionController> | null>(null);
+  if (!selectionRef.current) {
+    selectionRef.current = createSelectionController({
+      getTable: () => tableRef.current,
+      getRows: () => rowsRef.current,
+      getRowKeys: () => rowKeyByIndexRef.current,
+      isSummaryRow,
+      notifySelectionCount: (rowCount) =>
+        handlers.current.onActiveSelectionChange?.({ rowCount }),
+      notifyActiveRow: (info) => handlers.current.onSelectedChange?.(info),
+    });
+  }
+  const selection = selectionRef.current;
 
   /**
    * 按内容自适应所有列宽。
@@ -1345,7 +721,7 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
       if (pending && event && pending.row === args.row) {
         const moved =
           Math.abs(event.clientX - pending.x) > 3 || Math.abs(event.clientY - pending.y) > 3;
-        if (!moved) applyCtrlToggleRef.current(pending.row, pending.rows);
+        if (!moved) selection.applyCtrlToggle(pending.row, pending.rows);
       }
       handlers.current.onCellClick?.(toInfo(args));
     });
@@ -1382,7 +758,7 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
 
     // 原生选中变化：先给选中的行铺整行底色，再通知外部
     table.on('selected_cell', () => {
-      paintSelectedRows();
+      selection.paintSelectedRows();
       /**
        * 当前激活行的回调（onSelectedChange）。这里走到的情况有：鼠标点选 / 框选 / Ctrl 点选、
        * 键盘上下左右移动（方向键最终也会走 selectCell → selected_cell）。
@@ -1395,7 +771,7 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
       const selectAll = table.stateManager?.select?.isSelectAll === true;
       const pos = table.stateManager?.select?.cellPos;
       if (selectAll || (pos && pos.col >= 0 && pos.row >= table.columnHeaderLevelCount)) {
-        emitSelectedRowRef.current();
+        selection.emitSelectedRow();
       }
       if (!handlers.current.onActiveSelectionChange) return;
       // 直接按选中范围算行数：getSelectedCellInfos 会把每个格子的信息都构造出来，
@@ -1411,9 +787,9 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
 
     // 选中被清空（点画布空白处等）：底色一并撤掉，否则会留在那儿
     table.on('selected_clear', () => {
-      paintSelectedRows();
+      selection.paintSelectedRows();
       // 激活行跟着回写「没有激活行」（能走到这里就没有「最后点选的那一行」了）
-      emitSelectedRowRef.current();
+      selection.emitSelectedRow();
       handlers.current.onActiveSelectionChange?.({ rowCount: 0 });
     });
     // 悬停到单元格：页面给了文案就当 tooltip 显示（校验错误「为什么红」靠它）
@@ -1539,17 +915,17 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     if (sortState) table.updateSortState(sortState, false);
     scheduleBottomFrozen(table, summaryRef.current ? 1 : 0);
     // 换页 / 换数据后重置选中：铺过的底色一并撤掉（行号在新数据里已经没意义了）
-    clearPaintedRows();
+    selection.clearPaintedRows();
     // 激活行同理：换了一批数据后，就算行号与主键恰好没变，也不再是同一条记录，
     // 所以去重状态清空、无条件回写一次「没有激活行」
-    lastSelectedRowRef.current = null;
-    emitSelectedRowRef.current(true);
+    selection.resetActiveRowTracking();
+    selection.emitSelectedRow(true);
     // 主动通知外部归零：clearSelected() 不一定触发 selected_clear（它只在框选结束时触发），
     // 不回调的话页面那边的「选中行数」会停在旧值上
     handlers.current.onActiveSelectionChange?.({ rowCount: 0 });
     // 不依赖 summary：统计行内容没变时 stableSummaryRow 复用旧引用，rows 不失效，
     // 父组件重渲染就不会再触发一次全量 setRecords
-  }, [rows, clearPaintedRows]);
+  }, [rows, selection]);
 
   /** 重绘：异步拿到业务标记（如变更明细）后调用，让 cellStyle 生效 */
   const repaint = useCallback(() => {
@@ -1557,54 +933,6 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     if (!table) return;
     table.renderWithRecreateCells();
     scheduleBottomFrozen(table, summaryRef.current ? 1 : 0);
-  }, []);
-
-  /**
-   * 取当前选中态：走 VTable 原生选中态（getSelectedCellInfos）。
-   * 选中高亮可以是整行，但选中范围是实际点选的那一格，所以既能拿整行数据，
-   * 也能拿到具体行列 / 字段（activeCell 即「选中的是哪一列」）。
-   *
-   * 注意 rows 直接来自选中范围，框选到底部时会把统计行也带进来 —— 业务侧按自己的数据源过滤。
-   */
-  const getSelection = useCallback((): VTableSelection => {
-    const empty: VTableSelection = { rows: [], cells: [], activeCell: null };
-    const table = tableRef.current;
-    if (!table) return empty;
-    const infos = table.getSelectedCellInfos();
-    if (!infos || infos.length === 0) return empty;
-
-    const byRow = new Map<number, Record<string, unknown>>();
-    const cells: VTableCellSelection[] = [];
-    infos.forEach((group) => {
-      group.forEach((cell) => {
-        const record = (cell.originData ?? table.getCellOriginRecord(cell.col, cell.row)) as
-          | Record<string, unknown>
-          | undefined;
-        cells.push({
-          col: cell.col,
-          row: cell.row,
-          field: cell.field === undefined ? undefined : String(cell.field),
-          record,
-          value: cell.value,
-          dataValue: cell.dataValue,
-        });
-        if (record && !byRow.has(cell.row)) byRow.set(cell.row, record);
-      });
-    });
-
-    const pos = table.stateManager?.select?.cellPos;
-    const activeCell =
-      pos && pos.col >= 0 && pos.row >= 0
-        ? (cells.find((cell) => cell.col === pos.col && cell.row === pos.row) ?? cells[cells.length - 1])
-        : (cells[cells.length - 1] ?? null);
-
-    return {
-      rows: Array.from(byRow.entries())
-        .sort(([a], [b]) => a - b)
-        .map(([, record]) => record),
-      cells,
-      activeCell: activeCell ?? null,
-    };
   }, []);
 
   /**
@@ -1629,22 +957,6 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     if (fileName) exportCsvOptionsRef.current.fileName = fileName;
     return table.exportToCsv();
   }, []);
-
-  /**
-   * 清空表格的选中态。
-   * - 原生选中：clearSelected() 负责解除高亮，行数这里主动回调归零
-   *   （不能指望 selected_clear 事件，它只在框选结束时触发）。
-   * - 铺过的整行底色：clearPaintedRows() 按记录的段坐标逐段撤掉。
-   */
-  const clearSelection = useCallback(() => {
-    const table = tableRef.current;
-    if (!table) return;
-    clearPaintedRows();
-    table.clearSelected();
-    // 选中没了就没有激活行了（clearSelected 不派发 selected_clear，得自己补）
-    emitSelectedRowRef.current();
-    handlers.current.onActiveSelectionChange?.({ rowCount: 0 });
-  }, [clearPaintedRows]);
 
   // 把方法挂到 ref 上：<VTable ref={tableRef} />，之后用 tableRef.current?.repaint()
   /**
@@ -1683,24 +995,22 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     () => ({
       autoFitColumns,
       repaint,
-      getSelection,
+      getSelection: selection.getSelection,
       getRowByIndex,
       // 与 onSelectedChange 同一份判定，命中的就是「当前激活的那一行」
-      getActiveRow: resolveSelectedRow,
+      getActiveRow: selection.resolveSelectedRow,
       getTable: () => tableRef.current,
       exportExcel,
       exportCsv,
-      clearSelection,
+      clearSelection: selection.clearSelection,
     }) satisfies VTableApi,
     [
       autoFitColumns,
       repaint,
-      getSelection,
       getRowByIndex,
-      resolveSelectedRow,
+      selection,
       exportExcel,
       exportCsv,
-      clearSelection,
     ],
   );
 

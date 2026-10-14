@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { App, Button, Input, Modal, Spin } from 'antd';
 import { CheckOutlined } from '@ant-design/icons';
 import type { ColumnsDefine } from '@visactor/vtable';
-import { VTable, type VTableCellInfo, type VTableApi } from './VTable';
+import { VTable, type VTableCellInfo, type VTableApi } from './vtable';
 
 /** 快速选择的一行数据：字段由调用方通过 columns 自定义 */
 export type QuickSelectRow = Record<string, unknown>;

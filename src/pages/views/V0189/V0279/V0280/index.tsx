@@ -2,7 +2,7 @@ import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {App} from 'antd';
 import {ApiError, yupaiApi, YupaiMachineSizeHeader, type YupaiOrder, type YupaiOrderQuery} from '@/api';
 import {CommandBar} from '@/components/CommandBar';
-import {FilterTable} from '@/components/FilterTable';
+import {FilterTable} from '@/components/vtable';
 import {PageBreadcrumb} from '@/components/PageBreadcrumb';
 import type {
     VTableApi,
@@ -10,7 +10,7 @@ import type {
     VTableCellStyleHook,
     VTableMenuConfig,
     VTableSelectedRowChangeInfo,
-} from '@/components/VTable';
+} from '@/components/vtable';
 import type {ViewPageProps} from '@/pages/types';
 import {yupaiService} from '@/services/yupai.ts';
 import {buildPreorderColumns, preorderFilterFields} from './columns';

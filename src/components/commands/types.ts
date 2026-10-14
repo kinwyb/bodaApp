@@ -1,7 +1,7 @@
 import {App} from 'antd';
 import type {RefObject} from 'react';
 import type {CommandItem} from '@/components/CommandBar';
-import type {VTableApi} from '@/components/VTable';
+import type {VTableApi} from '@/components/vtable';
 
 /** antd App.useApp() 的返回类型（message / modal / notification） */
 type AppApi = ReturnType<typeof App.useApp>;

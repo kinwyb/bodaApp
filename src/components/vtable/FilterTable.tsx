@@ -3,18 +3,19 @@ import { Input, Pagination } from 'antd';
 import type { ColumnsDefine } from '@visactor/vtable';
 import { SearchComponent } from '@visactor/vtable-search';
 import { TableFilter, type FilterField, type FilterModel } from './TableFilter';
-import {
-  VTable,
-  type EditCellTrigger,
-  type TableExportPluginOptions,
-  type VTableApi,
-  type VTableCellInfo,
-  type VTableCellStyleHook,
-  type VTableCellTooltipHook,
-  type VTableCellValueChangeInfo,
-  type VTableMenuConfig,
-  type VTableSelectedRowChangeInfo,
-} from './VTable';
+import { VTable } from './VTable';
+// 类型从模块入口取（type-only，不产生运行时依赖，所以不会与 index → FilterTable 形成循环）
+import type {
+  EditCellTrigger,
+  TableExportPluginOptions,
+  VTableApi,
+  VTableCellInfo,
+  VTableCellStyleHook,
+  VTableCellTooltipHook,
+  VTableCellValueChangeInfo,
+  VTableMenuConfig,
+  VTableSelectedRowChangeInfo,
+} from './index';
 
 const DEFAULT_PAGE_SIZE = 30;
 

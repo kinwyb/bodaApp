@@ -1,11 +1,11 @@
 import {Modal} from "antd";
-import {VTable, type VTableCellStyle, type VTableCellStyleHook} from "@/components/VTable.tsx";
+import {VTable, type VTableCellStyle, type VTableCellStyleHook} from "@/components/vtable";
 import React, {useCallback, useEffect, useMemo, useState} from "react";
 import {COLUMNS} from "../columns.ts";
 import type {YupaiOrder} from "@/api";
 import {yupaiService} from "@/services/yupai.ts";
 import type {ColumnsDefine} from "@visactor/vtable";
-import {type AppColumnDef, buildColumns} from "@/components/columnBuilder.ts";
+import {type AppColumnDef, buildColumns} from "@/components/vtable/columnBuilder";
 import {toNumberOrZero} from "@/utils";
 
 export interface yupaiOrderLogModalProps {

@@ -1,8 +1,8 @@
 import type {ColumnsDefine} from '@visactor/vtable';
 import type {YupaiOrder} from '@/api';
 import {YupaiMachineSizeHeader} from '@/api'
-import type {FilterField} from '@/components/TableFilter';
-import {type AppColumnDef, buildColumns} from '@/components/columnBuilder';
+import type {FilterField} from '@/components/vtable';
+import {type AppColumnDef, buildColumns} from '@/components/vtable/columnBuilder';
 
 /** 可筛选的列：类型决定筛选控件（enum 多选 / date、number 区间 / text 包含） */
 export const preorderFilterFields: FilterField[] = [

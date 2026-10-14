@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import type { VTableMenuItem } from './VTable';
+import type { VTableMenuItem } from './menu';
 
 /** VTable 菜单图标（`MenuListItem.icon` 的形态） */
 export interface MenuIcon {
@@ -15,7 +15,7 @@ export interface MenuIcon {
  *
  * ```tsx
  * import { DeleteOutlined } from '@ant-design/icons';
- * import { toMenuIcon } from '@/components/menuIcon';
+ * import { toMenuIcon } from '@/components/vtable/menuIcon';
  *
  * const MENU_ICON_DELETE = toMenuIcon(<DeleteOutlined />);
  * // 菜单项：{ text: '删除行', menuKey: 'deleteRow', icon: MENU_ICON_DELETE }

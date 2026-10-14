@@ -5,7 +5,7 @@ import type { ColumnsDefine } from '@visactor/vtable';
 import type { Dayjs } from 'dayjs';
 import { ApiError, viewApi, type ViewRow, type ViewRowQuery, type ViewRowStatus } from '@/api';
 import { usePermission } from '@/store/permission-context';
-import { VTable } from '@/components/VTable';
+import { VTable } from '@/components/vtable';
 import { PageBreadcrumb } from '@/components/PageBreadcrumb';
 import type { ViewPageProps } from './types';
 
