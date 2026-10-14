@@ -1,6 +1,6 @@
 import {useMemo} from 'react';
 import type {CommandItem} from '@/components/CommandBar';
-import type {CommandContext, CommandFactory} from './types';
+import type {CommandFactory} from './types';
 
 /**
  * 组装命令条：按 factories 顺序逐个执行工厂，展开成 CommandItem[]。
@@ -14,9 +14,9 @@ import type {CommandContext, CommandFactory} from './types';
  * useMemo 以 [context, factories] 为依赖：工厂数组是模块级常量时，
  * 命令条只在 context 变化时重建。
  */
-export function useCommands<TRecord, TQuery>(
-    context: CommandContext<TRecord, TQuery>,
-    factories: CommandFactory<TRecord, TQuery>[],
+export function useCommands<TContext extends object>(
+    context: TContext,
+    factories: CommandFactory<TContext>[],
 ): CommandItem[] {
     return useMemo(
         () =>

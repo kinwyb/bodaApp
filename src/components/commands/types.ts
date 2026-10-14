@@ -55,7 +55,13 @@ export interface CommandContext<TRecord = Record<string, unknown>, TQuery = unkn
     openForm: (mode: FormMode, record: TRecord | null) => void;
 }
 
-/** 命令工厂：接 context 返回命令项；返回数组表示一组（组内顺序保持，如占位命令组） */
-export type CommandFactory<TRecord = Record<string, unknown>, TQuery = unknown> = (
-    context: CommandContext<TRecord, TQuery>,
+/**
+ * 命令工厂：接 context 返回命令项；返回数组表示一组（组内顺序保持，如占位命令组）。
+ *
+ * 泛型是**整个 context 类型**，而不是拆开的 TRecord / TQuery —— 这样页面把 context 扩展出额外字段
+ * （`CommandContext<YupaiOrder, YupaiOrderQuery> & {workPlaces: WorkPlace[]}`）之后，
+ * 只有喂了这份 context 的那组命令能读到它们（见 useCommandGroups 的分组用法）。
+ */
+export type CommandFactory<TContext = CommandContext> = (
+    context: TContext,
 ) => CommandItem | CommandItem[];
