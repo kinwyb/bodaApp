@@ -12,6 +12,10 @@ import { ListTable,themes } from '@visactor/vtable';
 import type { ColumnsDefine, ListTableConstructorOptions } from '@visactor/vtable';
 import { TableExportPlugin } from '@visactor/vtable-plugins';
 import type { TableExportPluginOptions } from '@visactor/vtable-plugins';
+import { toVTableCellStyle, type VTableCellStyle } from './vtableCellStyle';
+
+/** 样式类型照旧从本模块转出，页面无需改导入路径 */
+export type { VTableCellStyle } from './vtableCellStyle';
 
 /**
  * 插件包只从根导出了 TableExportPluginOptions，没导出下面这两个子类型
@@ -117,11 +121,18 @@ export interface VTableCellStyleInfo {
   dataValue?: unknown;
 }
 
+// 语义化样式的字段定义、翻译逻辑，以及它跟 VTable 原生样式名的契约，都在
+// ./vtableCellStyle.ts —— 那边没有 React/DOM 依赖，可以脱离浏览器单独验证。
+
 /**
  * 页面自定义单元格样式：返回的样式会合并到内置样式之上，
  * 适合「最近变更标绿」「超期标红」这类业务提醒。
+ *
+ * 只写要改的属性（语义化名，见 VTableCellStyle）；**返回 undefined 或空对象都表示「不改」** ——
+ * 累加式写法直接 `return style` 即可，不必再判 `Object.keys(style).length`：
+ * 翻译层会把空对象变成 undefined，组件那边自然回退到原有样式。
  */
-export type VTableCellStyleHook = (info: VTableCellStyleInfo) => Record<string, unknown> | undefined;
+export type VTableCellStyleHook = (info: VTableCellStyleInfo) => VTableCellStyle | undefined;
 
 /**
  * 单元格悬停提示：返回文案就在该单元格上显示 tooltip，返回 undefined 不显示。
@@ -968,7 +979,9 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
               dataValue: args.dataValue,
             });
             if (custom) {
-              return { ...base, ...custom };
+              // 语义化字段在这里落到 VTable 原生样式名上；空对象翻译成 undefined，等于不改
+              const translated = toVTableCellStyle(custom);
+              if (translated) return { ...base, ...translated };
             }
             return base;
           },

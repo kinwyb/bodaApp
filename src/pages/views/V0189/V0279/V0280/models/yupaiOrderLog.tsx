@@ -1,5 +1,5 @@
 import {Modal} from "antd";
-import {VTable, type VTableCellStyleHook} from "@/components/VTable.tsx";
+import {VTable, type VTableCellStyle, type VTableCellStyleHook} from "@/components/VTable.tsx";
 import React, {useCallback, useEffect, useMemo, useState} from "react";
 import {COLUMNS} from "../columns.ts";
 import type {YupaiOrder} from "@/api";
@@ -57,16 +57,17 @@ export const YupaiOrderLogModal: React.FC<yupaiOrderLogModalProps> = ({
         ({rowKey, record, isSummaryRow, rowIndex}) => {
             // 统计行 / 空白补足行不参与业务标记
             if (!rowKey || isSummaryRow || !record) return undefined;
-            const style: Record<string, unknown> = {};
+            const style: VTableCellStyle = {};
             if (record && rowIndex === 0) {
-                style.color = '#389e0d';
+                style.textColor = '#389e0d';
             } else {
                 const isDel = toNumberOrZero(record["IsDel"]) == 1;
                 if (isDel) {
-                    style.color = 'red';
+                    style.textColor = 'red';
                 }
             }
-            return Object.keys(style).length > 0 ? style : undefined;
+            // 空对象 = 不改，翻译层会兜住
+            return style;
         },
         [],
     );

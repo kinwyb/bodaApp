@@ -531,7 +531,7 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
             ({rowKey, field, isSummaryRow}) => {
                 if (!rowKey || isSummaryRow) return undefined;
                 return cellErrors[cellErrorKey(rowKey, field)]
-                    ? {bgColor: '#fff2f0', color: '#cf1322'}
+                    ? {backgroundColor: '#fff2f0', textColor: '#cf1322'}
                     : undefined;
             },
             [cellErrors],

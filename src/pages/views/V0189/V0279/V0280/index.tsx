@@ -4,7 +4,13 @@ import {ApiError, yupaiApi, YupaiMachineSizeHeader, type YupaiOrder, type YupaiO
 import {CommandBar} from '@/components/CommandBar';
 import {FilterTable} from '@/components/FilterTable';
 import {PageBreadcrumb} from '@/components/PageBreadcrumb';
-import type {VTableApi, VTableCellStyleHook, VTableMenuConfig, VTableSelectedRowChangeInfo,} from '@/components/VTable';
+import type {
+    VTableApi,
+    VTableCellStyle,
+    VTableCellStyleHook,
+    VTableMenuConfig,
+    VTableSelectedRowChangeInfo,
+} from '@/components/VTable';
 import type {ViewPageProps} from '@/pages/types';
 import {yupaiService} from '@/services/yupai.ts';
 import {buildPreorderColumns, preorderFilterFields} from './columns';
@@ -80,15 +86,16 @@ const PreorderPage: React.FC<ViewPageProps> = ({view, trail}) => {
         ({rowKey, field, record, isSummaryRow}) => {
             // 统计行 / 空白补足行不参与业务标记
             if (!rowKey || isSummaryRow) return undefined;
-            const style: Record<string, unknown> = {};
+            const style: VTableCellStyle = {};
             if (record && (record as YupaiOrder).Status === 0) {
-                style.color = '#389e0d';
+                style.textColor = '#389e0d';
             }
             const fields = changedCells[rowKey];
             if (fields && (fields.length === 0 || fields.includes(field))) {
-                style.bgColor = '#d9f7be';
+                style.backgroundColor = '#d9f7be';
             }
-            return Object.keys(style).length > 0 ? style : undefined;
+            // 空对象 = 不改，翻译层会兜住
+            return style;
         },
         [changedCells],
     );
