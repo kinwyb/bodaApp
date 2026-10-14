@@ -452,6 +452,15 @@ export interface VTableApi {
    */
   getRowByIndex: (index: number) => VTableRowInfo | undefined;
   /**
+   * 当前激活行（鼠标点选 / 键盘方向键移动到的**那一行**）及其数据，判定规则与
+   * onSelectedChange 完全一致 —— Ctrl+A、选中被清空、点表头时 record 为 undefined。
+   *
+   * 和 getSelection().rows 的区别：那个回的是「选中的行集合」（多选时有好几条，
+   * 且看不出「哪一条是当前聚焦的」）；这个只回答「当前聚焦的是哪一行」。
+   * 要操作选中集合用 getSelection，要操作「当前这一行」用它。
+   */
+  getActiveRow: () => VTableSelectedRowChangeInfo;
+  /**
    * 清空表格的选中态：原生选中范围与铺过的整行底色一起清，并回调
    * onActiveSelectionChange({ rowCount: 0 })。
    *
@@ -994,48 +1003,52 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
   cellTooltipRef.current = cellTooltip;
 
   /**
-   * 读「当前激活行」并回调给页面（onSelectedChange）。
+   * 解析「当前激活行」—— onSelectedChange 的推送与 VTableApi.getActiveRow 的按需取值共用这一份判定。
    *
    * 激活行取 VTable 的 `select.cellPos`（最后激活的单元格，鼠标点选与键盘移动都会写它），
    * 按行取就是「当前激活的这一行」。
-   * 三个会让它「不算激活行」的例外，都回传「没有激活行」（record 为 undefined）：
+   * 三个会让它「不算激活行」的例外，都返回「没有激活行」（record 为 undefined）：
    * - **点表头**：cellPos 落在表头行，那只是整列选中，不是选中了一行数据；
    * - **被 Ctrl 取消勾选**：cellPos 仍停在那一行，但它已经不在选中范围里了，
    *   这时若还报它是激活行，页面会拿着一条已被取消勾选的数据当选中行用；
    * - **Ctrl+A 全选**（`select.isSelectAll`）：cellPos 停在上次点过的那一格上
    *   （全选走 `updateSelectPos(-1,-1,isSelectAll=true)`，根本不更新 cellPos），不能拿它冒充激活行。
+   */
+  const resolveSelectedRow = useCallback((): VTableSelectedRowChangeInfo => {
+    const table = tableRef.current;
+    if (!table) return { ...EMPTY_SELECTED_ROW };
+    const select = table.stateManager?.select;
+    const headerLevel = table.columnHeaderLevelCount;
+    // 全选时没有单一激活行：cellPos 是陈旧的，直接不看它
+    const pos = select?.isSelectAll ? undefined : select?.cellPos;
+    if (!pos || pos.col < 0 || pos.row < headerLevel) return { ...EMPTY_SELECTED_ROW };
+    const ranges = (select?.ranges ?? []) as Array<{
+      start: { row: number };
+      end: { row: number };
+    }>;
+    // 必须在选中范围里才算激活行（Ctrl 取消勾选后 cellPos 仍停在原处，靠这一条排除）
+    if (!collectRowIndexes(ranges, headerLevel).has(pos.row)) return { ...EMPTY_SELECTED_ROW };
+    const rowIndex = pos.row - headerLevel;
+    const record = rowsRef.current[rowIndex] as Record<string, unknown> | undefined;
+    if (!record) return { ...EMPTY_SELECTED_ROW };
+    return {
+      record,
+      row: pos.row,
+      rowIndex,
+      rowKey: rowKeyByIndexRef.current[rowIndex] ?? '',
+      isSummaryRow: isSummaryRow(pos.row, headerLevel),
+    };
+  }, [isSummaryRow]);
+
+  /**
+   * 把「当前激活行」推给页面（onSelectedChange）。
    *
    * force 用于「数据整体换了一批」这种行号与主键都没变、但已经不是同一行的场景。
    */
   const emitSelectedRow = useCallback(
     (force = false) => {
-      const table = tableRef.current;
-      if (!table) return;
-      const select = table.stateManager?.select;
-      const headerLevel = table.columnHeaderLevelCount;
-      let next: VTableSelectedRowChangeInfo = { ...EMPTY_SELECTED_ROW };
-      // 全选时没有单一激活行：cellPos 是陈旧的，直接不看它
-      const pos = select?.isSelectAll ? undefined : select?.cellPos;
-      if (pos && pos.col >= 0 && pos.row >= headerLevel) {
-        const ranges = (select?.ranges ?? []) as Array<{
-          start: { row: number };
-          end: { row: number };
-        }>;
-        // 必须在选中范围里才算激活行（Ctrl 取消勾选后 cellPos 仍停在原处，靠这一条排除）
-        if (collectRowIndexes(ranges, headerLevel).has(pos.row)) {
-          const rowIndex = pos.row - headerLevel;
-          const record = rowsRef.current[rowIndex] as Record<string, unknown> | undefined;
-          if (record) {
-            next = {
-              record,
-              row: pos.row,
-              rowIndex,
-              rowKey: rowKeyByIndexRef.current[rowIndex] ?? '',
-              isSummaryRow: isSummaryRow(pos.row, headerLevel),
-            };
-          }
-        }
-      }
+      if (!tableRef.current) return;
+      const next = resolveSelectedRow();
       // 「没有激活行」记 null，与「激活行就是第 0 行」区分开
       const key = next.record ? { row: next.row, rowKey: next.rowKey } : null;
       const last = lastSelectedRowRef.current;
@@ -1047,7 +1060,7 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
       lastSelectedRowRef.current = key;
       handlers.current.onSelectedChange?.(next);
     },
-    [isSummaryRow],
+    [resolveSelectedRow],
   );
   emitSelectedRowRef.current = emitSelectedRow;
 
@@ -1659,12 +1672,23 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
       repaint,
       getSelection,
       getRowByIndex,
+      // 与 onSelectedChange 同一份判定，命中的就是「当前激活的那一行」
+      getActiveRow: resolveSelectedRow,
       getTable: () => tableRef.current,
       exportExcel,
       exportCsv,
       clearSelection,
-    }),
-    [autoFitColumns, repaint, getSelection, getRowByIndex, exportExcel, exportCsv, clearSelection],
+    }) satisfies VTableApi,
+    [
+      autoFitColumns,
+      repaint,
+      getSelection,
+      getRowByIndex,
+      resolveSelectedRow,
+      exportExcel,
+      exportCsv,
+      clearSelection,
+    ],
   );
 
   /**

@@ -300,6 +300,16 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
             tableRef.current?.getSelection() ?? { rows: [], cells: [], activeCell: null },
           // 行号 = 数据行下标（0 起、不含表头，跟随显示顺序）；越界返回 undefined，这里不兜底
           getRowByIndex: (index: number) => tableRef.current?.getRowByIndex(index),
+          // 表格还没建好时给「没有激活行」——形状与 VTable 内部的 EMPTY_SELECTED_ROW 一致
+          // （少字段会被 satisfies VTableApi 当场拦住，不会悄悄漂移）
+          getActiveRow: () =>
+            tableRef.current?.getActiveRow() ?? {
+              record: undefined,
+              row: -1,
+              rowIndex: -1,
+              rowKey: '',
+              isSummaryRow: false,
+            },
           getTable: () => tableRef.current?.getTable() ?? null,
           // 导出是 VTable 内部 TableExportPlugin 的能力，这里一并转发出去。
           // 表格还没建好时 tableRef 为 null，返回一个空 Promise，让签名始终是 Promise
