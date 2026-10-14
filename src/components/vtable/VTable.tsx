@@ -25,7 +25,7 @@ import {
 } from './selection';
 import type { EditCellTrigger, VTableCellValueChangeInfo } from './editing';
 import type { VTableExportCsvOptions, VTableExportExcelOptions } from './export';
-import { scheduleBottomFrozen } from './frozen';
+import { prepareBottomFrozen, scheduleBottomFrozen } from './frozen';
 import type { VTableMenuConfig, VTableMenuItem } from './menu';
 import { defaultCompare, type VTableSortState } from './sorting';
 import { THEME } from './theme';
@@ -909,6 +909,10 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     const sortState = table.sortState;
     // 先清掉排序状态，避免 setRecords 内部再排一次把统计行带走
     table.updateSortState(null, false);
+    // 先写冻结配置再 setRecords：让它内部的 createSceneGraph 直接按冻结行建场景，
+    // 一次画对。放到 setRecords 之后（哪怕同帧）都会闪一帧 —— 那时它结尾的同步 render()
+    // 已按旧值画出「汇总行在数据末尾」，下一帧补偿才贴底，这一跳肉眼可见。
+    prepareBottomFrozen(table, summaryRef.current ? 1 : 0);
     table.setRecords(rows);
     table.clearSelected();
     // setRecords 会重置排序状态（表头图标会消失），这里还原状态但不再执行排序
@@ -931,6 +935,8 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
   const repaint = useCallback(() => {
     const table = tableRef.current;
     if (!table) return;
+    // 与 layout effect 同理：先写配置再重建，避免重建后闪一帧
+    prepareBottomFrozen(table, summaryRef.current ? 1 : 0);
     table.renderWithRecreateCells();
     scheduleBottomFrozen(table, summaryRef.current ? 1 : 0);
   }, []);
