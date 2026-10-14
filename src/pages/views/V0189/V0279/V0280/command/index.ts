@@ -1,5 +1,3 @@
-import {useMemo} from 'react';
-import {useCommandGroups} from '@/components/commands';
 import type {CommandItem} from '@/components/CommandBar';
 import {addCommand} from './add';
 import {autoWidthCommand} from './autoWidth';
@@ -11,9 +9,20 @@ import {publishCommand} from './publish';
 import {refreshCommand} from './refresh';
 import {changeLogCommand} from "./changeLog";
 import {authPlaceholderCommand, workflowPlaceholderCommands,} from './placeholders';
-import type {YupaiOrderCommandContext, YupaiOrderCommandFactory} from './types';
+import type {
+    YupaiOrderCommandContext,
+    YupaiOrderCommandFactory,
+    YupaiOrderLogCommandContext,
+} from './types';
+import {useMemo} from "react";
+import {useCommandGroups} from "@/components/commands";
 
-export type {YupaiOrderCommandContext} from './types';
+export type {
+    FormMode,
+    YupaiOrderCommandContext,
+    YupaiOrderLogCommandContext,
+    YupaiOrderLogCommandFactory,
+} from './types';
 
 /**
  * 命令条从左到右的顺序（写命令的 key）。
@@ -42,13 +51,12 @@ const COMMAND_ORDER = [
 ] as const;
 
 /** 共用同一份 context 的命令；组工厂（返回数组的）按数组位置展开。最终顺序由 COMMAND_ORDER 裁决 */
-const preorderCommandFactories: YupaiOrderCommandFactory[] = [
+const yupaiOrderCommandFactories: YupaiOrderCommandFactory[] = [
     addCommand,
     editCommand,
     deleteCommand,
     copyCommand,
     copyOrderedCommand,
-    changeLogCommand,
     publishCommand,
     workflowPlaceholderCommands,
     refreshCommand,
@@ -58,16 +66,26 @@ const preorderCommandFactories: YupaiOrderCommandFactory[] = [
 ];
 
 /**
- * 组装本页命令条。
+ * 组装本页命令条：两组命令，各喂自己的 context。
  *
- * 目前所有命令共用同一份 context。将来某一组命令需要「别的命令不需要的依赖」时，往 groups 里
- * 再加一项（喂一份扩展过的 context）即可 —— 它排在哪由 COMMAND_ORDER 决定，与分组无关。
- * groups（含其中的 context）必须 useMemo：否则 useCommandGroups 里的缓存每帧都失效。
+ * - 第一组（新增 / 修改 / 删除 …）只用公共依赖；
+ * - 第二组（变更日志）在这之上多要一个 openLog —— 只有它拿得到，别的命令既拿不到也不必关心。
+ *
+ * 注意 groups **不能**写 `CommandGroup<X>[]` 注解：两组 context 类型不同，注解会因为
+ * 「函数参数逆变」报错（详见 useCommandGroups 的 AnyCommandGroup）。组内的匹配由各命令自己
+ * 声明的工厂类型保证（changeLogCommand 声明成 YupaiOrderLogCommandFactory）。
+ * groups 必须 useMemo，否则 useCommandGroups 里的缓存每帧失效。
  */
-export function usePreorderCommands(context: YupaiOrderCommandContext): CommandItem[] {
+export function useYupaiOrderCommands(
+    context: YupaiOrderCommandContext,
+    changeLogContext: YupaiOrderLogCommandContext,
+): CommandItem[] {
     const groups = useMemo(
-        () => [{context, factories: preorderCommandFactories}],
-        [context],
+        () => [
+            {context, factories: yupaiOrderCommandFactories},
+            {context: changeLogContext, factories: [changeLogCommand]},
+        ],
+        [context, changeLogContext],
     );
     return useCommandGroups(groups, {order: COMMAND_ORDER});
 }

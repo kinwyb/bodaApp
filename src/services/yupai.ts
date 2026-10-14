@@ -1,5 +1,5 @@
-import {sqlApi, YupaiMachineSizeHeader, yupaiApi} from "@/api";
 import type {ApiResponse, YupaiOrder, YupaiOrderDto, YupaiOrderQuery} from "@/api";
+import {sqlApi, yupaiApi, YupaiMachineSizeHeader} from "@/api";
 import {isBlank, isBlankExcept, toDayjs, toNumberOrZero, toStringOrEmpty} from "@/utils";
 import {YupaiOrderMapping} from "@/api/modules/yupai.ts";
 
@@ -81,6 +81,24 @@ export const yupaiService = {
     async list(query: YupaiOrderQuery = {}): Promise<ApiResponse<YupaiOrder[]>> {
         const res = await yupaiApi.list(query);
         return {...res, data: res.data?.map(toYupaiOrder)};
+    },
+
+    /**
+     * 预订单日志记录
+     * @param yupaiOrderID
+     */
+    async log(yupaiOrderID: string): Promise<YupaiOrder[]> {
+        const res = await yupaiApi.log(yupaiOrderID);
+        if (res.data) {
+            return res.data.map((o) => {
+                if (o.IsDel === 0) {
+                    o.DelTime = undefined;
+                    o.DelUser = undefined;
+                }
+                return toYupaiOrder(o);
+            });
+        }
+        return [];
     },
 
     /**
@@ -198,7 +216,6 @@ export function validateYupaiOrderDetailRows(
         if (isEmptyYupaiOrder(row)) {
             continue;
         }
-        console.log("row", row);
         const rowKey = String(row._id ?? '');
         // 没有主键的行不参与校验：否则它们会挤在同一个键上互相覆盖
         if (!rowKey) continue;

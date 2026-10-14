@@ -1,5 +1,5 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {App, Button, DatePicker, Form, Input, InputNumber, Modal, Select, Skeleton} from 'antd';
+import {App, Button, DatePicker, Form, Input, InputNumber, Modal, Select} from 'antd';
 import {DeleteOutlined} from '@ant-design/icons';
 import dayjs, {type Dayjs} from 'dayjs';
 import {ApiError, employeeApi, yupaiApi, YupaiMachineSizeHeader, type YupaiOrder, type YupaiOrderDto} from '@/api';
@@ -12,7 +12,7 @@ import {
     type VTableMenuConfig
 } from '@/components/VTable';
 import {EmployeeQuickSelect} from '@/components/quick-select';
-import type {FormMode} from '@/components/commands';
+import type {FormMode} from '../command';
 import {alignMenuIcons, toMenuIcon} from '@/components/menuIcon';
 import {
     buildPreorderDetailColumns,
@@ -23,7 +23,9 @@ import {
 } from './yupaiOrderEditColumns.ts';
 import {isEmptyYupaiOrder, validateYupaiOrderDetailRows, yupaiService} from "@/services/yupai.ts";
 import {
-    DATE_FORMAT, formatDateTime, isBlank,
+    DATE_FORMAT,
+    formatDateTime,
+    isBlank,
     now,
     toDateString,
     toDayjs,
@@ -837,90 +839,88 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                 footer={null}
                 mask={{closable: false}}
                 onCancel={onCancel}
+                loading={isLoading}
             >
-                {isLoading ? (
-                    <Skeleton active paragraph={{rows: 6}}/>
-                ) : (
-                    <Form
-                        form={form}
-                        component={false}
-                        className="preorder-form"
-                        // 订单号变化同步给明细的款号查重（见 yupaiOrderEditColumns 的 currentOrderCode）。
-                        // 用 onFieldsChange 而不是 onValuesChange：后者只在**用户交互**时触发，
-                        // 而订单号还会被 setFieldsValue 程序化写入（打开弹窗预填、点检测覆盖），
-                        // onFieldsChange 两种情况都能收到 —— 所以这一处就够，别处不用再手动同步。
-                        onFieldsChange={(changed) => {
-                            const hit = changed.find((item) => {
-                                const path = Array.isArray(item.name) ? item.name : [item.name];
-                                return path[0] === 'OrderCode';
-                            });
-                            if (hit) {
-                                setCurrentOrderCode(String(hit.value ?? ''));
-                            }
-                        }}
-                    >
-                        <div className="preorder-form-toolbar">
-                            <span className="pf-label">订单号</span>
-                            <Form.Item name="OrderCode" noStyle
-                                       rules={[{required: true, message: '订单号不能为空'}]}>
-                                <Input
-                                    style={{width: 150}}
-                                    // allowClear 必须恒定：它决定 antd 要不要套 affix（后缀）容器 ——
-                                    // 跟着锁定态翻会在聚焦时摘/挂容器，导致 input 重建、失焦
-                                    // （控制台报 dynamic add or remove prefix / suffix）。
-                                    // 锁定由 readOnly 表达即可，清除图标本来就只在非锁定态显示。
-                                    allowClear
-                                    placeholder="订单号"
-                                    readOnly={toolbarLocked}
+                <Form
+                    form={form}
+                    component={false}
+                    className="preorder-form"
+                    // 订单号变化同步给明细的款号查重（见 yupaiOrderEditColumns 的 currentOrderCode）。
+                    // 用 onFieldsChange 而不是 onValuesChange：后者只在**用户交互**时触发，
+                    // 而订单号还会被 setFieldsValue 程序化写入（打开弹窗预填、点检测覆盖），
+                    // onFieldsChange 两种情况都能收到 —— 所以这一处就够，别处不用再手动同步。
+                    onFieldsChange={(changed) => {
+                        const hit = changed.find((item) => {
+                            const path = Array.isArray(item.name) ? item.name : [item.name];
+                            return path[0] === 'OrderCode';
+                        });
+                        if (hit) {
+                            setCurrentOrderCode(String(hit.value ?? ''));
+                        }
+                    }}
+                >
+                    <div className="preorder-form-toolbar">
+                        <span className="pf-label">订单号</span>
+                        <Form.Item name="OrderCode" noStyle
+                                   rules={[{required: true, message: '订单号不能为空'}]}>
+                            <Input
+                                style={{width: 150}}
+                                // allowClear 必须恒定：它决定 antd 要不要套 affix（后缀）容器 ——
+                                // 跟着锁定态翻会在聚焦时摘/挂容器，导致 input 重建、失焦
+                                // （控制台报 dynamic add or remove prefix / suffix）。
+                                // 锁定由 readOnly 表达即可，清除图标本来就只在非锁定态显示。
+                                allowClear
+                                placeholder="订单号"
+                                readOnly={toolbarLocked}
 
-                                />
-                            </Form.Item>
-                            {(isAdd || isCopy) && (
-                                <Button loading={checking} disabled={disabled} onClick={handleCheck}>
-                                    检测
-                                </Button>
-                            )}
-                            <span className="pf-label pf-toolbar-gap">预排日期</span>
-                            <Form.Item name="YPDate" noStyle
-                                       rules={[{required: true, message: '预排日期不能为空'}]}>
-                                <DatePicker
-                                    style={{width: 150}}
-                                    format={DATE_FORMAT}
-                                    {...dpProps(toolbarLocked)}
-                                />
-                            </Form.Item>
-                            {!isView && (
+                            />
+                        </Form.Item>
+                        {(isAdd || isCopy) && (
+                            <Button loading={checking} disabled={disabled} onClick={handleCheck}>
+                                检测
+                            </Button>
+                        )}
+                        <span className="pf-label pf-toolbar-gap">预排日期</span>
+                        <Form.Item name="YPDate" noStyle
+                                   rules={[{required: true, message: '预排日期不能为空'}]}>
+                            <DatePicker
+                                style={{width: 150}}
+                                format={DATE_FORMAT}
+                                {...dpProps(toolbarLocked)}
+                            />
+                        </Form.Item>
+                        {!isView && (
+                            <Button
+                                type="primary"
+                                style={{marginLeft: 'auto'}}
+                                loading={saving}
+                                disabled={detailLocked}
+                                onClick={handleSave}
+                            >
+                                保存
+                            </Button>
+                        )}
+                    </div>
+
+                    <fieldset
+                        className={`preorder-fieldset${detailLocked && !isView ? ' preorder-fieldset-disabled' : ''}`}>
+                        <legend>详情</legend>
+
+                        <div className="pf-row">
+                            <Field label="业务员" required>
+                                <Form.Item name="Ywy" noStyle rules={[{required: true, message: '业务员不能为空'}]}>
+                                    <Input style={{width: 120}} readOnly allowClear={false}/>
+                                </Form.Item>
                                 <Button
-                                    type="primary"
-                                    style={{marginLeft: 'auto'}}
-                                    loading={saving}
+                                    style={{width: 30, padding: 0}}
+                                    className="pf-picker-btn"
                                     disabled={detailLocked}
-                                    onClick={handleSave}
+                                    onClick={() => setEmployeeOpen(true)}
                                 >
-                                    保存
+                                    ...
                                 </Button>
-                            )}
-                        </div>
-
-                        <fieldset
-                            className={`preorder-fieldset${detailLocked && !isView ? ' preorder-fieldset-disabled' : ''}`}>
-                            <legend>详情</legend>
-
-                            <div className="pf-row">
-                                <Field label="业务员" required>
-                                    <Form.Item name="Ywy" noStyle rules={[{required: true, message: '业务员不能为空'}]}>
-                                        <Input style={{width: 120}} readOnly allowClear={false}/>
-                                    </Form.Item>
-                                    <Button
-                                        style={{width: 30, padding: 0}}
-                                        className="pf-picker-btn"
-                                        disabled={detailLocked}
-                                        onClick={() => setEmployeeOpen(true)}
-                                    >
-                                        ...
-                                    </Button>
-                                </Field>
-                                {/*
+                            </Field>
+                            {/*
                               业务员的两个附带字段：界面上没有输入框，值由「快速选择业务员」和
                               「检测订单号」联动写入。**必须挂一个 Form.Item 让它们「注册」进表单**，
                               否则：
@@ -932,189 +932,188 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                                 （buildValues 里没有这两个字段，覆盖不掉上一个订单带出来的值）。
                               hidden 只是不显示，值照常参与校验与取值。
                             */}
-                                <Form.Item name="YwyNo" hidden>
-                                    <Input/>
+                            <Form.Item name="YwyNo" hidden>
+                                <Input/>
+                            </Form.Item>
+                            <Form.Item name="DepartmentID" hidden>
+                                <Input/>
+                            </Form.Item>
+                            <Field label="产地" required>
+                                <Form.Item name="WorkPlace" noStyle rules={[{required: true, message: '产地不能为空'}]}>
+                                    <Select
+                                        style={{width: 150}}
+                                        placeholder="请选择"
+                                        options={workPlaces.map((value) => ({value, label: value}))}
+                                        {...selectProps(detailLocked)}
+                                    />
                                 </Form.Item>
-                                <Form.Item name="DepartmentID" hidden>
-                                    <Input/>
+                            </Field>
+                        </div>
+
+                        <div className="pf-row">
+                            <Field label="计划下单日期" required>
+                                <Form.Item
+                                    name="JHDate"
+                                    noStyle
+                                    rules={[{required: true, message: '请选择计划下单日期'}]}
+                                >
+                                    <DatePicker
+                                        style={{width: 150}}
+                                        format={DATE_FORMAT}
+                                        {...dpProps(detailLocked)}
+                                        onChange={jhDateValueChange}
+                                    />
                                 </Form.Item>
-                                <Field label="产地" required>
-                                    <Form.Item name="WorkPlace" noStyle rules={[{required: true, message: '产地不能为空'}]}>
-                                        <Select
-                                            style={{width: 150}}
-                                            placeholder="请选择"
-                                            options={workPlaces.map((value) => ({value, label: value}))}
-                                            {...selectProps(detailLocked)}
-                                        />
-                                    </Form.Item>
-                                </Field>
-                            </div>
+                            </Field>
+                            <Field label="确认可下单期">
+                                <Form.Item name="QRDate" noStyle>
+                                    <DatePicker
+                                        style={{width: 150}}
+                                        format={DATE_FORMAT}
+                                        {...dpProps(detailLocked)}
+                                        onChange={qrDateValueChange}
+                                    />
+                                </Form.Item>
+                            </Field>
+                        </div>
 
-                            <div className="pf-row">
-                                <Field label="计划下单日期" required>
-                                    <Form.Item
-                                        name="JHDate"
-                                        noStyle
-                                        rules={[{required: true, message: '请选择计划下单日期'}]}
-                                    >
-                                        <DatePicker
-                                            style={{width: 150}}
-                                            format={DATE_FORMAT}
-                                            {...dpProps(detailLocked)}
-                                            onChange={jhDateValueChange}
-                                        />
-                                    </Form.Item>
-                                </Field>
-                                <Field label="确认可下单期">
-                                    <Form.Item name="QRDate" noStyle>
-                                        <DatePicker
-                                            style={{width: 150}}
-                                            format={DATE_FORMAT}
-                                            {...dpProps(detailLocked)}
-                                            onChange={qrDateValueChange}
-                                        />
-                                    </Form.Item>
-                                </Field>
-                            </div>
+                        <div className="pf-row">
+                            <Field label="尾货期">
+                                <Form.Item
+                                    name="WCDate"
+                                    noStyle
+                                >
+                                    <DatePicker
+                                        style={{width: 150}}
+                                        format={DATE_FORMAT}
+                                        {...dpProps(detailLocked)}
+                                        minDate={minWCDate}
+                                    />
+                                </Form.Item>
+                            </Field>
+                            <Field label="走货期" required>
+                                <Form.Item
+                                    name="ZHDate"
+                                    noStyle
+                                    rules={[{required: true, message: '请选择走货期'}]}
+                                >
+                                    <DatePicker
+                                        style={{width: 150}}
+                                        format={DATE_FORMAT}
+                                        {...dpProps(detailLocked)}
+                                        onChange={zhDateValueChange}
+                                        minDate={minZHDate}
+                                    />
+                                </Form.Item>
+                            </Field>
+                        </div>
 
-                            <div className="pf-row">
-                                <Field label="尾货期">
-                                    <Form.Item
-                                        name="WCDate"
-                                        noStyle
-                                    >
-                                        <DatePicker
-                                            style={{width: 150}}
-                                            format={DATE_FORMAT}
-                                            {...dpProps(detailLocked)}
-                                            minDate={minWCDate}
-                                        />
-                                    </Form.Item>
-                                </Field>
-                                <Field label="走货期" required>
-                                    <Form.Item
-                                        name="ZHDate"
-                                        noStyle
-                                        rules={[{required: true, message: '请选择走货期'}]}
-                                    >
-                                        <DatePicker
-                                            style={{width: 150}}
-                                            format={DATE_FORMAT}
-                                            {...dpProps(detailLocked)}
-                                            onChange={zhDateValueChange}
-                                            minDate={minZHDate}
-                                        />
-                                    </Form.Item>
-                                </Field>
-                            </div>
+                        <div className="pf-row">
+                            <Field label="原料可下单期" required>
+                                <Form.Item name="YLDate" noStyle
+                                           rules={[{required: true, message: '请选择原料可下单期'}]}>
+                                    <DatePicker
+                                        style={{width: 150}}
+                                        format={DATE_FORMAT}
+                                        {...dpProps(detailLocked)}
+                                        maxDate={maxYLDate}
+                                    />
+                                </Form.Item>
+                            </Field>
+                            <Field label="缝制辅料可下单期" required>
+                                <Form.Item name="FLDate" noStyle
+                                           rules={[{required: true, message: '请选择缝制辅料可下单期'}]}>
+                                    <DatePicker
+                                        style={{width: 150}}
+                                        format={DATE_FORMAT}
+                                        {...dpProps(detailLocked)}
+                                        maxDate={maxFLDate}
+                                    />
+                                </Form.Item>
+                            </Field>
+                            <Field label="包装辅料提供期" required>
+                                <Form.Item name="BZFLDate" noStyle
+                                           rules={[{required: true, message: '请选择包装辅料提供期'}]}>
+                                    <DatePicker
+                                        style={{width: 150}}
+                                        format={DATE_FORMAT}
+                                        {...dpProps(detailLocked)}
+                                    />
+                                </Form.Item>
+                            </Field>
+                        </div>
 
-                            <div className="pf-row">
-                                <Field label="原料可下单期" required>
-                                    <Form.Item name="YLDate" noStyle
-                                               rules={[{required: true, message: '请选择原料可下单期'}]}>
-                                        <DatePicker
-                                            style={{width: 150}}
-                                            format={DATE_FORMAT}
-                                            {...dpProps(detailLocked)}
-                                            maxDate={maxYLDate}
-                                        />
-                                    </Form.Item>
-                                </Field>
-                                <Field label="缝制辅料可下单期" required>
-                                    <Form.Item name="FLDate" noStyle
-                                               rules={[{required: true, message: '请选择缝制辅料可下单期'}]}>
-                                        <DatePicker
-                                            style={{width: 150}}
-                                            format={DATE_FORMAT}
-                                            {...dpProps(detailLocked)}
-                                            maxDate={maxFLDate}
-                                        />
-                                    </Form.Item>
-                                </Field>
-                                <Field label="包装辅料提供期" required>
-                                    <Form.Item name="BZFLDate" noStyle
-                                               rules={[{required: true, message: '请选择包装辅料提供期'}]}>
-                                        <DatePicker
-                                            style={{width: 150}}
-                                            format={DATE_FORMAT}
-                                            {...dpProps(detailLocked)}
-                                        />
-                                    </Form.Item>
-                                </Field>
-                            </div>
+                        <div className="pf-row">
+                            <Field label="下单把握率">
+                                <Form.Item name="XDRate" noStyle>
+                                    <Input
+                                        style={{width: 150}}
+                                        placeholder="如 95%"
+                                        readOnly={detailLocked}
+                                        allowClear
+                                    />
+                                </Form.Item>
+                            </Field>
+                            <Field label="总数量:">
+                                <Form.Item name="Qty" noStyle>
+                                    <InputNumber
+                                        style={{width: 130}}
+                                        min={0}
+                                        readOnly={true}
+                                    />
+                                </Form.Item>
+                            </Field>
+                        </div>
 
-                            <div className="pf-row">
-                                <Field label="下单把握率">
-                                    <Form.Item name="XDRate" noStyle>
-                                        <Input
-                                            style={{width: 150}}
-                                            placeholder="如 95%"
-                                            readOnly={detailLocked}
-                                            allowClear
-                                        />
-                                    </Form.Item>
-                                </Field>
-                                <Field label="总数量:">
-                                    <Form.Item name="Qty" noStyle>
-                                        <InputNumber
-                                            style={{width: 130}}
-                                            min={0}
-                                            readOnly={true}
-                                        />
-                                    </Form.Item>
-                                </Field>
-                            </div>
+                        <div className="pf-row">
+                            <Field label="备注" grow>
+                                <Form.Item name="Memo" noStyle>
+                                    <Input
+                                        placeholder="备注"
+                                        readOnly={detailLocked}
+                                        allowClear
+                                    />
+                                </Form.Item>
+                            </Field>
+                        </div>
 
-                            <div className="pf-row">
-                                <Field label="备注" grow>
-                                    <Form.Item name="Memo" noStyle>
-                                        <Input
-                                            placeholder="备注"
-                                            readOnly={detailLocked}
-                                            allowClear
-                                        />
-                                    </Form.Item>
-                                </Field>
-                            </div>
+                        <div className="pf-row">
+                            <Field label="中期检验日期">
+                                <Form.Item name="ZQCheckDate" noStyle>
+                                    <DatePicker
+                                        style={{width: 150}}
+                                        format={DATE_FORMAT}
+                                        {...dpProps(detailLocked)}
+                                    />
+                                </Form.Item>
+                            </Field>
+                            <Field label="中期检验要求" grow>
+                                <Form.Item name="ZQCheckMemo" noStyle>
+                                    <Input
+                                        placeholder="中期检验要求"
+                                        readOnly={detailLocked}
+                                        allowClear
+                                    />
+                                </Form.Item>
+                            </Field>
+                        </div>
 
-                            <div className="pf-row">
-                                <Field label="中期检验日期">
-                                    <Form.Item name="ZQCheckDate" noStyle>
-                                        <DatePicker
-                                            style={{width: 150}}
-                                            format={DATE_FORMAT}
-                                            {...dpProps(detailLocked)}
-                                        />
-                                    </Form.Item>
-                                </Field>
-                                <Field label="中期检验要求" grow>
-                                    <Form.Item name="ZQCheckMemo" noStyle>
-                                        <Input
-                                            placeholder="中期检验要求"
-                                            readOnly={detailLocked}
-                                            allowClear
-                                        />
-                                    </Form.Item>
-                                </Field>
-                            </div>
-
-                            <div className="preorder-detail-grid">
-                                <VTable
-                                    ref={tableRef}
-                                    columns={detailColumns}
-                                    records={detailRows as unknown as Array<Record<string, unknown>>}
-                                    rowKey="_id"
-                                    editableFields={detailLocked ? undefined : DETAIL_EDITOR_FIELDS}
-                                    onCellValueChange={handleDetailChange}
-                                    cellStyle={detailCellStyle}
-                                    cellTooltip={detailCellTooltip}
-                                    menu={detailMenu}
-                                />
-                                {detailRows.length === 0 && <div className="preorder-detail-empty">没有任何记录</div>}
-                            </div>
-                        </fieldset>
-                    </Form>
-                )}
+                        <div className="preorder-detail-grid">
+                            <VTable
+                                ref={tableRef}
+                                columns={detailColumns}
+                                records={detailRows as unknown as Array<Record<string, unknown>>}
+                                rowKey="_id"
+                                editableFields={detailLocked ? undefined : DETAIL_EDITOR_FIELDS}
+                                onCellValueChange={handleDetailChange}
+                                cellStyle={detailCellStyle}
+                                cellTooltip={detailCellTooltip}
+                                menu={detailMenu}
+                            />
+                            {detailRows.length === 0 && <div className="preorder-detail-empty">没有任何记录</div>}
+                        </div>
+                    </fieldset>
+                </Form>
                 <EmployeeQuickSelect
                     open={employeeOpen}
                     title="快速选择-业务员"

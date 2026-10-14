@@ -2,7 +2,7 @@ import type {ColumnsDefine} from '@visactor/vtable';
 import type {YupaiOrder} from '@/api';
 import {YupaiMachineSizeHeader} from '@/api'
 import type {FilterField} from '@/components/TableFilter';
-import {buildColumns, type AppColumnDef} from '@/components/columnBuilder';
+import {type AppColumnDef, buildColumns} from '@/components/columnBuilder';
 
 /** 可筛选的列：类型决定筛选控件（enum 多选 / date、number 区间 / text 包含） */
 export const preorderFilterFields: FilterField[] = [
@@ -28,7 +28,7 @@ const ORG_LABEL: Record<string, string> = {
 const orgLabel = (id: unknown): string => ORG_LABEL[String(id ?? '')] ?? String(id ?? '');
 
 /** 列定义：dataType 决定渲染控件（text / number / date / boolean / tag） */
-const COLUMNS: AppColumnDef[] = [
+export const COLUMNS: AppColumnDef[] = [
     {field: 'WorkPlace', title: '产地', width: 90},
     {field: 'YPDate', title: '预订日期', width: 100, dataType: 'date', sortable: true},
     {
@@ -86,14 +86,14 @@ const COLUMNS: AppColumnDef[] = [
             columnProps: {
                 style: {textAlign: 'right'},
                 fieldFormat: (record: YupaiOrder) => {
-                  const value = record[fieldName];
-                  if (value === null || value === undefined || value === '') return '';
-                  // 你的判断逻辑
-                  if (Number(value) > 0) {
-                    return  value;
-                  }else{
-                    return '';
-                  }
+                    const value = record[fieldName];
+                    if (value === null || value === undefined || value === '') return '';
+                    // 你的判断逻辑
+                    if (Number(value) > 0) {
+                        return value;
+                    } else {
+                        return '';
+                    }
                 },
             },
         }

@@ -1,22 +1,17 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {App} from 'antd';
-import {ApiError, yupaiApi, type YupaiOrderQuery, type YupaiOrder, YupaiMachineSizeHeader} from '@/api';
+import {ApiError, yupaiApi, YupaiMachineSizeHeader, type YupaiOrder, type YupaiOrderQuery} from '@/api';
 import {CommandBar} from '@/components/CommandBar';
-import type {FormMode} from '@/components/commands';
 import {FilterTable} from '@/components/FilterTable';
 import {PageBreadcrumb} from '@/components/PageBreadcrumb';
-import type {
-    VTableApi,
-    VTableCellStyleHook,
-    VTableMenuConfig,
-    VTableSelectedRowChangeInfo,
-} from '@/components/VTable';
+import type {VTableApi, VTableCellStyleHook, VTableMenuConfig, VTableSelectedRowChangeInfo,} from '@/components/VTable';
 import type {ViewPageProps} from '@/pages/types';
 import {yupaiService} from '@/services/yupai.ts';
 import {buildPreorderColumns, preorderFilterFields} from './columns';
 import YupaiOrderEdit from './models/yupaiOrderEdit';
-import {usePreorderCommands} from './command';
-import type {YupaiOrderCommandContext} from './command';
+import type {FormMode, YupaiOrderCommandContext, YupaiOrderLogCommandContext} from './command';
+import {useYupaiOrderCommands} from './command';
+import {YupaiOrderLogModal} from "@/pages/views/V0189/V0279/V0280/models/yupaiOrderLog.tsx";
 
 /** V0189_V0279_V0280 计划管理 > 预订单 > 预订单管理 */
 const PreorderPage: React.FC<ViewPageProps> = ({view, trail}) => {
@@ -37,6 +32,9 @@ const PreorderPage: React.FC<ViewPageProps> = ({view, trail}) => {
     const [formMode, setFormMode] = useState<FormMode>('add');
     const [editingRecord, setEditingRecord] = useState<YupaiOrder | null>(null);
     const tableRef = useRef<VTableApi | null>(null);
+    const [logOpen, setLogOpen] = useState(false);
+    /** 日志弹窗看的是哪一单：打开时记下来，弹窗按它取数据（不是「当前激活行」——两者不该绑定） */
+    const [logOrderId, setLogOrderId] = useState('');
 
     const loadData = useCallback(
         async (params: YupaiOrderQuery) => {
@@ -137,6 +135,17 @@ const PreorderPage: React.FC<ViewPageProps> = ({view, trail}) => {
         setFormOpen(true);
     }, []);
 
+    /**
+     * 打开日志弹窗：命令按钮 / 右键菜单 / 双击行共用一个入口。
+     *
+     * 记的是**调用时传进来的那一单**，不是「当前激活行」—— 弹窗开着的时候用户还可能改选中，
+     * 绑 activeRow 会让内容跟着跳。
+     */
+    const openLog = useCallback((order: YupaiOrder) => {
+        setLogOrderId(order.ID);
+        setLogOpen(true);
+    }, []);
+
     /** 按当前条件重新加载（command/ 里的命令统一走它） */
     const reload = useCallback(async () => {
         await loadData(query);
@@ -157,7 +166,15 @@ const PreorderPage: React.FC<ViewPageProps> = ({view, trail}) => {
         }),
         [message, modal, tableRef, getActiveRows, activeRow, hasSelection, query, reload, openForm],
     );
-    const commands = usePreorderCommands(commandContext);
+    /**
+     * 变更日志那一组的依赖：在公共 context 之上多一个 openLog。
+     * 直接派生（而不是把 9 个字段再抄一遍），公共依赖增删时这里不用跟着改。
+     */
+    const changeLogCommandContext = useMemo<YupaiOrderLogCommandContext>(
+        () => ({...commandContext, openLog}),
+        [commandContext, openLog],
+    );
+    const commands = useYupaiOrderCommands(commandContext, changeLogCommandContext);
 
     const columns = useMemo(() => buildPreorderColumns(), []);
 
@@ -291,6 +308,12 @@ const PreorderPage: React.FC<ViewPageProps> = ({view, trail}) => {
                     if (formMode === 'add' || formMode === 'copy') setQuery((prev) => ({...prev, page: 1}));
                     else void loadData(query);
                 }}
+            />
+
+            <YupaiOrderLogModal
+                open={logOpen}
+                yupaiOrderID={logOrderId}
+                onCancel={() => setLogOpen(false)}
             />
         </>
     );

@@ -3,11 +3,20 @@ import type {CommandItem} from '@/components/CommandBar';
 import {isDebugEnv} from '@/utils';
 import type {CommandFactory} from './types';
 
-/** 一组命令：这些工厂共用同一个 context（页面可以为不同组装配不同的 context） */
-export interface CommandGroup<TContext> {
+/** 一组命令：context 与 factories 一一对应；不同组可以喂各自不同的 context */
+export interface CommandGroup<TContext extends object = object> {
     context: TContext;
-    factories: CommandFactory<TContext>[];
+    factories: ReadonlyArray<CommandFactory<TContext>>;
 }
+
+/**
+ * 异构组：每组可以喂不同类型的 context（例如第一组是页面公共依赖，第二组在那之上多带一个 openLog）。
+ *
+ * 这里必须用 `any`：写成 `CommandFactory<object>` 会因为**函数参数逆变**而拒绝更具体的工厂
+ * （实测 TS2322；不写注解则推断失败 TS2345）。组内「context 与 factories 匹配」改由构造处保证 ——
+ * 页面写 `{context, factories}` 字面量时 TS 仍按那一组的类型检查。
+ */
+export type AnyCommandGroup = CommandGroup<any>;
 
 /**
  * 按 order 表给命令排序。
@@ -50,8 +59,8 @@ export function sortCommandsByOrder(
  * - **groups 与每个 context 都要 useMemo** —— 否则每次渲染都是新引用，下面这个 useMemo 全失效；
  * - 这里不能改成「对每组调一次 useCommands」：hooks 不能出现在循环里，整组一次算完。
  */
-export function useCommandGroups<TContext extends object>(
-    groups: CommandGroup<TContext>[],
+export function useCommandGroups(
+    groups: ReadonlyArray<AnyCommandGroup>,
     options?: {order?: readonly string[]},
 ): CommandItem[] {
     const order = options?.order;

@@ -6,7 +6,7 @@ import type {ApiResponse, PageQuery} from '../types';
 // `Uncaught ReferenceError: Cannot access 'S' before initialization`，
 // SSR 下则是静默拿到 undefined（mapping 变成 {type: undefined}，转换全错）。
 import type {Dayjs} from 'dayjs';
-import {N, S, OpS, sqlApi, type FieldConfig, type FieldMapping} from './sql';
+import {type FieldConfig, type FieldMapping, N, OpS, S, sqlApi} from './sql';
 import {toStringOrEmpty} from "@/utils";
 
 /** 尺码列标题，按界面原样展示 */
@@ -217,7 +217,7 @@ export const YupaiOrderMapping: FieldMapping<YupaiOrderDto> = {
     UpdateTime: S,
     UpdateUser: S,
     DepartmentID: S,
-    DataVersion:N,
+    DataVersion: N,
     ...YupaiMachineSizeHeader.reduce<Record<string, FieldConfig>>((acc, _, index) => {
         acc[`MCSize${index + 1}`] = {type: "number", field: `MC_SIZE${index + 1}`};
         return acc;
@@ -268,6 +268,8 @@ export const yupaiApi = {
     changes: () => http.get<YupaiOrderChange[]>('/plan/yupaiOrder/list/change'),
     /** 保存预订单。载荷是**后端形态**（日期给字符串），所以用 DTO 而不是业务模型 */
     save: (payload: Partial<YupaiOrderDto>[]) => http.post<YupaiOrderDto>('/plan/yupaiOrder/save', payload),
+    /** 日志记录 */
+    log: (yupaiOrderID: string) => http.get<YupaiOrderDto[]>('//plan/yupaiOrder/log', {id: yupaiOrderID}),
     /** 删除预订单 */
     delete: (payload: YupaiOrderDel) => http.delete<string>('/plan/yupaiOrder/del', {Memo: payload.Memo}, {"body": payload.ID}),
     /** 发布预订单 */
