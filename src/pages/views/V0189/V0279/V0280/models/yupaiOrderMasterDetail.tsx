@@ -1,24 +1,8 @@
 import React, {useMemo} from 'react';
-import type {YupaiOrder} from '@/api';
 import {VTable} from "@/components/vtable";
 import {buildColumns} from "@/components/vtable/columnBuilder.ts";
 import {toNumberOrZero} from "@/utils";
 import {Tabs, type TabsProps} from "antd";
-
-/**
- * 一次订单号修改的完整信息（展开区 -> 页面）。
- *
- * `record` 一并带上是给「接后端」留的：订单号是**单据级**字段，真要回写时得靠它的 `ID`
- * 认出是哪一行、用 `previous` 把整单捞回来（见页面里的 handleOrderCodeSave）。
- */
-export interface YupaiOrderCodeChange {
-    /** 用户输入的新订单号（已 trim） */
-    orderCode: string;
-    /** 改动前的订单号 */
-    previous: string;
-    /** 触发修改的那一行数据 */
-    record: YupaiOrder;
-}
 
 export interface YupaiOrderMasterDetailProps {
     /** 展开行对应的记录（明细表格的数据） */
