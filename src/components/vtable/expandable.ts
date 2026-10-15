@@ -298,30 +298,44 @@ export function createExpandableController(deps: ExpandableControllerDeps): Expa
   };
 
   /**
-   * 渲染展开内容并按「最多 maxHeight」把它摆好，返回**实际用掉的高度**。
+   * 量出内容占的高度（相对 wrapper 内容区顶部）。
    *
-   * `height` 是**上限**而不是固定值：内容矮就贴合内容，超出才压到这个高度并出现滚动条。
-   * 所以必须先渲染、再测量 —— 而 `root.render` 是异步调度的（并发渲染），
-   * 直接读只会量到空容器，这里用 `flushSync` 把它压成同步的一帧。
-   *
-   * ⚠️ flushSync 只能在事件回调里用（React 在 render / 生命周期里会警告），
-   * 所以测量只发生在「新建覆盖层」这条路径上 —— 那正是用户点展开触发的。
+   * 不用 `wrapper.scrollHeight`：它**至少等于 clientHeight**，内容比容器矮时量不出真实值
+   * （给足上限量的时候会恒等于容器高度，两次测量就分辨不出差异了）。
+   * 这里直接量各个内容子节点的下边界取最大值，多根节点也覆盖得到。
    */
-  const renderAndMeasure = (
-    wrapper: HTMLDivElement,
-    root: Root,
-    node: ReactNode,
-    maxHeight: number,
-  ): number => {
-    // 先按自然高度量一次
+  const measureContentHeight = (wrapper: HTMLDivElement): number => {
+    const children = Array.from(wrapper.children) as HTMLElement[];
+    if (!children.length) return wrapper.scrollHeight;
+    return Math.max(...children.map((child) => child.offsetTop + child.offsetHeight));
+  };
+
+  /**
+   * 按内容实测高度把 wrapper 摆好，返回**实际用掉的高度**。前提：内容已经渲染进 wrapper。
+   *
+   * `height` 是**上限**而不是固定值：内容矮就贴合内容，超出才压到上限并出现滚动条。
+   *
+   * 为什么要量两次：内容不一定有「固有高度」。
+   * - 固定高度、或由自己的内容撑开：`auto` 量到的就是它真实要占的高度；
+   * - 根节点写了 `height: 100%`（想让展开区铺满）：`auto` 会让百分比失去参照、**塌成 0**，
+   *   量出来只剩上下 padding 那十几 px —— 于是展开区被压扁、内容整个看不见（实测踩到过）。
+   * 所以先给足上限量一次：会跟着容器拉伸的内容这时顶到上限，两次结果差得多，
+   * 就说明它没有固有高度，只能按上限铺满。
+   */
+  const applyMeasuredHeight = (wrapper: HTMLDivElement, maxHeight: number): number => {
+    // ① 先给足上限：既让百分比高度有参照，也保证万一量不准，展开区是「够高」而不是「塌成一条」
+    wrapper.style.height = `${maxHeight}px`;
+    const stretched = measureContentHeight(wrapper);
+    // ② 再放开成自然高度，看内容自己要多高
     wrapper.style.height = 'auto';
-    flushSync(() => root.render(node));
-    const natural = wrapper.scrollHeight;
-    // scrollHeight 不含边框，而高度按 border-box 走：内容刚好时得把这 1px 补回来，
-    // 否则明明塞得下却挤出滚动条
+    const natural = measureContentHeight(wrapper);
+
+    const contentHeight = stretched > natural + 1 ? maxHeight : natural;
+    const clamped = Math.min(Math.max(contentHeight, MIN_DETAIL_HEIGHT), maxHeight);
+    // 高度按 border-box 设，而量到的是内容高度（不含边框）：内容正好塞满时要补回那条
+    // 1px 上边框，否则会挤出滚动条；已经到上限的就别补了，差的那点交给滚动条
     const borderExtra = wrapper.offsetHeight - wrapper.clientHeight;
-    const contentHeight = natural > 0 ? natural : MIN_DETAIL_HEIGHT;
-    const height = contentHeight > maxHeight ? maxHeight : contentHeight + borderExtra;
+    const height = clamped >= maxHeight ? maxHeight : clamped + borderExtra;
     wrapper.style.height = `${height}px`;
     return height;
   };
@@ -391,9 +405,20 @@ export function createExpandableController(deps: ExpandableControllerDeps): Expa
     const root = createRoot(wrapper);
     overlays.set(rowKey, { wrapper, root, onWheel });
 
-    // 先渲染内容量出高度，再撑行高、再定位（applyDetailHeight 里一条龙）
     const maxHeight = Math.max(MIN_DETAIL_HEIGHT, options.height ?? DEFAULT_DETAIL_HEIGHT);
-    applyDetailHeight(rowKey, row, entry, renderAndMeasure(wrapper, root, node, maxHeight));
+    // 先把高度撑到上限再渲染：内容里若用了百分比高度，得有参照才量得准；
+    // 再按实测收缩成实际需要的高度（贴合内容 / 到上限出滚动条）
+    wrapper.style.height = `${maxHeight}px`;
+    flushSync(() => root.render(node));
+    applyDetailHeight(rowKey, row, entry, applyMeasuredHeight(wrapper, maxHeight));
+
+    // 下一帧再量一次：展开区里可能放着要等 effect 跑完才定高的东西（比如嵌套的 VTable），
+    // 第一帧量到的会偏小，这里发现差异就修正（值没变时什么都不做）
+    requestAnimationFrame(() => {
+      if (!overlays.has(rowKey)) return; // 已经收起了
+      const next = applyMeasuredHeight(wrapper, maxHeight);
+      if (Math.abs(next - entry.detailHeight) >= 1) applyDetailHeight(rowKey, row, entry, next);
+    });
   };
 
   const unmountOverlay = (rowKey: string) => {
