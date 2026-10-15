@@ -25,6 +25,8 @@
  * （同 selection.ts 的模式）。
  */
 import { createRoot, type Root } from 'react-dom/client';
+// flushSync 在 react-dom 根入口（client 入口只导出 createRoot / hydrateRoot）
+import { flushSync } from 'react-dom';
 import type { ReactNode } from 'react';
 import type { ColumnsDefine, ListTable } from '@visactor/vtable';
 import { BODY_CELL_PADDING } from './theme';
@@ -53,11 +55,14 @@ export function expandedRowCellStyle(detailHeight: number): { padding: number[] 
   const [vertical, horizontal] = BODY_CELL_PADDING;
   return { padding: [vertical, horizontal, vertical + detailHeight, horizontal] };
 }
-/** 展开区默认高度 */
+/** 展开区高度的**默认上限** */
 const DEFAULT_DETAIL_HEIGHT = 200;
 /** 展开按钮方块边长 */
 const BUTTON_SIZE = 18;
-/** 展开区最小高度（页面传了更小的值也兜住，不然覆盖层没法看） */
+/**
+ * 展开区高度的下限：页面配的上限本身会被兜到至少这么高；
+ * 内容为空（量到 0 高度）时也退到它，免得「点了展开却什么都没出现」。
+ */
 const MIN_DETAIL_HEIGHT = 40;
 /**
  * 「按下 -> 抬起」的位移阈值（px）：超过就当成拖拽（框选 / 滚动），不当作点击。
@@ -87,7 +92,12 @@ export interface VTableExpandableOptions {
   rowExpandable?: (info: VTableExpandableInfo) => boolean;
   /** 展开区内容：返回任意 React 节点（antd 表单 / 子表格 / 图表都行） */
   renderExpanded: (info: VTableExpandableInfo) => ReactNode;
-  /** 展开区高度（px），默认 200。内容更高时覆盖层内部可出现滚动条 */
+  /**
+   * 展开区高度的**上限**（px），默认 200。
+   *
+   * 不是固定高度：先按内容的实际高度撑开，只有超过这个值才压到它并出现滚动条 ——
+   * 所以内容少的行展开区就矮，不会留一大片空白。
+   */
   height?: number;
   /** 展开态变化（展开 / 收起 / 重建后）回调，回传当前所有展开行的主键 */
   onExpandChange?: (info: { expandedRowKeys: string[] }) => void;
@@ -287,6 +297,53 @@ export function createExpandableController(deps: ExpandableControllerDeps): Expa
     return false;
   };
 
+  /**
+   * 渲染展开内容并按「最多 maxHeight」把它摆好，返回**实际用掉的高度**。
+   *
+   * `height` 是**上限**而不是固定值：内容矮就贴合内容，超出才压到这个高度并出现滚动条。
+   * 所以必须先渲染、再测量 —— 而 `root.render` 是异步调度的（并发渲染），
+   * 直接读只会量到空容器，这里用 `flushSync` 把它压成同步的一帧。
+   *
+   * ⚠️ flushSync 只能在事件回调里用（React 在 render / 生命周期里会警告），
+   * 所以测量只发生在「新建覆盖层」这条路径上 —— 那正是用户点展开触发的。
+   */
+  const renderAndMeasure = (
+    wrapper: HTMLDivElement,
+    root: Root,
+    node: ReactNode,
+    maxHeight: number,
+  ): number => {
+    // 先按自然高度量一次
+    wrapper.style.height = 'auto';
+    flushSync(() => root.render(node));
+    const natural = wrapper.scrollHeight;
+    // scrollHeight 不含边框，而高度按 border-box 走：内容刚好时得把这 1px 补回来，
+    // 否则明明塞得下却挤出滚动条
+    const borderExtra = wrapper.offsetHeight - wrapper.clientHeight;
+    const contentHeight = natural > 0 ? natural : MIN_DETAIL_HEIGHT;
+    const height = contentHeight > maxHeight ? maxHeight : contentHeight + borderExtra;
+    wrapper.style.height = `${height}px`;
+    return height;
+  };
+
+  /**
+   * 把实测高度写回记录，并同步行高与覆盖层位置。
+   *
+   * 顺序不能反：先写 `entry.detailHeight` 再 `setRowHeight` —— 撑高会重画该行，
+   * 而列样式正是靠 `detailHeight` 算下内边距的（见 expandedRowCellStyle）。
+   */
+  const applyDetailHeight = (
+    rowKey: string,
+    row: number,
+    entry: ExpandedEntry,
+    detailHeight: number,
+  ) => {
+    // Map 里存的就是这个对象，改属性即可
+    entry.detailHeight = detailHeight;
+    deps.getTable()?.setRowHeight(row, entry.originalHeight + detailHeight);
+    positionOverlay(rowKey, row, entry);
+  };
+
   const mountOverlay = (rowKey: string, row: number, entry: ExpandedEntry) => {
     const table = deps.getTable();
     const container = deps.getContainer();
@@ -294,12 +351,16 @@ export function createExpandableController(deps: ExpandableControllerDeps): Expa
     if (!table || !container || !options) return;
     const rowIndex = row - headerLevelOf(table);
     const info = buildInfo(rowKey, rowIndex, row);
+    const node = options.renderExpanded(info);
 
     const existing = overlays.get(rowKey);
     if (existing) {
       // 复用 root 只刷新内容：保留展开区内部的组件 state（比如用户正在填的表单），
-      // 排序 / 换数据导致的重建不会把用户填了一半的东西冲掉
-      existing.root.render(options.renderExpanded(info));
+      // 排序 / 换数据导致的重建不会把用户填了一半的东西冲掉。
+      // 高度沿用本行已测出的值：这条路径多半跑在 layout effect 里，没法用 flushSync 同步测量
+      // （React 会报 flushSync was called from inside a lifecycle method），
+      // 而同一行的内容形态是稳定的，数据刷新不会改变它的高度。
+      existing.root.render(node);
       positionOverlay(rowKey, row, entry);
       return;
     }
@@ -329,8 +390,10 @@ export function createExpandableController(deps: ExpandableControllerDeps): Expa
 
     const root = createRoot(wrapper);
     overlays.set(rowKey, { wrapper, root, onWheel });
-    root.render(options.renderExpanded(info));
-    positionOverlay(rowKey, row, entry);
+
+    // 先渲染内容量出高度，再撑行高、再定位（applyDetailHeight 里一条龙）
+    const maxHeight = Math.max(MIN_DETAIL_HEIGHT, options.height ?? DEFAULT_DETAIL_HEIGHT);
+    applyDetailHeight(rowKey, row, entry, renderAndMeasure(wrapper, root, node, maxHeight));
   };
 
   const unmountOverlay = (rowKey: string) => {
@@ -374,13 +437,13 @@ export function createExpandableController(deps: ExpandableControllerDeps): Expa
     const table = deps.getTable();
     const options = deps.getOptions();
     if (!table || !options) return;
-    const detailHeight = Math.max(MIN_DETAIL_HEIGHT, options.height ?? DEFAULT_DETAIL_HEIGHT);
     const originalHeight = table.getRowHeight(row);
-    const entry: ExpandedEntry = { originalHeight, detailHeight };
+    // detailHeight 先占位 0：真实高度要等内容渲染出来才量得到，
+    // 撑行高与定位都在 mountOverlay -> applyDetailHeight 里完成
+    const entry: ExpandedEntry = { originalHeight, detailHeight: 0 };
     // 先记状态再撑行高：setRowHeight 内部会重排该行单元格、重画 customRender，
-    // 那一刻按钮必须已经是「展开态」
+    // 那一刻按钮必须已经是「展开态」，列样式也要读得到这条记录
     expanded.set(rowKey, entry);
-    table.setRowHeight(row, originalHeight + detailHeight);
     mountOverlay(rowKey, row, entry);
     notifyChange();
   };
@@ -544,6 +607,8 @@ export function createExpandableController(deps: ExpandableControllerDeps): Expa
       }
       const row = index + headerLevel;
       if (deps.isSummaryRow(row, headerLevel)) return;
+      // 行高按**已测出**的展开高度补回来（setRecords / updateOption 会把它打回原值），
+      // 这里不重新测量：见 mountOverlay 复用分支的说明
       table.setRowHeight(row, entry.originalHeight + entry.detailHeight);
       mountOverlay(rowKey, row, entry);
     });
