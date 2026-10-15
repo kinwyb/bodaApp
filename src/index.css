@@ -426,7 +426,10 @@ body {
   box-sizing: border-box;
   overflow: auto;
   background: #fafafa;
-  border-bottom: 1px solid #f0f0f0;
+  /* 上边补一条分割线：展开层紧贴原行的内容，没有线的话表格与展开区就直接糊在一起了
+     （颜色与数据行的分割线一致，见 theme.ts 的 bodyStyle.frameStyle.borderColor）。
+     下方不用画：原行与下一行之间的分割线随行高一起下移，正好落在展开层底部。 */
+  border-top: 1px solid #f0f0f0;
   pointer-events: auto;
 }
 

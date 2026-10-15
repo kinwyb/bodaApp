@@ -27,6 +27,7 @@
 import { createRoot, type Root } from 'react-dom/client';
 import type { ReactNode } from 'react';
 import type { ColumnsDefine, ListTable } from '@visactor/vtable';
+import { BODY_CELL_PADDING } from './theme';
 
 // ─── 常量 ────────────────────────────────────────────────────────────────────
 
@@ -34,6 +35,24 @@ import type { ColumnsDefine, ListTable } from '@visactor/vtable';
 export const EXPAND_COLUMN_FIELD = '__vtable_expand__';
 /** 展开列宽度 */
 export const EXPAND_COLUMN_WIDTH = 44;
+/**
+ * 展开行的单元格样式补偿：**把下内边距撑到展开区的高度**。
+ *
+ * 撑高行之后 VTable 会按新行高重新摆放这一行的内容（默认垂直居中），内容于是落到行中部 ——
+ * 而展开层压在原行高下方的位置，正好把它整个盖住，看起来就是「展开后这一行空白了」
+ * （实测：行高 28 → 92 时文字中心落在 y≈46，展开层盖住 28~92 这一段）。
+ *
+ * 为什么不是简单改 `textBaseline: 'top'`：那样确实能躲开遮挡（实测截图确认），但这一行会
+ * 与上下行的居中不一致 —— 别人都居中、就它贴顶，非常扎眼。
+ *
+ * 补下内边距则让内容区缩回「原行高」那一段：行高 = 原行高 + 展开区高度，
+ * 下内边距 = 原下内边距 + 展开区高度，于是内容区高度恰好还是 `原行高 - 上下内边距`，
+ * 文字仍在原来的垂直位置居中，与相邻行严丝合缝地对齐。
+ */
+export function expandedRowCellStyle(detailHeight: number): { padding: number[] } {
+  const [vertical, horizontal] = BODY_CELL_PADDING;
+  return { padding: [vertical, horizontal, vertical + detailHeight, horizontal] };
+}
 /** 展开区默认高度 */
 const DEFAULT_DETAIL_HEIGHT = 200;
 /** 展开按钮方块边长 */
@@ -188,6 +207,11 @@ export interface ExpandableController {
   /** 收起全部 */
   collapseAll: () => void;
   isExpanded: (rowKey: string) => boolean;
+  /**
+   * 该展开行的展开区高度；未展开的行返回 0。
+   * 列样式靠它补下内边距（见 expandedRowCellStyle），让内容留在原行高那一段里居中。
+   */
+  getDetailHeight: (rowKey: string) => number;
   getExpandedRowKeys: () => string[];
 }
 
@@ -651,6 +675,7 @@ export function createExpandableController(deps: ExpandableControllerDeps): Expa
       });
     },
     isExpanded: (rowKey: string) => expanded.has(rowKey),
+    getDetailHeight: (rowKey: string) => expanded.get(rowKey)?.detailHeight ?? 0,
     getExpandedRowKeys: () => Array.from(expanded.keys()),
   };
 }

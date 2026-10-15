@@ -29,6 +29,7 @@ import { prepareBottomFrozen, scheduleBottomFrozen } from './frozen';
 import {
   buildExpandColumn,
   createExpandableController,
+  expandedRowCellStyle,
   type ExpandableController,
   type VTableExpandableOptions,
 } from './expandable';
@@ -430,6 +431,10 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
             if (isSummary) {
               return { ...base, bgColor: '#fafafa', fontWeight: 'bold' };
             }
+            // 展开行：内容留在原行高那一段里居中，否则会跟着撑高的行居中、
+            // 正好落进下方的展开层里被盖住（整行看起来是空的）。详见 expandedRowCellStyle。
+            const expandedPadding = expandedRowPadding(args.row, headerLevel);
+            if (expandedPadding) return { ...base, ...expandedPadding };
             // 页面自定义样式（业务提醒）
             const index = args.row - headerLevel;
             const rowKeyAt = rowKeyByIndexRef.current[index] ?? '';
@@ -452,9 +457,13 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
         } as unknown as (typeof cols)[number];
       });
     // 没有任何要注入的能力时直接用原列配置：少一层逐单元格的包装函数，
-    // 引用也保持等于 columns，下游 updateOption 不会跟着空转
+    // 引用也保持等于 columns，下游 updateOption 不会跟着空转。
+    // ⚠️ hasExpandable 也要参与判断：展开行的「内容贴顶」正是补在这层包装里的，
+    // 少了它，只配 expandable、没配 cellStyle 的页面会漏掉这个补偿。
     const decorated =
-      !editableFields && !hasCellStyle && !hasSummary ? columns : decorate(columns);
+      !editableFields && !hasCellStyle && !hasSummary && !hasExpandable
+        ? columns
+        : decorate(columns);
     // 展开列插在行号列之后、业务列之前：跟行号一起冻住，横向滚动时按钮不消失
     if (!hasExpandable) return decorated;
     return [buildExpandColumn(renderExpandButton), ...decorated];
@@ -535,6 +544,19 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     });
   }
   const rowExpander = expandableRef.current;
+
+  /**
+   * 展开行要补的单元格样式：下内边距撑到展开区高度，内容就仍留在「原行高」那一段里居中
+   * （理由见 expandedRowCellStyle 的说明）。没展开的行返回 undefined，等于不改样式。
+   *
+   * **行号列与业务列都要用**：行号列是 VTable 原生列（rowSeriesNumber），不走 columns
+   * 那层样式包装，漏了它序号就会飘到行中间被展开层盖住 —— 界面上一整列的序号就空了。
+   */
+  const expandedRowPadding = (row: number, headerLevel: number) => {
+    const rowKey = rowKeyByIndexRef.current[row - headerLevel] ?? '';
+    const detailHeight = rowKey ? expandableRef.current?.getDetailHeight(rowKey) ?? 0 : 0;
+    return detailHeight > 0 ? expandedRowCellStyle(detailHeight) : undefined;
+  };
 
   /**
    * 按内容自适应所有列宽。
@@ -680,10 +702,16 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
               width: typeof rowNumber === 'object' && rowNumber.width ? rowNumber.width : 48,
               headerStyle: { textAlign: 'center' as const },
               // 统计行灰底加粗；columns 上的 cellStyle 管不到这一列，必须在这里单独设
-              style: (args: { row: number; table: { columnHeaderLevelCount: number } }) =>
-                isSummaryRow(args.row, args.table.columnHeaderLevelCount)
-                  ? { bgColor: '#fafafa', fontWeight: 'bold' as const, textAlign: 'center' as const }
-                  : { textAlign: 'center' as const },
+              style: (args: { row: number; table: { columnHeaderLevelCount: number } }) => {
+                const centered = { textAlign: 'center' as const };
+                const headerLevel = args.table.columnHeaderLevelCount;
+                if (isSummaryRow(args.row, headerLevel)) {
+                  return { ...centered, bgColor: '#fafafa', fontWeight: 'bold' as const };
+                }
+                // 展开行的序号也得留在原行高那一段里居中：行号列不经过 columns 的样式包装，
+                // 漏了这里序号就会飘到行中间、被展开层盖住（整列序号看起来是空的）
+                return { ...centered, ...expandedRowPadding(args.row, headerLevel) };
+              },
               // 统计行显示「汇总」，其余显示 1 起的连续行号（排序后重新编号）
               format: (_col?: number, row?: number, table?: { columnHeaderLevelCount: number }) => {
                 const headerLevel = table?.columnHeaderLevelCount ?? 0;
