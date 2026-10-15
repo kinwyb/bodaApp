@@ -266,13 +266,25 @@ export function createExpandableController(deps: ExpandableControllerDeps): Expa
   };
 
   /**
-   * 覆盖层内部还能往某个方向滚就让给它，否则把滚轮转给表格画布。
-   * 不转发的话，鼠标停在展开区上时表格纹丝不动 —— 展开区经常有几百像素高，这是常态。
+   * 展开区内部还能不能往这个方向滚 —— 能就让给它，不能才转给主表格。
+   *
+   * **横向必须一起判**：展开层的宽度跟着表格总宽走（表宽超出视口时它自己就有横向滚动条），
+   * 只判纵向的话横向滚轮会被当成「滚不动」转给主表格，用户就永远滚不动展开区的横向内容。
+   *
+   * 每个方向单独看当前位置：贴边了才放行给表格，否则内部滚（不这样判的话，滚到一半
+   * 就会把剩下的量甩给表格，表现为「展开区没滚到头、主表格先动了」）。
    */
-  const canScrollWithin = (el: HTMLElement, deltaY: number): boolean => {
-    if (el.scrollHeight <= el.clientHeight + 1) return false;
-    if (deltaY < 0) return el.scrollTop > 0;
-    return el.scrollTop < el.scrollHeight - el.clientHeight - 1;
+  const canScrollWithin = (el: HTMLElement, event: WheelEvent): boolean => {
+    const { deltaX, deltaY } = event;
+    if (deltaY !== 0 && el.scrollHeight > el.clientHeight + 1) {
+      const maxTop = el.scrollHeight - el.clientHeight - 1;
+      if (deltaY < 0 ? el.scrollTop > 0 : el.scrollTop < maxTop) return true;
+    }
+    if (deltaX !== 0 && el.scrollWidth > el.clientWidth + 1) {
+      const maxLeft = el.scrollWidth - el.clientWidth - 1;
+      if (deltaX < 0 ? el.scrollLeft > 0 : el.scrollLeft < maxLeft) return true;
+    }
+    return false;
   };
 
   const mountOverlay = (rowKey: string, row: number, entry: ExpandedEntry) => {
@@ -297,23 +309,21 @@ export function createExpandableController(deps: ExpandableControllerDeps): Expa
     ensureHost(container).appendChild(wrapper);
 
     const onWheel = (event: WheelEvent) => {
-      const canvas = deps.getCanvas();
-      if (!canvas) return;
-      if (canScrollWithin(wrapper, event.deltaY)) return;
-      event.preventDefault();
-      // 合成 WheelEvent 派发给画布：VTable 的滚轮监听挂在 scenegraph.stage 上
-      // （event/listener/table-group.js 的 stage.addEventListener("wheel")），
-      // 走画布就能复用它的全部滚动逻辑（含冻结列与惯性）
-      canvas.dispatchEvent(
-        new WheelEvent('wheel', {
-          deltaX: event.deltaX,
-          deltaY: event.deltaY,
-          clientX: event.clientX,
-          clientY: event.clientY,
-          bubbles: true,
-          cancelable: true,
-        }),
-      );
+      // 展开区是个**滚动孤岛**：鼠标停在它上面时，滚轮只作用于它自己 ——
+      // 既不冒泡给主表格，也不主动转发过去。
+      //
+      // 两个都试过、都被实测否掉了：
+      // 1. 让事件冒泡（不 stopPropagation）：覆盖层就挂在表格容器里，事件冒上去会进
+      //    VTable 的滚动逻辑，于是展开区自己还没滚、主表格已经跟着滚了；
+      // 2. 展开区滚不动时把滚轮转给画布：同样会让主表格动起来。
+      // 后果都是展开区随行滚出视口，用户正想看/正在操作的内容直接消失。
+      //
+      // 滚不动时宁可没反应：展开区只占一行的高度，鼠标稍微移开就能滚表格。
+      event.stopPropagation();
+      if (!canScrollWithin(wrapper, event)) {
+        // 自己滚不动：挡掉浏览器接着去滚页面/外层容器，保持「无反应」
+        event.preventDefault();
+      }
     };
     wrapper.addEventListener('wheel', onWheel, { passive: false });
 
