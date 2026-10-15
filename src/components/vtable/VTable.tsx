@@ -26,6 +26,12 @@ import {
 import type { EditCellTrigger, VTableCellValueChangeInfo } from './editing';
 import type { VTableExportCsvOptions, VTableExportExcelOptions } from './export';
 import { prepareBottomFrozen, scheduleBottomFrozen } from './frozen';
+import {
+  buildExpandColumn,
+  createExpandableController,
+  type ExpandableController,
+  type VTableExpandableOptions,
+} from './expandable';
 import type { VTableMenuConfig, VTableMenuItem } from './menu';
 import { defaultCompare, type VTableSortState } from './sorting';
 import { THEME } from './theme';
@@ -102,6 +108,16 @@ export interface VTableApi {
   exportExcel: (fileName?: string) => Promise<unknown>;
   /** 导出 CSV，规则同 exportExcel */
   exportCsv: (fileName?: string) => Promise<unknown>;
+  /**
+   * 按行主键展开该行（需配置 expandable）。行不在当前数据里、不可展开或已展开时静默忽略。
+   */
+  expandRow: (rowKey: string) => void;
+  /** 按行主键收起该行；未展开时静默忽略 */
+  collapseRow: (rowKey: string) => void;
+  /** 收起所有展开的行 */
+  collapseAllRows: () => void;
+  /** 该行当前是否展开（未配置 expandable 时恒为 false） */
+  isRowExpanded: (rowKey: string) => boolean;
 }
 
 export interface VTableProps {
@@ -189,6 +205,19 @@ export interface VTableProps {
   exportOptions?: TableExportPluginOptions;
   /** 右键菜单 / 表头菜单配置；不传则保持 VTable 默认（没有菜单） */
   menu?: VTableMenuConfig;
+  /**
+   * 按行展开：在行号列后插入一列展开/收起按钮，点击后撑开该行，
+   * 在展开区里渲染 renderExpanded 返回的任意 React 控件（antd 表单 / 子表格 / 图表）。
+   *
+   * - 按钮是否有效由 rowExpandable 按行数据判断，无效时置灰且点击无响应；
+   * - 展开态按**行主键**记录：排序、筛选、换页后自动跟随对应行重建；
+   * - 机制与官方 MasterDetailPlugin 不同（行高用公开 API setRowHeight 撑开，
+   *   内容是 DOM 覆盖层而不是嵌套表格），详见 ./expandable.ts 顶部说明。
+   *
+   * 注意：建议挂载时确定好传不传，运行中增删该配置不会重建表格实例（列会更新，
+   * 但冻结列补偿只按建表时的值算）。
+   */
+  expandable?: VTableExpandableOptions;
   onCellClick?: (info: VTableCellInfo) => void;
   onCellDblClick?: (info: VTableCellInfo) => void;
   /** 选中变化（点击 / 框选 / Ctrl+A 全选），回传选中的行数 */
@@ -243,6 +272,7 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
   loadingTip = '数据加载中…',
   exportOptions,
   menu,
+  expandable,
   onCellClick,
   onCellDblClick,
   onActiveSelectionChange,
@@ -341,6 +371,11 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
   /** 菜单配置：菜单项与回调都从 ref 实时读取，所以页面改菜单内容不用重建表格实例 */
   const menuRef = useRef(menu);
   menuRef.current = menu;
+  /** 展开配置：同菜单，回调与判定函数现取现读，页面改内容不用重建表格实例 */
+  const expandableOptionsRef = useRef(expandable);
+  expandableOptionsRef.current = expandable;
+  /** 只看「有没有」，用于决定是否注入展开列；包装后的回调内部都从 ref 读最新值 */
+  const hasExpandable = Boolean(expandable);
 
   /**
    * 统计行固定在数据行之后（含表头行号）。
@@ -356,10 +391,21 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
   // 只看「有没有」，用于决定是否要包装列配置；包装后的回调内部都从 ref 读最新值
   const hasCellStyle = Boolean(cellStyle);
   const hasSummary = Boolean(stableSummaryRow);
+  /**
+   * 展开按钮的绘制：转交给控制器（展开态、禁用态都在它手里）。
+   * 做成稳定引用：它是列定义的一部分，引用变化会连带整份列配置失效、触发 updateOption。
+   * 控制器可能还没建好（首次渲染的顺序问题），那时返回 renderDefault 让 VTable 画默认内容，
+   * 表格真正渲染单元格时控制器必然已就位。
+   */
+  const renderExpandButton = useCallback(
+    (args: Parameters<ExpandableController['renderButton']>[0]) => {
+      const controller = expandableRef.current;
+      if (!controller) return { elements: [], expectedHeight: 0, expectedWidth: 0 };
+      return controller.renderButton(args);
+    },
+    [],
+  );
   const finalColumns = useMemo<ColumnsDefine>(() => {
-    // 没有任何要注入的能力时直接用原列配置：少一层逐单元格的包装函数，
-    // 引用也保持等于 columns，下游 updateOption 不会跟着空转
-    if (!editableFields && !hasCellStyle && !hasSummary) return columns;
     const decorate = (cols: ColumnsDefine): ColumnsDefine =>
       cols.map((col) => {
         const grouped = col as { columns?: ColumnsDefine };
@@ -405,8 +451,22 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
           },
         } as unknown as (typeof cols)[number];
       });
-    return decorate(columns);
-  }, [columns, editableFields, hasCellStyle, hasSummary, isSummaryRow]);
+    // 没有任何要注入的能力时直接用原列配置：少一层逐单元格的包装函数，
+    // 引用也保持等于 columns，下游 updateOption 不会跟着空转
+    const decorated =
+      !editableFields && !hasCellStyle && !hasSummary ? columns : decorate(columns);
+    // 展开列插在行号列之后、业务列之前：跟行号一起冻住，横向滚动时按钮不消失
+    if (!hasExpandable) return decorated;
+    return [buildExpandColumn(renderExpandButton), ...decorated];
+  }, [
+    columns,
+    editableFields,
+    hasCellStyle,
+    hasSummary,
+    isSummaryRow,
+    hasExpandable,
+    renderExpandButton,
+  ]);
 
   /** 排序只作用于真实数据行，统计行永远追加在最后 */
   const rows = useMemo(() => {
@@ -454,6 +514,29 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
   const selection = selectionRef.current;
 
   /**
+   * 行展开控制器（展开按钮 + 撑行高 + DOM 覆盖层）—— 实现见 ./expandable.ts。
+   *
+   * 同样用 ref 惰性创建一次、引用永久稳定。deps 全是取值函数：
+   * 表格实例、行数据、配置都会随渲染更新，必须现取现读。
+   * 没有配 expandable 时控制器也在（空转，不碰 DOM），接线处统一判空即可。
+   */
+  const expandableRef = useRef<ReturnType<typeof createExpandableController> | null>(null);
+  if (!expandableRef.current) {
+    expandableRef.current = createExpandableController({
+      getTable: () => tableRef.current,
+      getContainer: () => containerRef.current,
+      getCanvas: () => tableRef.current?.canvas ?? null,
+      getRows: () => rowsRef.current,
+      getRowKeys: () => rowKeyByIndexRef.current,
+      getOptions: () => expandableOptionsRef.current,
+      // 展开列列号与建表时的 frozenColCount 补偿是同一次渲染里定的，取建表那份值
+      getExpandCol: () => (rowNumber ? 1 : 0),
+      isSummaryRow,
+    });
+  }
+  const rowExpander = expandableRef.current;
+
+  /**
    * 按内容自适应所有列宽。
    * 直接复用 VTable 内部实现——双击列边界时调用的就是这个方法，
    * 所以度量和裁剪逻辑跟手动双击完全一致。
@@ -479,8 +562,8 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     };
     const scenegraph = host.scenegraph;
     if (!scenegraph?.updateAutoColWidth) return;
-    // 行号列保持原宽，只自适应业务列
-    const firstDataCol = host.leftRowSeriesNumberCount ?? 0;
+    // 行号列与展开列保持原宽，只自适应业务列
+    const firstDataCol = (host.leftRowSeriesNumberCount ?? 0) + (hasExpandable ? 1 : 0);
     for (let col = firstDataCol; col < host.colCount; col += 1) {
       scenegraph.updateAutoColWidth(col);
       // 再调一次 setColWidth，把该列标记为“已手动调整”
@@ -495,7 +578,8 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     scenegraph.component?.setFrozenColumnShadow(host.frozenColCount - 1);
     scenegraph.component?.setRightFrozenColumnShadow(host.colCount - host.rightFrozenColCount);
     scenegraph.updateNextFrame?.();
-  }, []);
+    // hasExpandable 决定跳过多宽的前缀列（行号列 + 展开列），跟着它重建即可
+  }, [hasExpandable]);
 
   /**
    * 菜单项解析：把业务上下文补齐后交给页面配置的函数。
@@ -583,8 +667,9 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     const options: ListTableConstructorOptions = {
       columns: finalColumns,
       records: rows,
-      // 行号列恒占 col 0，也要算进冻结列数
-      frozenColCount: frozenColCount + (rowNumber ? 1 : 0),
+      // 行号列恒占 col 0，也要算进冻结列数；展开列插在行号列之后，一并冻住
+      // （按钮得在横向滚动时保持可见，且业务列的冻结语义不变）
+      frozenColCount: frozenColCount + (rowNumber ? 1 : 0) + (hasExpandable ? 1 : 0),
       maxFrozenWidth,
       unfreezeAllOnExceedsMaxWidth,
       // 行号列：VTable 原生能力，生成的是独立列（不占 columns），位置在所有 columns 之前
@@ -681,8 +766,12 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
       // 断言成 MouseEvent：PointerEvent 继承自它，而 TouchEvent 上没有 ctrlKey / clientX，
       // 触摸场景下 ctrlKey 本来就是 falsy，下面会直接 return。
       const event = args.event as MouseEvent | undefined;
-      const row = args.row;
+      // 展开列：记下「可能是点击」的位置，由控制器在画布 pointerup 上确认后再切换。
+      // 不走 click_cell 的原因见 expandable.ts 的 onCanvasPointerUp（自绘单元格的首次
+      // 点击不会派发 click_cell，是上游行为）
+      if (event) rowExpander.notePress(args.col, args.row, event.clientX, event.clientY);
       if (!multiSelectRef.current || !event) return;
+      const row = args.row;
       if (!(event.ctrlKey || event.metaKey) || event.shiftKey) return;
       if (row < table.columnHeaderLevelCount) return;
 
@@ -726,6 +815,9 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
       handlers.current.onCellClick?.(toInfo(args));
     });
     table.on('dblclick_cell', (args) => handlers.current.onCellDblClick?.(toInfo(args)));
+    // 滚动时重算展开区位置：覆盖层是 DOM，不跟着画布走，必须自己跟上；
+    // 整个展开区滚出视口时控制器会把它藏掉
+    table.on('scroll', () => rowExpander.positionAll());
 
     /**
      * 右键菜单 / 表头下拉菜单的点击。
@@ -879,6 +971,8 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
         table.resize();
         // resize 会重置底部冻结，这里补偿一次
         scheduleBottomFrozen(table, summaryRef.current ? 1 : 0);
+        // 容器尺寸变了，展开区覆盖层要跟着重新定位（高度没变，只可能露头/藏头）
+        rowExpander.positionAll();
       }
     });
     observer.observe(container);
@@ -886,6 +980,8 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     return () => {
       disposed = true;
       observer.disconnect();
+      // 展开区覆盖层是挂在容器里的 React root，必须随表格一起卸掉，否则泄漏
+      rowExpander.dispose();
       table.release();
       tableRef.current = null;
       syncedOptionRef.current = null;
@@ -913,6 +1009,9 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     // 一次画对。放到 setRecords 之后（哪怕同帧）都会闪一帧 —— 那时它结尾的同步 render()
     // 已按旧值画出「汇总行在数据末尾」，下一帧补偿才贴底，这一跳肉眼可见。
     prepareBottomFrozen(table, summaryRef.current ? 1 : 0);
+    // 展开态重建的第一步：记下每个展开行当前的行号。行高 map 按行号存且不会被
+    // setRecords 清掉，换数据后旧行号上撑着的高度必须靠这一步记下的坐标还原
+    rowExpander.captureRows();
     table.setRecords(rows);
     table.clearSelected();
     // setRecords 会重置排序状态（表头图标会消失），这里还原状态但不再执行排序
@@ -920,6 +1019,9 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     scheduleBottomFrozen(table, summaryRef.current ? 1 : 0);
     // 换页 / 换数据后重置选中：铺过的底色一并撤掉（行号在新数据里已经没意义了）
     selection.clearPaintedRows();
+    // 展开态重建的第二步：还原旧行高、按新行号撑高并重挂覆盖层（排序 / 筛选 / 换页
+    // 后展开行跟着自己的主键走，不会被行号变化打乱）
+    rowExpander.reapply();
     // 激活行同理：换了一批数据后，就算行号与主键恰好没变，也不再是同一条记录，
     // 所以去重状态清空、无条件回写一次「没有激活行」
     selection.resetActiveRowTracking();
@@ -928,8 +1030,9 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     // 不回调的话页面那边的「选中行数」会停在旧值上
     handlers.current.onActiveSelectionChange?.({ rowCount: 0 });
     // 不依赖 summary：统计行内容没变时 stableSummaryRow 复用旧引用，rows 不失效，
-    // 父组件重渲染就不会再触发一次全量 setRecords
-  }, [rows, selection]);
+    // 父组件重渲染就不会再触发一次全量 setRecords。
+    // rowExpander 是 ref 惰性创建的单例，引用永远稳定，放进 deps 只为消警告
+  }, [rows, selection, rowExpander]);
 
   /** 重绘：异步拿到业务标记（如变更明细）后调用，让 cellStyle 生效 */
   const repaint = useCallback(() => {
@@ -1009,12 +1112,18 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
       exportExcel,
       exportCsv,
       clearSelection: selection.clearSelection,
+      // 行展开的编程式入口（按行主键操作，行号会随排序 / 筛选变化，主键不会）
+      expandRow: rowExpander.expand,
+      collapseRow: rowExpander.collapse,
+      collapseAllRows: rowExpander.collapseAll,
+      isRowExpanded: rowExpander.isExpanded,
     }) satisfies VTableApi,
     [
       autoFitColumns,
       repaint,
       getRowByIndex,
       selection,
+      rowExpander,
       exportExcel,
       exportCsv,
     ],
@@ -1039,7 +1148,10 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     const next: ListTableConstructorOptions = { ...base, columns: finalColumns };
     delete next.records;
     void table.updateOption(next);
-  }, [finalColumns, autoFillWidth]);
+    // updateOption 会重建场景图并把展开行的行高打回原值，重建完立刻把它补回来
+    // （positionAll 顺带做这件事，见 expandable.ts）
+    rowExpander.positionAll();
+  }, [finalColumns, autoFillWidth, rowExpander]);
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%', minHeight: 0 }}>

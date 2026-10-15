@@ -413,6 +413,23 @@ body {
   --ant-spin-dot-holder-size: 40px;
 }
 
+/*
+  行展开的覆盖层（VTable 组件的 expandable prop）：由组件动态创建，挂在表格容器里。
+  宿主是 position:absolute; inset:0; pointer-events:none 的透明层（滚出视口的展开区由它裁掉），
+  所以这里只负责「覆盖层本身」：绝对定位由 JS 按行矩形现算，overflow:auto 让内容超高时
+  在展开区内部滚动（滚到底再把滚轮透给画布，逻辑在 expandable.ts 的 onWheel）。
+  pointer-events:auto 把交互从「穿透层」手里收回来；z-index 用 1，压在画布上、
+  仍在 loading 遮罩（z-index:2）之下。
+*/
+.vtable-expand-overlay {
+  position: absolute;
+  box-sizing: border-box;
+  overflow: auto;
+  background: #fafafa;
+  border-bottom: 1px solid #f0f0f0;
+  pointer-events: auto;
+}
+
 /* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 6px;

@@ -49,5 +49,9 @@ export type {
   VTableExportExcelOptions,
 } from './export';
 export type { VTableSortState } from './sorting';
+export type {
+  VTableExpandableInfo,
+  VTableExpandableOptions,
+} from './expandable';
 export type { FilterTableProps } from './FilterTable';
 export type { FilterCondition, FilterField, FilterModel, TableFilterProps } from './TableFilter';

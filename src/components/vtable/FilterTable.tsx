@@ -13,6 +13,7 @@ import type {
   VTableCellStyleHook,
   VTableCellTooltipHook,
   VTableCellValueChangeInfo,
+  VTableExpandableOptions,
   VTableMenuConfig,
   VTableSelectedRowChangeInfo,
 } from './index';
@@ -74,6 +75,8 @@ export interface FilterTableProps {
   loadingTip?: string;
   /** 导出配置，透传给 VTable 的 TableExportPlugin（不传也能导出） */
   exportOptions?: TableExportPluginOptions;
+  /** 按行展开配置，透传给 VTable（按钮是否有效按行数据判断） */
+  expandable?: VTableExpandableOptions;
 
   /** 分页总数（后端返回） */
   total: number;
@@ -147,6 +150,7 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
       loading,
       loadingTip,
       exportOptions,
+      expandable,
       total,
       page = 1,
       pageSize = DEFAULT_PAGE_SIZE,
@@ -320,6 +324,12 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
           exportCsv: (fileName?: string) =>
             tableRef.current?.exportCsv(fileName) ?? Promise.resolve(undefined),
           clearSelection: () => tableRef.current?.clearSelection(),
+          // 行展开：透传到 VTable（没配 expandable 时这些方法是空转）
+          expandRow: (rowKey: string) => tableRef.current?.expandRow(rowKey),
+          collapseRow: (rowKey: string) => tableRef.current?.collapseRow(rowKey),
+          collapseAllRows: () => tableRef.current?.collapseAllRows(),
+          isRowExpanded: (rowKey: string) =>
+            tableRef.current?.isRowExpanded(rowKey) ?? false,
         }) satisfies VTableApi,
       [],
     );
@@ -373,6 +383,7 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
             loading={loading}
             loadingTip={loadingTip}
             exportOptions={exportOptions}
+            expandable={expandable}
             menu={menu}
             onActiveSelectionChange={handleActiveSelectionChange}
             onSelectedChange={onSelectedChange}
