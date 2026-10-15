@@ -2,19 +2,23 @@ import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {App} from 'antd';
 import {ApiError, yupaiApi, YupaiMachineSizeHeader, type YupaiOrder, type YupaiOrderQuery} from '@/api';
 import {CommandBar} from '@/components/CommandBar';
-import {FilterTable} from '@/components/vtable';
-import {PageBreadcrumb} from '@/components/PageBreadcrumb';
 import type {
     VTableApi,
     VTableCellStyle,
     VTableCellStyleHook,
+    VTableExpandableOptions,
     VTableMenuConfig,
     VTableSelectedRowChangeInfo,
 } from '@/components/vtable';
+import {FilterTable} from '@/components/vtable';
+import {PageBreadcrumb} from '@/components/PageBreadcrumb';
 import type {ViewPageProps} from '@/pages/types';
 import {yupaiService} from '@/services/yupai.ts';
+import {isBlank} from '@/utils';
 import {buildPreorderColumns, preorderFilterFields} from './columns';
 import YupaiOrderEdit from './models/yupaiOrderEdit';
+import type {YupaiOrderCodeChange} from './models/yupaiOrderMasterDetail.tsx';
+import YupaiOrderMasterDetail from './models/yupaiOrderMasterDetail.tsx';
 import type {FormMode, YupaiOrderCommandContext, YupaiOrderLogCommandContext} from './command';
 import {useYupaiOrderCommands} from './command';
 import {YupaiOrderLogModal} from "@/pages/views/V0189/V0279/V0280/models/yupaiOrderLog.tsx";
@@ -153,6 +157,26 @@ const PreorderPage: React.FC<ViewPageProps> = ({view, trail}) => {
         setLogOpen(true);
     }, []);
 
+    /**
+     * 展开区里改了订单号：当前只给出提示，真实回写待接后端。
+     *
+     * ⚠️ 接后端时注意 **OrderCode 是单据级字段**：列表一行 = 一个款号明细（`Qty`、产地、
+     * 业务员这些整单共享），同一个订单号下会有多条明细行。只改当前这一条会让同单的款号
+     * 分裂成两个订单号 —— 正确流程参照编辑弹窗（models/yupaiOrderEdit.tsx）：
+     * 1. 先 `yupaiService.queryOrder(previous)` 取回该单**全部**明细行；
+     * 2. 用新号覆盖每行的 `OrderCode` 再 `yupaiApi.save`；日期字段要经 `toDateString`
+     *    转回字符串（业务模型上的日期已经是 Dayjs，DTO 要的是字符串）；
+     * 3. 改之前先 `queryOrder(orderCode)` 校验新号没被占用（查到结果就是已经有人在用）；
+     * 4. 保存成功后重新加载列表 —— 展开态按 rowKey（ID）记，不会被清掉。
+     */
+    const handleOrderCodeSave = useCallback(
+        (change: YupaiOrderCodeChange) => {
+            const {orderCode, previous} = change;
+            message.success(`订单号：${previous || '（空）'} → ${orderCode}`);
+        },
+        [message],
+    );
+
     /** 按当前条件重新加载（command/ 里的命令统一走它） */
     const reload = useCallback(async () => {
         await loadData(query);
@@ -184,6 +208,26 @@ const PreorderPage: React.FC<ViewPageProps> = ({view, trail}) => {
     const commands = useYupaiOrderCommands(commandContext, changeLogCommandContext);
 
     const columns = useMemo(() => buildPreorderColumns(), []);
+
+    /**
+     * 行展开
+     */
+    const expandable = useMemo<VTableExpandableOptions>(
+        () => ({
+            rowExpandable: ({record}) => !isBlank(record.Batchs),
+            height: 260,
+            renderExpanded: ({record}) => {
+                const ypOrder = record as YupaiOrder | undefined;
+                if (!ypOrder || !ypOrder.Batchs) {
+                    return (<div>分批数据空</div>);
+                }
+                return (<YupaiOrderMasterDetail
+                    records={ypOrder.Batchs as Record<string, unknown>[]}
+                />);
+            },
+        }),
+        [handleOrderCodeSave, dataSource],
+    );
 
     /** 右键菜单：数据行给业务操作，统计行不弹，表头/空白处只给通用项 */
     const tableMenu = useMemo<VTableMenuConfig>(
@@ -280,6 +324,7 @@ const PreorderPage: React.FC<ViewPageProps> = ({view, trail}) => {
                     multiSelect={true}
                     summary={summary}
                     cellStyle={cellStyle}
+                    expandable={expandable}
                     menu={tableMenu}
                     loading={loading}
                     total={total}
