@@ -3,6 +3,7 @@ import type {YupaiOrder} from '@/api';
 import {YupaiMachineSizeHeader} from '@/api'
 import type {FilterField} from '@/components/vtable';
 import {type AppColumnDef, buildColumns} from '@/components/vtable/columnBuilder';
+import {ORG_NAME} from "@/store/orgs.ts";
 
 /** 可筛选的列：类型决定筛选控件（enum 多选 / date、number 区间 / text 包含） */
 export const preorderFilterFields: FilterField[] = [
@@ -19,14 +20,6 @@ export const preorderFilterFields: FilterField[] = [
     {field: 'XDRate', title: '下单把握度', type: 'enum'},
 ];
 
-/** 组织机构 id -> 工厂名 */
-const ORG_LABEL: Record<string, string> = {
-    '0001E610000000KO20VW': '义乌工厂',
-    '0001E610000000KWHO9D': '越南工厂',
-};
-
-const orgLabel = (id: unknown): string => ORG_LABEL[String(id ?? '')] ?? String(id ?? '');
-
 /** 列定义：dataType 决定渲染控件（text / number / date / boolean / tag） */
 export const COLUMNS: AppColumnDef[] = [
     {field: 'WorkPlace', title: '产地', width: 90},
@@ -36,7 +29,7 @@ export const COLUMNS: AppColumnDef[] = [
         title: '织造产地',
         width: 90,
         columnProps: {
-            fieldFormat: (record: YupaiOrder) => orgLabel(record.KnitOrgID),
+            fieldFormat: (record: YupaiOrder) => ORG_NAME(record.KnitOrgID),
         },
     },
     {field: 'Ywy', title: '业务员', width: 80},

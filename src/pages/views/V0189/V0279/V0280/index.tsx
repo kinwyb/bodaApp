@@ -23,7 +23,7 @@ import {useYupaiOrderCommands} from './command';
 import {YupaiOrderLogModal} from "@/pages/views/V0189/V0279/V0280/models/yupaiOrderLog.tsx";
 
 /** V0189_V0279_V0280 计划管理 > 预订单 > 预订单管理 */
-const PreorderPage: React.FC<ViewPageProps> = ({view, trail}) => {
+const yupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
     const {message, modal} = App.useApp();
     const [dataSource, setDataSource] = useState<YupaiOrder[]>([]);
     const [loading, setLoading] = useState(false);
@@ -353,4 +353,4 @@ const PreorderPage: React.FC<ViewPageProps> = ({view, trail}) => {
     );
 };
 
-export default PreorderPage;
+export default yupaiOrderPage;
