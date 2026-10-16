@@ -192,6 +192,14 @@ export interface ExpandableControllerDeps {
   getExpandCol: () => number;
   /** 统计行判定（按 VTable 行号，含表头） */
   isSummaryRow: (row: number, headerLevel: number) => boolean;
+  /**
+   * 画布被强制重建之后的通知（`renderWithRecreateCells`）。
+   *
+   * 重建会重置**底部冻结**（实测 `bottomFrozenRowCount` 掉成 0），而冻结状态只有宿主知道
+   * （有没有统计行），所以这里只发通知、由宿主补回来。与 `resize()` 的副作用同一类
+   * —— 见 VTable.tsx 里 resize 后补 `scheduleBottomFrozen` 的那段。
+   */
+  onCanvasRecreated?: () => void;
 }
 
 export interface ExpandableController {
@@ -244,6 +252,34 @@ export function createExpandableController(deps: ExpandableControllerDeps): Expa
   // ─── 基础查询 ───
 
   const headerLevelOf = (table: ListTable) => table.columnHeaderLevelCount;
+
+  /**
+   * 行高变化后的收尾：把滚动位置夹回有效区间，并让画布真的重画。
+   *
+   * 为什么必须重建单元格：行高收缩后，VTable 的**几何都是对的**（实测：真实滚动位置
+   * `stateManager.scroll.verticalBarPos`、汇总行的位置、canvas 尺寸全正常），但**画布不会
+   * 自己重画** —— 收起后那一整块停在残缺的旧画面上，看起来就是「展开的地方变成空白，
+   * 下面的数据看不见了」。光调 `render()` / `scenegraph.updateNextFrame()` 都救不回来
+   * （实测截图与修复前 MD5 完全一致），只有 `renderWithRecreateCells()` 能恢复。
+   *
+   * 只在**纵向滚动过**时才重建：`scrollTop` 为 0 时实测不会出这个问题，而那正是最常见的
+   * 场景（在列表顶部展开/收起），没必要每次都重建整张表的单元格。
+   */
+  const refreshAfterHeightChange = (table: ListTable) => {
+    // 表变矮了，原来的滚动位置可能已经落到内容之外，先夹回来
+    const maxScrollTop = Math.max(0, table.getAllRowsHeight() - table.tableNoFrameHeight);
+    if (table.scrollTop > maxScrollTop) {
+      // 底部冻结行不在可滚区里，要减掉；scrollToRow 才会走完整的「更新滚动状态 + 重绘」
+      const lastRow = Math.max(0, table.rowCount - 1 - (table.bottomFrozenRowCount ?? 0));
+      table.scrollToRow(lastRow, false);
+    }
+    if (table.scrollTop > 0) {
+      table.renderWithRecreateCells();
+      // 重建会顺带重置底部冻结（与 resize 一样的副作用，实测 bottomFrozenRowCount 掉成 0），
+      // 交给宿主补回来 —— 它才知道有没有统计行、要不要冻结
+      deps.onCanvasRecreated?.();
+    }
+  };
 
   const findRowIndex = (rowKey: string): number => {
     const index = deps.getRowKeys().indexOf(rowKey);
@@ -484,7 +520,11 @@ export function createExpandableController(deps: ExpandableControllerDeps): Expa
     // 先摘状态再收行高：理由同 expandRow（收起时按钮要立刻变回「可展开」）
     expanded.delete(rowKey);
     unmountOverlay(rowKey);
-    if (row >= 0) table.setRowHeight(row, entry.originalHeight);
+    if (row >= 0) {
+      table.setRowHeight(row, entry.originalHeight);
+      // 表变矮了：滚动位置可能越界，画布也不会自己重画（症状是整块空白），一并收尾
+      refreshAfterHeightChange(table);
+    }
     notifyChange();
   };
 
@@ -637,6 +677,8 @@ export function createExpandableController(deps: ExpandableControllerDeps): Expa
       table.setRowHeight(row, entry.originalHeight + entry.detailHeight);
       mountOverlay(rowKey, row, entry);
     });
+    // 换数据后行高整排重排过，同样要收尾（理由见 refreshAfterHeightChange）
+    refreshAfterHeightChange(table);
   };
 
   /**

@@ -541,6 +541,11 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
       // 展开列列号与建表时的 frozenColCount 补偿是同一次渲染里定的，取建表那份值
       getExpandCol: () => (rowNumber ? 1 : 0),
       isSummaryRow,
+      // 控制器强制重建画布后，底部冻结会被重置，这里补一次（与 resize 后那处同理）
+      onCanvasRecreated: () => {
+        const table = tableRef.current;
+        if (table) scheduleBottomFrozen(table, summaryRef.current ? 1 : 0);
+      },
     });
   }
   const rowExpander = expandableRef.current;
