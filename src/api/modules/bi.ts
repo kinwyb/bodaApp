@@ -17,9 +17,21 @@ export interface BIList {
     Children?: BIList[];
 }
 
+export interface BIData {
+    Headers: string[];
+    ColumnTypes: string[];
+    DataVals: Record<string, any>[];
+}
+
 export const biApi = {
     /**
      * 报表列表
      */
-    list: () => http.get<BIList[]>('/bi/list')
+    list: () => http.get<BIList[]>('/bi/list'),
+
+    /**
+     * 查询报表
+     * @param params
+     */
+    query: (params: BIList) => http.post<BIData>('/bi/query', params),
 }

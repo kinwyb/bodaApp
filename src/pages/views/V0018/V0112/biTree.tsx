@@ -24,9 +24,23 @@ const treeNodeDictoryCheck = (node: treeNode) => {
     });
 }
 
+/** 收集所有节点 ID，用于数据加载后受控全展开（defaultExpandAll 对异步数据无效） */
+const collectKeys = (nodes: treeNode[]): React.Key[] => {
+    const keys: React.Key[] = [];
+    const walk = (list: treeNode[]) => {
+        list.forEach((n) => {
+            keys.push(n.ID);
+            if (n.Children && n.Children.length) walk(n.Children);
+        });
+    };
+    walk(nodes);
+    return keys;
+};
+
 export const BITree: React.FC<biTreeProps> = ({open}) => {
 
     const [treeData, setTreeData] = useState<treeNode[]>([]);
+    const [expandedKeys, setExpandedKeys] = useState<React.Key[]>([]);
 
     const loadTreeData = useCallback(async () => {
         const apiResult = await biApi.list();
@@ -41,6 +55,7 @@ export const BITree: React.FC<biTreeProps> = ({open}) => {
             treeNodeDictoryCheck(item);
         })
         setTreeData(nodes);
+        setExpandedKeys(collectKeys(nodes));
     }, [])
 
     useEffect(() => {
@@ -57,12 +72,13 @@ export const BITree: React.FC<biTreeProps> = ({open}) => {
 
     return (
         <DirectoryTree
-            defaultExpandAll
             fieldNames={{key: "ID", title: "BIName", children: "Children"}}
             treeData={treeData}
+            expandedKeys={expandedKeys}
+            onExpand={(keys) => setExpandedKeys(keys)}
             onDoubleClick={handleDoubleClick}
             blockNode
-            style={{userSelect: "none"}}
+            style={{userSelect: "none", padding: 10}}
         />
     );
 }

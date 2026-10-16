@@ -167,6 +167,8 @@ const buildSQLProcedureRequest = (params: SQLProcedure): sqlProcedureWithArrayAr
 export type ColumnDataType =
     | 'INT'
     | 'DECIMAL'
+    | 'FLOAT'
+    | 'DOUBLE'
     | 'BIT'
     | 'DATE'
     | 'DATETIME'
@@ -298,7 +300,9 @@ function convertByColumnType<T = string>(
             const n = parseInt(value, 10);
             return (Number.isNaN(n) ? value : n) as unknown as T;
         }
-        case 'DECIMAL': {
+        case 'DECIMAL':
+        case 'FLOAT':
+        case 'DOUBLE': {
             const n = parseFloat(value);
             return (Number.isNaN(n) ? value : n) as unknown as T;
         }
@@ -402,6 +406,8 @@ export class SQLResult {
                 case 'BIT':
                 case 'DATE':
                 case 'DATETIME':
+                case 'FLOAT':
+                case 'DOUBLE':
                     return t as ColumnDataType;
             }
         }
@@ -426,11 +432,12 @@ export class SQLResult {
 
         for (const column of this.Headers) {
             if (!columnType) {
-                columnTypeMap.set(column, 'STRING');
+                const columnType = this.getColumnType(column);
+                columnTypeMap.set(column, columnType);
                 table.columns.push({
                     columnName: column,
                     caption: column,
-                    dataType: 'STRING',
+                    dataType: columnType,
                 });
             } else {
                 const info = columnType(column);

@@ -8,10 +8,11 @@ import type {ColumnsDefine} from "@visactor/vtable";
 import {sqlApi} from "@/api";
 import {type AppColumnDef, buildColumns} from "@/components/vtable/columnBuilder.ts";
 
-export interface QueryParamProps {
+export interface BIQueryParamProps {
     open: boolean;
     node?: BIList;
     onClose: () => void;
+    query?: (node: BIList) => void;
 }
 
 /**
@@ -20,7 +21,7 @@ export interface QueryParamProps {
  * - date / number：区间
  * - text：包含
  */
-export const QueryParam: React.FC<QueryParamProps> = ({open, node, onClose}) => {
+export const BIQueryParam: React.FC<BIQueryParamProps> = ({open, node, onClose, query}) => {
     const [queryNode, setQueryNode] = useState<BIList | undefined>(node);
     const [openQuickSelect, setOpenQuickSelect] = useState<boolean>(false);
     const [quickSelectColumn, setQuickSelectColumn] = useState<ColumnsDefine>([{field: ""}]);
@@ -33,7 +34,6 @@ export const QueryParam: React.FC<QueryParamProps> = ({open, node, onClose}) => 
     }, [open, node]);
 
     const patch = useCallback((field: string, value: string) => {
-        console.log(field, value);
         setQueryNode((prev) => {
             if (!prev) {
                 return prev;
@@ -81,7 +81,9 @@ export const QueryParam: React.FC<QueryParamProps> = ({open, node, onClose}) => 
                     placeholder={item.Name}
                     value={item.Val}
                     onChange={(event) => patch(item.Field, event.target.value)}
-                    onSearch={() => {
+                    onSearch={(_, __, info) => {
+                        // 点清除按钮时 source 为 'clear'，不触发弹窗；只有点搜索按钮 / 回车才继续
+                        if (info?.source === 'clear') return;
                         setQuickSelectArg(item);
                         setOpenQuickSelect(true);
                     }}
@@ -115,14 +117,9 @@ export const QueryParam: React.FC<QueryParamProps> = ({open, node, onClose}) => 
                     size="small"
                     type="primary"
                     onClick={() => {
-                        // const next: FilterModel = {};
-                        // Object.entries(draft).forEach(([field, condition]) => {
-                        //     if (!isEmpty(condition)) next[field] = condition;
-                        // });
-                        // onChange(next);
-                        // setOpen(false);
-                        console.log("查询");
-                        console.log(queryNode);
+                        if (query && queryNode) {
+                            query(queryNode);
+                        }
                     }}
                 >
                     确定
