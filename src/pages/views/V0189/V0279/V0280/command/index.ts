@@ -1,6 +1,7 @@
 import type {CommandItem} from '@/components/CommandBar';
 import {addCommand} from './add';
 import {autoWidthCommand} from './autoWidth';
+import {batchCommand} from './batch';
 import {copyCommand, copyOrderedCommand} from './copyOrdered';
 import {deleteCommand} from './delete';
 import {editCommand} from './edit';
@@ -10,6 +11,7 @@ import {refreshCommand} from './refresh';
 import {changeLogCommand} from "./changeLog";
 import {authPlaceholderCommand, workflowPlaceholderCommands,} from './placeholders';
 import type {
+    YupaiOrderBatchCommandContext,
     YupaiOrderCommandContext,
     YupaiOrderCommandFactory,
     YupaiOrderLogCommandContext,
@@ -19,6 +21,7 @@ import {useCommandGroups} from "@/components/commands";
 
 export type {
     FormMode,
+    YupaiOrderBatchCommandContext,
     YupaiOrderCommandContext,
     YupaiOrderLogCommandContext,
     YupaiOrderLogCommandFactory,
@@ -66,26 +69,29 @@ const yupaiOrderCommandFactories: YupaiOrderCommandFactory[] = [
 ];
 
 /**
- * 组装本页命令条：两组命令，各喂自己的 context。
+ * 组装本页命令条：三组命令，各喂自己的 context。
  *
  * - 第一组（新增 / 修改 / 删除 …）只用公共依赖；
- * - 第二组（变更日志）在这之上多要一个 openLog —— 只有它拿得到，别的命令既拿不到也不必关心。
+ * - 第二组（变更日志）在这之上多要一个 openLog；
+ * - 第三组（分批）多要一个 openBatch。
  *
- * 注意 groups **不能**写 `CommandGroup<X>[]` 注解：两组 context 类型不同，注解会因为
+ * 注意 groups **不能**写 `CommandGroup<X>[]` 注解：各组 context 类型不同，注解会因为
  * 「函数参数逆变」报错（详见 useCommandGroups 的 AnyCommandGroup）。组内的匹配由各命令自己
- * 声明的工厂类型保证（changeLogCommand 声明成 YupaiOrderLogCommandFactory）。
+ * 声明的工厂类型保证（batchCommand 声明成 YupaiOrderBatchCommandFactory）。
  * groups 必须 useMemo，否则 useCommandGroups 里的缓存每帧失效。
  */
 export function useYupaiOrderCommands(
     context: YupaiOrderCommandContext,
     changeLogContext: YupaiOrderLogCommandContext,
+    batchContext: YupaiOrderBatchCommandContext,
 ): CommandItem[] {
     const groups = useMemo(
         () => [
             {context, factories: yupaiOrderCommandFactories},
             {context: changeLogContext, factories: [changeLogCommand]},
+            {context: batchContext, factories: [batchCommand]},
         ],
-        [context, changeLogContext],
+        [context, changeLogContext, batchContext],
     );
     return useCommandGroups(groups, {order: COMMAND_ORDER});
 }

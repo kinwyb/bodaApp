@@ -53,8 +53,21 @@ export type YupaiOrderLogCommandContext = CommandContext<
     YupaiOrderCommandDeps & {openLog: (order: YupaiOrder) => void}
 >;
 
+/**
+ * 分批命令那一组的上下文：多带一个 openBatch。
+ *
+ * 与变更日志同样的思路 —— 「打开分批弹窗」只有分批命令需要，
+ * 不进公共依赖，别的命令既拿不到也不必关心。
+ */
+export type YupaiOrderBatchCommandContext = CommandContext<
+    YupaiOrderCommandDeps & {openBatch: (order: YupaiOrder) => void}
+>;
+
 /** 共用本页公共依赖的命令工厂 */
 export type YupaiOrderCommandFactory = CommandFactory<YupaiOrderCommandContext>;
 
 /** 变更日志那组（多带 openLog）的命令工厂 */
 export type YupaiOrderLogCommandFactory = CommandFactory<YupaiOrderLogCommandContext>;
+
+/** 分批那组（多带 openBatch）的命令工厂 */
+export type YupaiOrderBatchCommandFactory = CommandFactory<YupaiOrderBatchCommandContext>;

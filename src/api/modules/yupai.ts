@@ -261,6 +261,31 @@ export interface YupaiOrderDefaultYwy {
     DepartmentID: string;
 }
 
+/**
+ * 预订单分批信息
+ */
+export interface YupaiOrderBatch {
+    /**
+     * 分批日期
+     */
+    BatchDate: string;
+    /**
+     * 分批数量
+     */
+    BatchRate: number;
+}
+
+export interface YupaiOrderBatchSave {
+    /**
+     * 订单号
+     */
+    OrderCode: string;
+    /**
+     * 分批数据
+     */
+    Batchs: YupaiOrderBatch[];
+}
+
 export const yupaiApi = {
     /** 列表：返回后端原始形状（不含派生字段）。要业务模型请走 yupaiService.list */
     list: (query: YupaiOrderQuery = {}) => http.get<YupaiOrderDto[]>('/plan/yupaiOrder/list', {...query, isDel: 0}),
@@ -337,4 +362,11 @@ export const yupaiApi = {
             code: 0,
         }
     },
+
+    /**
+     * 分批数据保存
+     * @param payload
+     */
+    batchSave: (payload: YupaiOrderBatchSave) => http.post<string>("/plan/yupaiOrder/batchSave", payload),
+
 };

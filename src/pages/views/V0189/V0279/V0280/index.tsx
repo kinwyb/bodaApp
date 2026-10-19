@@ -18,7 +18,13 @@ import {isBlank} from '@/utils';
 import {buildPreorderColumns, preorderFilterFields} from './columns';
 import YupaiOrderEdit from './models/yupaiOrderEdit';
 import YupaiOrderMasterDetail from './models/yupaiOrderMasterDetail.tsx';
-import type {FormMode, YupaiOrderCommandContext, YupaiOrderLogCommandContext} from './command';
+import YupaiOrderBatchModal from './models/yupaiOrderBatch.tsx';
+import type {
+    FormMode,
+    YupaiOrderBatchCommandContext,
+    YupaiOrderCommandContext,
+    YupaiOrderLogCommandContext,
+} from './command';
 import {useYupaiOrderCommands} from './command';
 import {YupaiOrderLogModal} from "@/pages/views/V0189/V0279/V0280/models/yupaiOrderLog.tsx";
 
@@ -44,6 +50,9 @@ const yupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
     const [logOpen, setLogOpen] = useState(false);
     /** 日志弹窗看的是哪一单：打开时记下来，弹窗按它取数据（不是「当前激活行」——两者不该绑定） */
     const [logOrderId, setLogOrderId] = useState('');
+    /** 分批弹窗：与日志同理，记「打开那一刻的那一单」，弹窗开着时改选中不会让内容跟着跳 */
+    const [batchOpen, setBatchOpen] = useState(false);
+    const [batchOrder, setBatchOrder] = useState<YupaiOrder | null>(null);
 
     const loadData = useCallback(
         async (params: YupaiOrderQuery) => {
@@ -156,6 +165,12 @@ const yupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
         setLogOpen(true);
     }, []);
 
+    /** 打开分批弹窗：同样记的是调用时传进来的那一单，不绑 activeRow */
+    const openBatch = useCallback((order: YupaiOrder) => {
+        setBatchOrder(order);
+        setBatchOpen(true);
+    }, []);
+
     /** 按当前条件重新加载（command/ 里的命令统一走它） */
     const reload = useCallback(async () => {
         await loadData(query);
@@ -184,7 +199,12 @@ const yupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
         () => ({...commandContext, openLog}),
         [commandContext, openLog],
     );
-    const commands = useYupaiOrderCommands(commandContext, changeLogCommandContext);
+    /** 分批那一组的依赖：同样派生，多带一个 openBatch */
+    const batchCommandContext = useMemo<YupaiOrderBatchCommandContext>(
+        () => ({...commandContext, openBatch}),
+        [commandContext, openBatch],
+    );
+    const commands = useYupaiOrderCommands(commandContext, changeLogCommandContext, batchCommandContext);
 
     const columns = useMemo(() => buildPreorderColumns(), []);
 
@@ -348,6 +368,18 @@ const yupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
                 open={logOpen}
                 yupaiOrderID={logOrderId}
                 onCancel={() => setLogOpen(false)}
+            />
+
+            <YupaiOrderBatchModal
+                open={batchOpen}
+                order={batchOrder}
+                onCancel={() => setBatchOpen(false)}
+                // 当前只在控制台打印数据（后端接口待接入），确认后直接关掉；
+                // 接好保存接口后，这里通常还要 reload() 一下让列表里的 Batchs 跟着更新
+                onSaved={() => {
+                    setBatchOpen(false);
+                    void reload();
+                }}
             />
         </>
     );

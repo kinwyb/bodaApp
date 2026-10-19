@@ -10,7 +10,8 @@ import {
   type ReactElement,
 } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { DatePicker, Input, InputNumber, Select } from 'antd';
+import { ConfigProvider, DatePicker, Input, InputNumber, Select } from 'antd';
+import zhCN from 'antd/locale/zh_CN';
 import dayjs, { type Dayjs } from 'dayjs';
 import { DATE_FORMAT, toDayjs, toNumberOrNull } from '@/utils';
 
@@ -599,17 +600,23 @@ export abstract class BaseAntdEditor<V = unknown> implements IEditor<V> {
       () => this.shouldCancelOnEscape(wrapper),
     );
     root.render(
-      <EditorShell
-        element={this.createControl()}
-        initialValue={this.toInitialValue(value)}
-        valueRef={this.valueRef}
-        optionRef={this.acceptsOption() ? this.optionRef : undefined}
-        errorRef={this.errorRef}
-        pendingRef={this.pendingRef}
-        onRerender={(rerender) => {
-          this.rerender = rerender;
-        }}
-      />,
+      // ConfigProvider 不能省：编辑器是 createRoot 挂到单元格里的**独立 React 树**，
+      // 拿不到 App 里那层 ConfigProvider 的 context —— 不套这一层，DatePicker 的面板
+      // （月份/星期/"今天"）和 Select 的空状态文案都会退回英文。
+      // 只传 locale，不传 theme：独立树没有父级 token 可继承，默认主题与 App 一致。
+      <ConfigProvider locale={zhCN}>
+        <EditorShell
+          element={this.createControl()}
+          initialValue={this.toInitialValue(value)}
+          valueRef={this.valueRef}
+          optionRef={this.acceptsOption() ? this.optionRef : undefined}
+          errorRef={this.errorRef}
+          pendingRef={this.pendingRef}
+          onRerender={(rerender) => {
+            this.rerender = rerender;
+          }}
+        />
+      </ConfigProvider>,
     );
     this.options.onStart?.(this.createRow());
   }
