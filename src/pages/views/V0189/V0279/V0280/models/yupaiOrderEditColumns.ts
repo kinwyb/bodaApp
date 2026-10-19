@@ -178,18 +178,16 @@ function registerDetailEditor(column: AppColumnDef): string {
 export const DETAIL_EDITOR_FIELDS: Record<string, string> = Object.fromEntries(
     DETAIL_COLUMNS.map((column) => {
         if (column.dataType === 'number') {
-            column.columnProps = {
-                ...column.columnProps, fieldFormat: (record: yupaiOrderDetailRow) => {
-                    const value = record[column.field];
-                    if (value === null || value === undefined || value === '') return '';
-                    // 未填在数据里就是 null（见 createDetailRow）；0 也一并当未填显示
-                    if (Number(value) > 0) {
-                        return value;
-                    } else {
-                        return '';
-                    }
+            // 未填（null）与 0 都显示成空白，避免表格里一片 0
+            column.fieldFormat = (record: yupaiOrderDetailRow) => {
+                const value = record[column.field];
+                if (value === null || value === undefined || value === '') return '';
+                if (Number(value) > 0) {
+                    return value;
+                } else {
+                    return '';
                 }
-            }
+            };
         }
         // 控件类型与单字段校验一起在这里决定（见 registerDetailEditor）
         return [column.field, registerDetailEditor(column)];

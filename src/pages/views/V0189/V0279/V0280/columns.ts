@@ -28,9 +28,7 @@ export const COLUMNS: AppColumnDef[] = [
         field: 'KnitOrgID',
         title: '织造产地',
         width: 90,
-        columnProps: {
-            fieldFormat: (record: YupaiOrder) => ORG_NAME(record.KnitOrgID),
-        },
+        fieldFormat: (record: YupaiOrder) => ORG_NAME(record.KnitOrgID),
     },
     {field: 'Ywy', title: '业务员', width: 80},
     {field: 'OrderCode', title: '订单号', width: 110, sortable: true},
@@ -58,7 +56,7 @@ export const COLUMNS: AppColumnDef[] = [
         field: 'XDRate',
         title: '下单把握度',
         width: 95,
-        columnProps: {style: {textAlign: 'right'}},
+        style: {textAlign: 'right'},
     },
     {field: 'Memo', title: '备注', width: 190},
     {field: 'YLDate', title: '原料可下单期', width: 110, dataType: 'date'},
@@ -76,18 +74,15 @@ export const COLUMNS: AppColumnDef[] = [
             title,
             width: 82,
             dataType: 'number' as const,
-            columnProps: {
-                style: {textAlign: 'right'},
-                fieldFormat: (record: YupaiOrder) => {
-                    const value = record[fieldName];
-                    if (value === null || value === undefined || value === '') return '';
-                    // 你的判断逻辑
-                    if (Number(value) > 0) {
-                        return value;
-                    } else {
-                        return '';
-                    }
-                },
+            // number 默认右对齐，这里只覆盖显示格式（0 与空值都当未填）
+            fieldFormat: (record: YupaiOrder) => {
+                const value = record[fieldName];
+                if (value === null || value === undefined || value === '') return '';
+                if (Number(value) > 0) {
+                    return value;
+                } else {
+                    return '';
+                }
             },
         }
     }),
