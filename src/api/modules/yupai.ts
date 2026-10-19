@@ -286,6 +286,27 @@ export interface YupaiOrderBatchSave {
     Batchs: YupaiOrderBatch[];
 }
 
+/**
+ * 预订单织造产地设置
+ */
+export interface YupaiOrderOrgSettings {
+    YupaiOrderID: string;
+    KnitOrgID: string;
+    SewOrgID: string;
+}
+
+/**
+ * 预订单阶段设置
+ */
+export interface YupaiOrderStep {
+    ID: string;
+    SSStep: number;
+    QMStep: number;
+    WaitCustStep: number;
+    WaitOrderStep: number;
+    OtherStep: string;
+}
+
 export const yupaiApi = {
     /** 列表：返回后端原始形状（不含派生字段）。要业务模型请走 yupaiService.list */
     list: (query: YupaiOrderQuery = {}) => http.get<YupaiOrderDto[]>('/plan/yupaiOrder/list', {...query, isDel: 0}),
@@ -369,4 +390,29 @@ export const yupaiApi = {
      */
     batchSave: (payload: YupaiOrderBatchSave) => http.post<string>("/plan/yupaiOrder/batchSave", payload),
 
+    /**
+     * 生产组织设置
+     * @param payload
+     */
+    orgSetting: (payload: YupaiOrderOrgSettings) => http.post<string>('/plan/yupaiOrder/orgSet', payload),
+
+    /**
+     * PMC资料信息设置
+     * @param orderCode
+     * @param ylzlDate
+     * @param yldhDate
+     */
+    pmcSetting: (orderCode: string, ylzlDate: string, yldhDate: string) => http.post<string>('/plan/yupaiOrder/pmcSet', undefined, {
+        "params": {
+            "orderCode": orderCode,
+            "ylzlDate": ylzlDate,
+            "yldhDate": yldhDate
+        }
+    }),
+
+    /**
+     * 预订单阶段设置
+     * @param payload
+     */
+    orderStepSave: (payload: YupaiOrderStep[]) => http.post<string>('/plan/yupaiOrder/stepSave', payload),
 };

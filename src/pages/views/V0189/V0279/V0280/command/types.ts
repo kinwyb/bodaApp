@@ -63,6 +63,21 @@ export type YupaiOrderBatchCommandContext = CommandContext<
     YupaiOrderCommandDeps & {openBatch: (order: YupaiOrder) => void}
 >;
 
+/**
+ * 三个「设置」类弹窗（预订单阶段 / 工段产地 / 计划部）。
+ *
+ * 它们共用一份 context、一个入口 `openSetting(kind, order)`：三个命令的差别只在
+ * 「打开哪一个」，没必要各占一份扩展依赖。kind 只决定渲染哪个弹窗，
+ * 具体字段映射留在各自的弹窗里。
+ */
+export type YupaiOrderSettingKind = 'stage' | 'origin' | 'plan';
+
+export type YupaiOrderSettingsCommandContext = CommandContext<
+    YupaiOrderCommandDeps & {
+        openSetting: (kind: YupaiOrderSettingKind, order: YupaiOrder) => void;
+    }
+>;
+
 /** 共用本页公共依赖的命令工厂 */
 export type YupaiOrderCommandFactory = CommandFactory<YupaiOrderCommandContext>;
 
@@ -71,3 +86,6 @@ export type YupaiOrderLogCommandFactory = CommandFactory<YupaiOrderLogCommandCon
 
 /** 分批那组（多带 openBatch）的命令工厂 */
 export type YupaiOrderBatchCommandFactory = CommandFactory<YupaiOrderBatchCommandContext>;
+
+/** 三个设置弹窗那组（多带 openSetting）的命令工厂 */
+export type YupaiOrderSettingsCommandFactory = CommandFactory<YupaiOrderSettingsCommandContext>;

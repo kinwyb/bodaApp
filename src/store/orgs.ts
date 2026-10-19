@@ -25,3 +25,8 @@ export const ORG_ID = (name: unknown): string => {
     const entry = Object.entries(ORGS).find(([, value]) => value === name);
     return toStringOrEmpty(entry?.[0]);
 };
+
+/**
+ * 组织select选择项
+ */
+export const ORG_SELECT_OPTIONS = Object.entries(ORGS).map((k) => ({value: k[0], label: k[1]}));

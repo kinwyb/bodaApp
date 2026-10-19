@@ -19,11 +19,16 @@ import {buildPreorderColumns, preorderFilterFields} from './columns';
 import YupaiOrderEdit from './models/yupaiOrderEdit';
 import YupaiOrderMasterDetail from './models/yupaiOrderMasterDetail.tsx';
 import YupaiOrderBatchModal from './models/yupaiOrderBatch.tsx';
+import YupaiOrderStageModal from './models/yupaiOrderStage.tsx';
+import YupaiOrderOriginModal from './models/yupaiOrderOrigin.tsx';
+import YupaiOrderPlanModal from './models/yupaiOrderPlan.tsx';
 import type {
     FormMode,
     YupaiOrderBatchCommandContext,
     YupaiOrderCommandContext,
     YupaiOrderLogCommandContext,
+    YupaiOrderSettingKind,
+    YupaiOrderSettingsCommandContext,
 } from './command';
 import {useYupaiOrderCommands} from './command';
 import {YupaiOrderLogModal} from "@/pages/views/V0189/V0279/V0280/models/yupaiOrderLog.tsx";
@@ -53,6 +58,12 @@ const yupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
     /** 分批弹窗：与日志同理，记「打开那一刻的那一单」，弹窗开着时改选中不会让内容跟着跳 */
     const [batchOpen, setBatchOpen] = useState(false);
     const [batchOrder, setBatchOrder] = useState<YupaiOrder | null>(null);
+    /**
+     * 三个设置弹窗（阶段 / 产地 / 计划部）共用一份状态：
+     * kind 决定渲染哪一个，order 同理记的是「打开那一刻的那一单」。
+     */
+    const [settingKind, setSettingKind] = useState<YupaiOrderSettingKind | null>(null);
+    const [settingOrder, setSettingOrder] = useState<YupaiOrder | null>(null);
 
     const loadData = useCallback(
         async (params: YupaiOrderQuery) => {
@@ -171,6 +182,12 @@ const yupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
         setBatchOpen(true);
     }, []);
 
+    /** 打开三个设置弹窗之一：kind 只决定渲染哪一个，字段映射在各自弹窗里 */
+    const openSetting = useCallback((kind: YupaiOrderSettingKind, order: YupaiOrder) => {
+        setSettingOrder(order);
+        setSettingKind(kind);
+    }, []);
+
     /** 按当前条件重新加载（command/ 里的命令统一走它） */
     const reload = useCallback(async () => {
         await loadData(query);
@@ -204,7 +221,17 @@ const yupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
         () => ({...commandContext, openBatch}),
         [commandContext, openBatch],
     );
-    const commands = useYupaiOrderCommands(commandContext, changeLogCommandContext, batchCommandContext);
+    /** 三个设置弹窗那一组：多带一个 openSetting(kind, order) */
+    const settingsCommandContext = useMemo<YupaiOrderSettingsCommandContext>(
+        () => ({...commandContext, openSetting}),
+        [commandContext, openSetting],
+    );
+    const commands = useYupaiOrderCommands(
+        commandContext,
+        changeLogCommandContext,
+        batchCommandContext,
+        settingsCommandContext,
+    );
 
     const columns = useMemo(() => buildPreorderColumns(), []);
 
@@ -378,6 +405,40 @@ const yupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
                 // 接好保存接口后，这里通常还要 reload() 一下让列表里的 Batchs 跟着更新
                 onSaved={() => {
                     setBatchOpen(false);
+                    void reload();
+                }}
+            />
+
+            {/*
+              三个设置弹窗共用一份状态（settingKind / settingOrder），都保持挂载、用 open 控制：
+              只渲染当前那个的话，关闭动画会被立即卸载打断。
+            */}
+            <YupaiOrderStageModal
+                open={settingKind === 'stage'}
+                order={settingOrder}
+                onCancel={() => setSettingKind(null)}
+                onSaved={() => {
+                    setSettingKind(null);
+                    void reload();
+                }}
+            />
+
+            <YupaiOrderOriginModal
+                open={settingKind === 'origin'}
+                order={settingOrder}
+                onCancel={() => setSettingKind(null)}
+                onSaved={() => {
+                    setSettingKind(null);
+                    void reload();
+                }}
+            />
+
+            <YupaiOrderPlanModal
+                open={settingKind === 'plan'}
+                order={settingOrder}
+                onCancel={() => setSettingKind(null)}
+                onSaved={() => {
+                    setSettingKind(null);
                     void reload();
                 }}
             />

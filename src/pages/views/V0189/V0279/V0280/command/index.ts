@@ -9,12 +9,14 @@ import {exportCommand} from './exportExcel';
 import {publishCommand} from './publish';
 import {refreshCommand} from './refresh';
 import {changeLogCommand} from "./changeLog";
+import {originCommand, planCommand, stageCommand} from './settings';
 import {authPlaceholderCommand, workflowPlaceholderCommands,} from './placeholders';
 import type {
     YupaiOrderBatchCommandContext,
     YupaiOrderCommandContext,
     YupaiOrderCommandFactory,
     YupaiOrderLogCommandContext,
+    YupaiOrderSettingsCommandContext,
 } from './types';
 import {useMemo} from "react";
 import {useCommandGroups} from "@/components/commands";
@@ -25,6 +27,8 @@ export type {
     YupaiOrderCommandContext,
     YupaiOrderLogCommandContext,
     YupaiOrderLogCommandFactory,
+    YupaiOrderSettingKind,
+    YupaiOrderSettingsCommandContext,
 } from './types';
 
 /**
@@ -69,29 +73,31 @@ const yupaiOrderCommandFactories: YupaiOrderCommandFactory[] = [
 ];
 
 /**
- * 组装本页命令条：三组命令，各喂自己的 context。
+ * 组装本页命令条：四组命令，各喂自己的 context。
  *
  * - 第一组（新增 / 修改 / 删除 …）只用公共依赖；
  * - 第二组（变更日志）在这之上多要一个 openLog；
- * - 第三组（分批）多要一个 openBatch。
+ * - 第三组（分批）多要一个 openBatch；
+ * - 第四组（阶段 / 产地 / 计划部）共用 openSetting(kind, order)。
  *
  * 注意 groups **不能**写 `CommandGroup<X>[]` 注解：各组 context 类型不同，注解会因为
  * 「函数参数逆变」报错（详见 useCommandGroups 的 AnyCommandGroup）。组内的匹配由各命令自己
- * 声明的工厂类型保证（batchCommand 声明成 YupaiOrderBatchCommandFactory）。
- * groups 必须 useMemo，否则 useCommandGroups 里的缓存每帧失效。
+ * 声明的工厂类型保证。groups 必须 useMemo，否则 useCommandGroups 里的缓存每帧失效。
  */
 export function useYupaiOrderCommands(
     context: YupaiOrderCommandContext,
     changeLogContext: YupaiOrderLogCommandContext,
     batchContext: YupaiOrderBatchCommandContext,
+    settingsContext: YupaiOrderSettingsCommandContext,
 ): CommandItem[] {
     const groups = useMemo(
         () => [
             {context, factories: yupaiOrderCommandFactories},
             {context: changeLogContext, factories: [changeLogCommand]},
             {context: batchContext, factories: [batchCommand]},
+            {context: settingsContext, factories: [stageCommand, originCommand, planCommand]},
         ],
-        [context, changeLogContext, batchContext],
+        [context, changeLogContext, batchContext, settingsContext],
     );
     return useCommandGroups(groups, {order: COMMAND_ORDER});
 }
