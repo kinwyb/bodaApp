@@ -6,6 +6,7 @@ import {BIQueryParam} from "./biQuery.tsx";
 import type {BIList} from "@/api/modules/bi.ts";
 import {Splitter} from "antd";
 import BITable from "@/pages/views/V0018/V0112/biTable.tsx";
+import {isDebugEnv} from "@/utils";
 
 
 /**
@@ -17,6 +18,7 @@ import BITable from "@/pages/views/V0018/V0112/biTable.tsx";
 const biPage: React.FC<ViewPageProps> = ({trail}) => {
 
     const [queryNode, setQueryNode] = useState<BIList>();
+    const [selectedNode, setSelectedNode] = useState<BIList>();
     const [openQuery, setOpenQuery] = useState<boolean>(false);
 
     return (
@@ -33,7 +35,7 @@ const biPage: React.FC<ViewPageProps> = ({trail}) => {
                 }}>
                     <Splitter.Panel defaultSize="20%" min="15%" max="40%">
                         <BITree open={(node) => {
-                            setQueryNode(node);
+                            setSelectedNode(node);
                             setOpenQuery(true);
                         }}></BITree>
                     </Splitter.Panel>
@@ -42,10 +44,10 @@ const biPage: React.FC<ViewPageProps> = ({trail}) => {
                     </Splitter.Panel>
                 </Splitter>
             </div>
-            <BIQueryParam node={queryNode} open={openQuery}
+            <BIQueryParam node={selectedNode} open={openQuery}
                           query={(node) => {
                               setQueryNode({...node});
-                              console.log(node);
+                              isDebugEnv && console.log("查询：", node);
                               setOpenQuery(false);
                           }}
                           onClose={() => setOpenQuery(false)}/>
