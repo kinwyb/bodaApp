@@ -1,7 +1,12 @@
 import type {ApiResponse, YupaiOrder, YupaiOrderDto, YupaiOrderQuery} from "@/api";
 import {sqlApi, yupaiApi, YupaiMachineSizeHeader} from "@/api";
-import {isBlank, isBlankExcept, toDayjs, toNumberOrZero, toStringOrEmpty} from "@/utils";
-import {YupaiOrderMapping} from "@/api/modules/yupai.ts";
+import {formatDate, isBlank, isBlankExcept, toDayjs, toNumberOrZero, toStringOrEmpty} from "@/utils";
+import {
+    type YupaiOrderChangeDetail,
+    type YupaiOrderChangeDetailDto,
+    YupaiOrderChangeMapping,
+    YupaiOrderMapping
+} from "@/api/modules/yupai.ts";
 
 /**
  * 订单周转期（天）：确认下单期(QRDate) → 尾货期(WCDate)，没有尾货期就退到走货期(ZHDate)。
@@ -67,6 +72,35 @@ export function toYupaiOrder(dto: YupaiOrderDto): YupaiOrder {
     };
 }
 
+export function toYupaiOrderChangeDetail(dto: YupaiOrderChangeDetailDto): YupaiOrderChangeDetail {
+    let result: YupaiOrderChangeDetail = {
+        ...dto,
+        QRDate: toDayjs(dto.QRDate) ?? null,
+        ZHDate: toDayjs(dto.ZHDate) ?? null,
+        ChangeTime: toDayjs(dto.ChangeTime) ?? null,
+        ActionName: '未知',
+        ChangeDate: toDayjs(formatDate(dto.ChangeTime)) ?? null,
+    }
+    switch (result.ActionCode) {
+        case 0:
+            result.ActionName = "新增";
+            break;
+        case 1:
+            result.ActionName = "更新";
+            break;
+        case 2:
+            result.ActionName = "删除";
+            break;
+        case 3:
+            result.ActionName = "恢复";
+            break;
+        case 4:
+            result.ActionName = "下生产单";
+            break;
+    }
+    return result
+}
+
 /**
  * 预订单服务
  */
@@ -119,21 +153,9 @@ export const yupaiService = {
         }
         sqlString = sqlString + " ORDER BY UpdateTime DESC";
         let result = await sqlApi.query({SQL: sqlString, Args: params})
-        if (result.code != 0) {
-            return {
-                code: result.code,
-                errmsg: result.errmsg,
-            }
-        }
         if (!result.data) {
             return {
                 code: result.code,
-            }
-        }
-        if (result.data.IsError) {
-            return {
-                code: 500,
-                errmsg: result.data.ErrMsg ?? "查询失败",
             }
         }
         const orders = result.data.parseToList<YupaiOrderDto>(YupaiOrderMapping)
@@ -145,6 +167,42 @@ export const yupaiService = {
             data: orders?.map(toYupaiOrder) ?? [],
         }
     },
+
+    /**
+     * 预订单变更记录加载
+     * @param orderCode
+     * @param startDate
+     * @param endDate
+     */
+    async changeList(orderCode?: string, startDate?: string, endDate?: string): Promise<ApiResponse<YupaiOrderChangeDetail[]>> {
+        let sqlString = 'SELECT distinct A.*,B.WorkPlace,B.Number,B.QRDate,B.ZHDate,CONVERT(nvarchar(10),A.ChangeTime,120) as ChangeDate FROM [transitDB].[dbo].[YupaiOrderChangeDetail] A LEFT JOIN [transitDB].[dbo].[YupaiOrder] B ON A.YupaiOrderID = B.YupaiOrderID AND A.Env = B.Env WHERE 1 = 1 ';
+        const params: string[] = []
+        if (orderCode) {
+            sqlString += " AND A.OrderCode = ? "
+            params.push(orderCode)
+        }
+        if (startDate) {
+            sqlString += " AND A.ChangeTime >= ? "
+            params.push(formatDate(startDate));
+        }
+        if (endDate) {
+            sqlString += " AND A.ChangeTime <= ? "
+            params.push(formatDate(endDate));
+        }
+        sqlString = sqlString + " ORDER BY CONVERT(nvarchar(10),A.ChangeTime,120) DESC,A.OrderCode DESC,A.ChangeTime DESC,A.StyleCode";
+        let result = await sqlApi.query({SQL: sqlString, Args: params})
+        if (!result.data) {
+            return {
+                code: result.code,
+            }
+        }
+        const changes = result.data.parseToList<YupaiOrderChangeDetailDto>(YupaiOrderChangeMapping)
+
+        return {
+            code: result.code,
+            data: changes?.map(toYupaiOrderChangeDetail) ?? [],
+        }
+    }
 
 }
 

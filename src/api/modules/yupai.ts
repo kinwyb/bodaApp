@@ -275,6 +275,9 @@ export interface YupaiOrderBatch {
     BatchRate: number;
 }
 
+/**
+ * 预订单批次保存
+ */
 export interface YupaiOrderBatchSave {
     /**
      * 订单号
@@ -305,6 +308,58 @@ export interface YupaiOrderStep {
     WaitCustStep: number;
     WaitOrderStep: number;
     OtherStep: string;
+}
+
+export type YupaiOrderChangeAction = 0 | 1 | 2 | 3 | 4;
+
+/**
+ * 预订单变更明细
+ */
+export interface YupaiOrderChangeDetailDto {
+    YupaiOrderChangeID: string;
+    ActionCode: YupaiOrderChangeAction;
+    OrderCode: string;
+    StyleCode: string;
+    ProductName: string;
+    ChangeField: string;
+    ChangeFieldName: string;
+    OldValue: string;
+    NewValue: string;
+    ChangeEmployee: string;
+    ChangeTime: string;
+    YupaiOrderID: string;
+    WorkPlace: string;
+    QRDate?: string
+    Number: number;
+    ZHDate?: string;
+}
+
+export const YupaiOrderChangeMapping: FieldMapping<YupaiOrderChangeDetailDto> = {
+    ActionCode: N,
+    ChangeEmployee: S,
+    ChangeField: S,
+    ChangeFieldName: S,
+    ChangeTime: S,
+    NewValue: S,
+    Number: S,
+    OldValue: S,
+    OrderCode: S,
+    ProductName: S,
+    QRDate: S,
+    StyleCode: S,
+    WorkPlace: S,
+    YupaiOrderChangeID: S,
+    YupaiOrderID: S,
+    ZHDate: S
+}
+
+type YupaiChangeDetailDateField = "QRDate" | "ZHDate" | "ChangeTime"
+
+export type YupaiOrderChangeDetail = {
+    [K in keyof YupaiOrderChangeDetailDto]-?: K extends YupaiChangeDetailDateField ? Dayjs | null : YupaiOrderChangeDetailDto[K];
+} & {
+    ActionName: string;
+    ChangeDate: Dayjs | null;
 }
 
 export const yupaiApi = {

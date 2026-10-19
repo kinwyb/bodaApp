@@ -591,7 +591,7 @@ export class SQLResult {
  * @param result
  */
 function buildResult(result: ApiResponse<SQLResult>): ApiResponse<SQLResult> {
-    if (result.data?.IsError) {
+    if (result.code != 0 || result.data?.IsError) {
         throw new ApiError(500, result.data?.ErrMsg ?? "请求失败")
     }
     const resultData = new SQLResult();
