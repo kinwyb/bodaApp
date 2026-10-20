@@ -285,7 +285,49 @@ function countDistinct(rows: readonly GroupSourceRecord[], field: string): numbe
   return values.size;
 }
 
+/**
+ * 把分组树**拍平成全部明细行**（按显示顺序，去掉组行本身）。
+ *
+ * 分组后顶层数组里只有组行，明细全在 `children` 里 —— 直接 `filter` 顶层是拿不到明细的。
+ * 底部统计行、数据导出这类「对全部明细做一次」的逻辑必须走这里。
+ */
+export function flattenGroupDetails(
+  rows: readonly GroupSourceRecord[],
+): GroupSourceRecord[] {
+  const result: GroupSourceRecord[] = [];
+  const walk = (list: readonly GroupSourceRecord[]) => {
+    for (const row of list) {
+      const children = row.children;
+      if (isGroupRow(row) && Array.isArray(children)) {
+        walk(children as GroupSourceRecord[]);
+        continue;
+      }
+      result.push(row);
+    }
+  };
+  walk(rows);
+  return result;
+}
+
 /** 该行是否为组行（组行上不会带业务字段，别当明细用） */
 export function isGroupRow(record: unknown): boolean {
   return Boolean(record && (record as GroupSourceRecord)[GROUP_ROW_FLAG]);
+}
+
+/**
+ * 按配置对一批行做汇总，返回**只含汇总字段**的一行。
+ *
+ * 给「底部统计行」用：页面没传 `summary` 时，组件用列上配置的 `aggregate`
+ * 自动拼出这一行（见 columnBuilder 的 `collectColumnAggregates`）。
+ * 与组行用的是同一套 `aggregateValue`，所以列级配置在组内和整体口径一致。
+ */
+export function buildAggregateRow(
+  records: readonly GroupSourceRecord[],
+  aggregates: VTableGroupOptions['aggregates'],
+): GroupSourceRecord {
+  const row: GroupSourceRecord = {};
+  for (const item of normalizeAggregates(aggregates)) {
+    row[item.field] = aggregateValue(records, item);
+  }
+  return row;
 }

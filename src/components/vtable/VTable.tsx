@@ -37,7 +37,15 @@ import {
 import type { VTableMenuConfig, VTableMenuItem } from './menu';
 import { defaultCompare, type VTableSortState } from './sorting';
 import { buildMergeGroupIndex, type MergeGroupConfig } from './mergeGroup';
-import { buildGroupRows, isGroupRow, resolveGroupFields, type VTableGroupOptions } from './group';
+import {
+  buildAggregateRow,
+  buildGroupRows,
+  flattenGroupDetails,
+  isGroupRow,
+  resolveGroupFields,
+  type VTableGroupOptions,
+} from './group';
+import { collectColumnAggregates } from './columnBuilder';
 import { THEME } from './theme';
 import type { StyleArgs, VTableCellInfo, VTableRowInfo } from './types';
 import { shallowEqualRecord } from './utils';
@@ -152,6 +160,9 @@ export interface VTableProps {
    * 统计行数据：追加为最后一行并固定在表格底部。
    * 主键不用自己填，组件会自动补成 SUMMARY_ROW_KEY（已显式给主键则保留原值）；
    * 判断统计行请用 cellStyle / menu / 单元格事件回调里的 isSummaryRow。
+   *
+   * **不传时不必慌**：只要列的 `AppColumnDef.aggregate` 配了，组件会按那些列自动算一行
+   * （与分组组行共用同一套汇总口径）。传了就以这里为准，整行接管。
    */
   summary?: Record<string, unknown>;
   /**
@@ -402,7 +413,6 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
   }
   const stableSummaryRow = stableSummaryRef.current;
   const summaryRef = useRef(summaryRow);
-  summaryRef.current = stableSummaryRow;
   /** 菜单配置：菜单项与回调都从 ref 实时读取，所以页面改菜单内容不用重建表格实例 */
   const menuRef = useRef(menu);
   menuRef.current = menu;
@@ -441,11 +451,33 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
 
   // 只看「有没有」，用于决定是否要包装列配置；包装后的回调内部都从 ref 读最新值
   const hasCellStyle = Boolean(cellStyle);
-  const hasSummary = Boolean(stableSummaryRow);
+  /**
+   * 列上配置的默认汇总方式（`AppColumnDef.aggregate`）。
+   * 两个地方共用：没传 `summary` 时拼底部统计行、`group.aggregates` 没传时给组行用。
+   */
+  const columnAggregates = useMemo(() => collectColumnAggregates(columns), [columns]);
+  /**
+   * 是否会自动生成统计行：页面没显式给 `summary`，但列上配了 `aggregate`。
+   * 空表不生成 —— 否则「暂无数据」下面会多出一行 0。
+   */
+  const autoSummaryEnabled =
+    !summary && columnAggregates.length > 0 && records.length > 0;
+  const hasSummary = Boolean(stableSummaryRow) || autoSummaryEnabled;
   const hasGroup = Boolean(group);
   // tree 列只能是**最外层**分组字段那一列：VTable 只认一个 tree 列，箭头统一画在那里，
   // 内层组行的箭头也落在同一列（该列在这一层是空的，靠缩进表达从属关系）
   const groupField = resolveGroupFields(group)[0];
+  /**
+   * 分组配置的实际生效版本：`aggregates` **没写**时继承列上的 `aggregate` 配置。
+   *
+   * 显式写了 `aggregates: []` 视为「组行不要任何汇总」，不再继承 —— 空数组是明确的意图，
+   * 只有 undefined 才算「没配」。
+   */
+  const normalizedGroup = useMemo(() => {
+    if (!group) return undefined;
+    if (group.aggregates !== undefined || columnAggregates.length === 0) return group;
+    return { ...group, aggregates: columnAggregates };
+  }, [group, columnAggregates]);
   /** 组行默认不可选中：它们没有业务主键，混进 getSelection().rows 会让批量操作拿到 undefined */
   const groupSelectable = Boolean(group?.selectable);
   /**
@@ -580,37 +612,61 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
   ]);
 
   /**
-   * 排序只作用于真实数据行，统计行永远追加在最后。
+   * 数据形状：排序 +（可选）分组，**不含**统计行。
    *
    * 配了 `group` 时多一步：把（排序后的）扁平数据聚成「组行 + children」的树。
    * ⚠️ `group` 请用常量或 useMemo 包住：它一旦换引用，这份树就要重建一次，
    * 而 rows 变化会连带触发 setRecords 的全量重绘。
    */
-  const rows = useMemo(() => {
+  const shapedRows = useMemo(() => {
     const data = sortState
       ? [...records].sort((a, b) => {
           const result = defaultCompare(a?.[sortState.field], b?.[sortState.field]);
           return sortState.order === 'desc' ? -result : result;
         })
       : records;
-    const shaped = group ? buildGroupRows(data, group, rowKey) : data;
-    return stableSummaryRow ? [...shaped, stableSummaryRow] : shaped;
-  }, [records, stableSummaryRow, sortState, group, rowKey]);
+    return normalizedGroup ? buildGroupRows(data, normalizedGroup, rowKey) : data;
+  }, [records, sortState, normalizedGroup, rowKey]);
 
   /**
-   * 排序后、去掉统计行的真实数据：分组合并只按这些行建索引（统计行不能被并进最后一块）。
-   * 树形分组下的组行也要排除 —— 它的字段值是**汇总出来的数字**，跟明细在同一列上
-   * 往往还有相同值，混进去会把组行和明细并成一块。
+   * 明细行：把分组树**拍平**后的全部明细（不含组行）。
+   * 统计行与分组合并都只按这些行算 —— 组行的字段值是**汇总出来的数字**，
+   * 混进去会重复计数（统计行翻倍），也会跟明细并成一块。
+   *
+   * ⚠️ 不能用 `shapedRows.filter(!isGroupRow)`：分组后顶层只有组行，明细全在 children 里，
+   * 那样过滤出来是空数组，统计行会全算成 0。
    */
-  const dataRows = useMemo(() => {
-    const base = stableSummaryRow ? rows.slice(0, rows.length - 1) : rows;
-    return group ? base.filter((row) => !isGroupRow(row)) : base;
-  }, [rows, stableSummaryRow, group]);
+  const detailRows = useMemo(
+    () => (normalizedGroup ? flattenGroupDetails(shapedRows) : shapedRows),
+    [shapedRows, normalizedGroup],
+  );
 
-  /** 分组合并索引：字段 -> 每行所属块。依赖 dataRows，排序 / 换数据 / 改列后自动重建 */
+  /**
+   * 自动统计行：页面没传 `summary`、但列上配了 `aggregate` 时，按那些配置算一行。
+   * 与组行共用 `buildAggregateRow`，所以「组内小计」和「整体合计」口径一致。
+   */
+  const autoSummaryRow = useMemo(
+    () =>
+      autoSummaryEnabled
+        ? { ...buildAggregateRow(detailRows, columnAggregates), [rowKey]: SUMMARY_ROW_KEY }
+        : undefined,
+    [autoSummaryEnabled, columnAggregates, detailRows, rowKey],
+  );
+  /** 最终统计行：页面显式给的优先，其次自动算的，都没有就不出统计行 */
+  const finalSummaryRow = stableSummaryRow ?? autoSummaryRow;
+  // isSummaryRow / rowSeriesNumber 这些回调都从这个 ref 读「有没有统计行」
+  summaryRef.current = finalSummaryRow;
+
+  /** 渲染用的完整数据：形状 + 统计行（永远在最后一行） */
+  const rows = useMemo(
+    () => (finalSummaryRow ? [...shapedRows, finalSummaryRow] : shapedRows),
+    [shapedRows, finalSummaryRow],
+  );
+
+  /** 分组合并索引：字段 -> 每行所属块。依赖 detailRows，排序 / 换数据 / 改列后自动重建 */
   const mergeIndex = useMemo(
-    () => (mergeGroups ? buildMergeGroupIndex(dataRows, mergeGroups) : null),
-    [dataRows, mergeGroups],
+    () => (mergeGroups ? buildMergeGroupIndex(detailRows, mergeGroups) : null),
+    [detailRows, mergeGroups],
   );
   const mergeIndexRef = useRef(mergeIndex);
   mergeIndexRef.current = mergeIndex;

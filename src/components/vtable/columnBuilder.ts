@@ -1,5 +1,6 @@
 import type { ColumnsDefine, TextColumnDefine, TYPES } from '@visactor/vtable';
 import { formatDate, formatDateTime } from '@/utils';
+import type { GroupAggregate, GroupAggregateType } from './group';
 
 /** 列的数据类型：决定渲染成什么控件以及对齐/格式 */
 export type ColumnDataType =
@@ -65,6 +66,16 @@ export interface AppColumnDef {
    * 属性（见 ./mergeGroup.ts）——那条路预扫描建索引，不会让每格都重扫整列。
    */
   mergeCell?: TYPES.MergeCellOption;
+  /**
+   * 默认汇总方式（`sum` / `count` / `distinct` / `avg` / `max` / `min` / `first`）。
+   *
+   * 配了它就有两个效果，页面都不用自己写计算代码：
+   * 1. **底部统计行**：没传 `<VTable summary>` 时，自动按这些列拼一行；
+   * 2. **树形分组的组行**：`group.aggregates` 没传时，自动继承这些列。
+   *
+   * 显式配置优先：传了 `summary` 就用页面的那行，传了 `group.aggregates` 就只算那些字段。
+   */
+  aggregate?: GroupAggregateType;
   /** 透传给 VTable 的其它列配置（会覆盖上面的默认值，包括 fieldFormat / style / mergeCell） */
   columnProps?: Record<string, unknown>;
 }
@@ -192,8 +203,39 @@ export function buildColumns(defs: AppColumnDef[]): ColumnsDefine {
       ...(style ? { style } : {}),
       // false 也是有效值（明确不合并），所以只跳过 undefined
       ...(def.mergeCell !== undefined ? { mergeCell: def.mergeCell } : {}),
+      // 默认汇总方式：VTable 不认识这个字段，单纯挂在列定义上供组件读取，不会渲染出来
+      ...(def.aggregate ? { aggregate: def.aggregate } : {}),
       // 兜底口子放最后：写在 columnProps 里的同名配置整体覆盖（不与默认值合并）
       ...(def.columnProps ?? {}),
     } as ColumnsDefine[number];
   }) as ColumnsDefine;
+}
+
+/**
+ * 从列定义里收集「配了 `aggregate` 的列」，返回顺序与 columns 一致。
+ *
+ * 分组表头（列里再嵌套 columns）会递归进去；字符串形式的列（只给字段名）跳过。
+ * 同一个字段配了多次只取第一次 —— 汇总结果写在同名字段上，重复配置没有意义。
+ */
+export function collectColumnAggregates(columns: ColumnsDefine): GroupAggregate[] {
+  const result: GroupAggregate[] = [];
+  const seen = new Set<string>();
+
+  const walk = (cols: ColumnsDefine) => {
+    for (const col of cols) {
+      if (typeof col === 'string') continue;
+      const cell = col as { columns?: ColumnsDefine; field?: unknown; aggregate?: unknown };
+      if (cell.columns) {
+        walk(cell.columns);
+        continue;
+      }
+      if (typeof cell.field !== 'string' || !cell.aggregate) continue;
+      if (seen.has(cell.field)) continue;
+      seen.add(cell.field);
+      result.push({ field: cell.field, type: cell.aggregate as GroupAggregateType });
+    }
+  };
+
+  walk(columns);
+  return result;
 }
