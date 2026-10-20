@@ -51,6 +51,12 @@ export type {
 export type { VTableSortState } from './sorting';
 export type { MergeGroupConfig, MergeGroupIndex, MergeGroupRange } from './mergeGroup';
 export type {
+  GroupAggregate,
+  GroupAggregateType,
+  GroupSourceRecord,
+  VTableGroupOptions,
+} from './group';
+export type {
   VTableExpandableInfo,
   VTableExpandableOptions,
 } from './expandable';

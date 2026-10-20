@@ -322,6 +322,7 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
                             rowIndex: -1,
                             rowKey: '',
                             isSummaryRow: false,
+                            isGroupRow: false,
                         },
                     getTable: () => tableRef.current?.getTable() ?? null,
                     // 导出是 VTable 内部 TableExportPlugin 的能力，这里一并转发出去。

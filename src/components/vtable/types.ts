@@ -12,7 +12,15 @@ export interface StyleArgs {
   row: number;
   dataValue?: unknown;
   value?: unknown;
-  table: { columnHeaderLevelCount: number };
+  /**
+   * 表格实例（只声明用到的成员，避免把整个 ListTable 拖进类型依赖）。
+   * `rowCount` 用于统计行判定 —— 树形分组展开后 `records.length` 不等于界面行数。
+   */
+  table: {
+    columnHeaderLevelCount: number;
+    rowCount?: number;
+    getCellOriginRecord?: (col: number, row: number) => unknown;
+  };
 }
 
 export interface VTableCellInfo {
@@ -21,6 +29,13 @@ export interface VTableCellInfo {
   field?: string;
   /** 是否底部统计行（统计行的 record 里只有汇总字段，不要当业务数据用） */
   isSummaryRow: boolean;
+  /**
+   * 是否树形分组的**组行**（配了 `group` 才有意义）。
+   *
+   * 组行的 record 上没有业务主键，只有 `children`（明细）与配置出来的汇总字段，
+   * 页面按 `record.ID` 之类过滤数据时务必排掉它，否则会取到 `undefined`。
+   */
+  isGroupRow: boolean;
   /** 单元格对应的原始记录 */
   record?: Record<string, unknown>;
 }
@@ -45,4 +60,6 @@ export interface VTableRowInfo {
   record: Record<string, unknown>;
   /** 是否底部统计行（统计行里只有汇总字段，别当业务数据用） */
   isSummaryRow: boolean;
+  /** 是否树形分组的组行（组行没有业务主键，只有 children 与汇总字段） */
+  isGroupRow: boolean;
 }

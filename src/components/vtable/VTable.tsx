@@ -12,6 +12,7 @@ import { ListTable } from '@visactor/vtable';
 import type { ColumnsDefine, ListTableConstructorOptions } from '@visactor/vtable';
 import { TableExportPlugin } from '@visactor/vtable-plugins';
 import type { TableExportPluginOptions } from '@visactor/vtable-plugins';
+import { isDebugEnv } from '@/utils';
 import {
   toVTableCellStyle,
   type VTableCellStyleHook,
@@ -36,6 +37,7 @@ import {
 import type { VTableMenuConfig, VTableMenuItem } from './menu';
 import { defaultCompare, type VTableSortState } from './sorting';
 import { buildMergeGroupIndex, type MergeGroupConfig } from './mergeGroup';
+import { buildGroupRows, isGroupRow, resolveGroupFields, type VTableGroupOptions } from './group';
 import { THEME } from './theme';
 import type { StyleArgs, VTableCellInfo, VTableRowInfo } from './types';
 import { shallowEqualRecord } from './utils';
@@ -162,6 +164,25 @@ export interface VTableProps {
    * 索引跟着「排序后、去掉统计行」的数据重建，所以表头排序 / 换数据后自动正确。
    */
   mergeGroups?: MergeGroupConfig;
+  /**
+   * 树形分组：把扁平 records 按某个字段聚成「组行 + 明细行」，组行可以收起/展开，
+   * 并且**组行上能显示各列的汇总值**（这正是原生 `groupBy` 做不到的 ——
+   * 它的组行是整行合并的空壳，只能放一段文本；原因见 ./group.ts 顶部说明）。
+   *
+   * - `field` / `fields` 指定分组字段：`fields` 数组**顺序即层级**，`['Month','Customer']`
+   *   就是「月份组 → 客户组 → 明细行」；内层组行只在客户列有值，月份列留空靠缩进表达从属。
+   *   只有**最外层**字段那一列会被设成 `tree: true`（VTable 只认一个 tree 列，箭头统一画在那里）；
+   * - `aggregates` 里的字段会写进每一层组行：内置 `sum`（默认）/ `count` / `distinct` / `avg` /
+   *   `max` / `min` / `first`，不够就用 `{ field, aggregate: (rows) => ... }` 自定义（拿到本组明细行）；
+   *   所以它必须是**列里真实存在的字段**，格式与对齐自动沿用列定义；
+   * - 组行是**普通行**，`cellStyle` / 菜单 / 点击回调都会拿到它，用 `isGroupRow(record)` 区分，
+   *   别把它当明细单据用（它没有业务主键，只有 `children`）；
+   * - 组行不是 `summary`（底部统计行）：两者可以同时用，统计行永远在最后。
+   *
+   * 与 `mergeGroups` 二选一：那个是「合并单元格」的视觉分组，这个是真正的层级。
+   * 与 `expandable` 也互斥：两者都在改行高，同时开会打架。
+   */
+  group?: VTableGroupOptions;
   /** 选择高亮模式，默认整行高亮 */
   highlightMode?: 'row' | 'column' | 'cell' | 'cross';
   /**
@@ -269,6 +290,7 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
   unfreezeAllOnExceedsMaxWidth = false,
   summary,
   mergeGroups,
+  group,
   highlightMode = 'row',
   highlightInRange = true,
   multiSelect = true,
@@ -394,16 +416,60 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
    * 统计行固定在数据行之后（含表头行号）。
    * 只从 ref 读数据，保证引用稳定：cellStyle / rowSeriesNumber / disableSelect 等回调
    * 都挂在这个函数上，它一旦变化整份列配置就要重建、表格要 updateOption 一次。
+   *
+   * ⚠️ 优先用表格的**实时总行数**判断（`row === rowCount - 1`），不能只靠
+   * `表头 + records.length`：树形分组展开后，界面行数（组行 + 展开的明细 + 收起时只剩组行）
+   * 与顶层 records 数量对不上，用旧判据会把组行/明细行整片误判成统计行
+   * （灰底加粗、不可选中、菜单只给通用项）。
    */
   const isSummaryRow = useCallback(
-    (row: number, headerLevel: number): boolean =>
-      Boolean(summaryRef.current) && row >= headerLevel + recordsRef.current.length,
+    (
+      row: number,
+      table?: { columnHeaderLevelCount: number; rowCount?: number } | number,
+    ): boolean => {
+      if (!summaryRef.current) return false;
+      const headerLevel =
+        typeof table === 'number' ? table : (table?.columnHeaderLevelCount ?? 0);
+      const rowCount = typeof table === 'object' ? table?.rowCount : undefined;
+      if (typeof rowCount === 'number' && rowCount > headerLevel) {
+        return row === rowCount - 1;
+      }
+      return row >= headerLevel + recordsRef.current.length;
+    },
     [],
   );
 
   // 只看「有没有」，用于决定是否要包装列配置；包装后的回调内部都从 ref 读最新值
   const hasCellStyle = Boolean(cellStyle);
   const hasSummary = Boolean(stableSummaryRow);
+  const hasGroup = Boolean(group);
+  // tree 列只能是**最外层**分组字段那一列：VTable 只认一个 tree 列，箭头统一画在那里，
+  // 内层组行的箭头也落在同一列（该列在这一层是空的，靠缩进表达从属关系）
+  const groupField = resolveGroupFields(group)[0];
+  /** 组行默认不可选中：它们没有业务主键，混进 getSelection().rows 会让批量操作拿到 undefined */
+  const groupSelectable = Boolean(group?.selectable);
+  /**
+   * 分组字段是否真的有一列绑定。
+   * 配错（字段名拼错、只用聚合字段没给分组列）时 `tree: true` 挂不上去，
+   * 表格会**静默不分组** —— 没有任何报错，排查起来很费劲，所以开发期吼一声。
+   */
+  const hasGroupColumn = useMemo(() => {
+    if (!hasGroup || !groupField) return true;
+    const findField = (cols: ColumnsDefine): boolean =>
+      cols.some((col) => {
+        const cell = col as { columns?: ColumnsDefine; field?: string };
+        if (cell.columns) return findField(cell.columns);
+        return cell.field === groupField;
+      });
+    return findField(columns);
+  }, [columns, hasGroup, groupField]);
+  useEffect(() => {
+    if (!isDebugEnv || !hasGroup || hasGroupColumn) return;
+    console.warn(
+      `[VTable] group 里声明的分组字段「${groupField}」没有任何一列绑定，表格不会分组。` +
+        '请检查 columns 里是否存在 field 等于它的列（分组字段列也不能是 number 类型，否则组标题会被数值格式化）。',
+    );
+  }, [hasGroup, hasGroupColumn, groupField]);
   /**
    * 展开按钮的绘制：转交给控制器（展开态、禁用态都在它手里）。
    * 做成稳定引用：它是列定义的一部分，引用变化会连带整份列配置失效、触发 updateOption。
@@ -428,8 +494,12 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
         const cell = col as { style?: unknown; field?: string };
         const previous = cell.style;
         const editor = cell.field ? editableFields?.[cell.field] : undefined;
+        // 树形分组的入口：VTable 要求至少一列 `tree: true` 才会走层级模式，
+        // 展开箭头就画在这一列文字的左侧。它必须是绑定分组字段的那一列。
+        const isGroupColumn = Boolean(groupField) && cell.field === groupField;
         return {
           ...cell,
+          ...(isGroupColumn ? { tree: true } : {}),
           // 配置了编辑器的列允许就地编辑，未配置的列保持只读
           ...(editor ? { editor } : {}),
           style: (args: StyleArgs) => {
@@ -439,8 +509,18 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
                 : ((previous ?? {}) as Record<string, unknown>);
             const headerLevel = args.table.columnHeaderLevelCount;
             // 统计行：灰底加粗
-            const isSummary = isSummaryRow(args.row, headerLevel);
+            const isSummary = isSummaryRow(args.row, args.table);
             if (isSummary) {
+              return { ...base, bgColor: '#fafafa', fontWeight: 'bold' };
+            }
+            // 组行：同样是灰底加粗（但取的是实时行对象 —— 组行不在 rows 的下标里）
+            const rowRecord = hasGroup
+              ? (args.table.getCellOriginRecord?.(args.col, args.row) as
+                  | Record<string, unknown>
+                  | undefined)
+              : undefined;
+            const rowIsGroup = hasGroup && isGroupRow(rowRecord);
+            if (rowIsGroup) {
               return { ...base, bgColor: '#fafafa', fontWeight: 'bold' };
             }
             // 展开行：内容留在原行高那一段里居中，否则会跟着撑高的行居中、
@@ -449,14 +529,20 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
             if (expandedPadding) return { ...base, ...expandedPadding };
             // 页面自定义样式（业务提醒）
             const index = args.row - headerLevel;
-            const rowKeyAt = rowKeyByIndexRef.current[index] ?? '';
+            // 树形分组后「显示行号」与「顶层数组下标」不再一一对应（组行、收起的明细都不占下标），
+            // 这种情况下一律以表格当前行为准
+            const styleRecord = hasGroup ? rowRecord : rowsRef.current[index];
+            const rowKeyAt = hasGroup
+              ? String(rowRecord?.[rowKey] ?? '')
+              : (rowKeyByIndexRef.current[index] ?? '');
             const custom = cellStyleRef.current?.({
               row: args.row,
               rowIndex: index,
               field: (col as { field?: string }).field ?? '',
               rowKey: rowKeyAt,
               isSummaryRow: isSummary,
-              record: rowsRef.current[index],
+              isGroupRow: rowIsGroup,
+              record: styleRecord,
               dataValue: args.dataValue,
             });
             if (custom) {
@@ -472,8 +558,9 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     // 引用也保持等于 columns，下游 updateOption 不会跟着空转。
     // ⚠️ hasExpandable 也要参与判断：展开行的「内容贴顶」正是补在这层包装里的，
     // 少了它，只配 expandable、没配 cellStyle 的页面会漏掉这个补偿。
+    // hasGroup 同理：`tree: true` 和组行样式都注入在这层。
     const decorated =
-      !editableFields && !hasCellStyle && !hasSummary && !hasExpandable
+      !editableFields && !hasCellStyle && !hasSummary && !hasExpandable && !hasGroup
         ? columns
         : decorate(columns);
     // 展开列插在行号列之后、业务列之前：跟行号一起冻住，横向滚动时按钮不消失
@@ -484,12 +571,21 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     editableFields,
     hasCellStyle,
     hasSummary,
+    hasGroup,
+    groupField,
+    rowKey,
     isSummaryRow,
     hasExpandable,
     renderExpandButton,
   ]);
 
-  /** 排序只作用于真实数据行，统计行永远追加在最后 */
+  /**
+   * 排序只作用于真实数据行，统计行永远追加在最后。
+   *
+   * 配了 `group` 时多一步：把（排序后的）扁平数据聚成「组行 + children」的树。
+   * ⚠️ `group` 请用常量或 useMemo 包住：它一旦换引用，这份树就要重建一次，
+   * 而 rows 变化会连带触发 setRecords 的全量重绘。
+   */
   const rows = useMemo(() => {
     const data = sortState
       ? [...records].sort((a, b) => {
@@ -497,14 +593,19 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
           return sortState.order === 'desc' ? -result : result;
         })
       : records;
-    return stableSummaryRow ? [...data, stableSummaryRow] : data;
-  }, [records, stableSummaryRow, sortState]);
+    const shaped = group ? buildGroupRows(data, group, rowKey) : data;
+    return stableSummaryRow ? [...shaped, stableSummaryRow] : shaped;
+  }, [records, stableSummaryRow, sortState, group, rowKey]);
 
-  /** 排序后、去掉统计行的真实数据：分组合并只按这些行建索引（统计行不能被并进最后一块） */
-  const dataRows = useMemo(
-    () => (stableSummaryRow ? rows.slice(0, rows.length - 1) : rows),
-    [rows, stableSummaryRow],
-  );
+  /**
+   * 排序后、去掉统计行的真实数据：分组合并只按这些行建索引（统计行不能被并进最后一块）。
+   * 树形分组下的组行也要排除 —— 它的字段值是**汇总出来的数字**，跟明细在同一列上
+   * 往往还有相同值，混进去会把组行和明细并成一块。
+   */
+  const dataRows = useMemo(() => {
+    const base = stableSummaryRow ? rows.slice(0, rows.length - 1) : rows;
+    return group ? base.filter((row) => !isGroupRow(row)) : base;
+  }, [rows, stableSummaryRow, group]);
 
   /** 分组合并索引：字段 -> 每行所属块。依赖 dataRows，排序 / 换数据 / 改列后自动重建 */
   const mergeIndex = useMemo(
@@ -563,6 +664,29 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
   rowKeyByIndexRef.current = rowKeyByIndex;
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
+  /** 是否处于树形分组模式（供只创建一次的控制器闭包现读，避免锁死首次渲染的值） */
+  const hasGroupRef = useRef(hasGroup);
+  hasGroupRef.current = hasGroup;
+
+  /**
+   * 按**显示顺序**取出当前表格里每一行的真实记录（含组行与已展开的明细）。
+   *
+   * 只在树形分组模式下使用：那时「显示第几行」与顶层 `rows` 下标不再一一对应
+   * （组行、收起的明细都不占数组下标），选中回传、tooltip 之类按行号取数据的场景
+   * 必须回到表格本身去问，否则拿到的会是别的行。
+   */
+  const collectDisplayRows = useCallback((): Array<Record<string, unknown>> => {
+    const table = tableRef.current;
+    if (!table) return rowsRef.current;
+    const headerLevel = table.columnHeaderLevelCount;
+    const result: Array<Record<string, unknown>> = [];
+    for (let row = headerLevel; row < table.rowCount; row++) {
+      result.push(
+        (table.getCellOriginRecord(0, row) as Record<string, unknown> | undefined) ?? {},
+      );
+    }
+    return result;
+  }, []);
   const cellStyleRef = useRef(cellStyle);
   cellStyleRef.current = cellStyle;
   const cellTooltipRef = useRef(cellTooltip);
@@ -578,9 +702,13 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
   if (!selectionRef.current) {
     selectionRef.current = createSelectionController({
       getTable: () => tableRef.current,
-      getRows: () => rowsRef.current,
-      getRowKeys: () => rowKeyByIndexRef.current,
-      isSummaryRow,
+      getRows: () => (hasGroupRef.current ? collectDisplayRows() : rowsRef.current),
+      getRowKeys: () =>
+        hasGroupRef.current
+          ? collectDisplayRows().map((row) => String(row?.[rowKey] ?? ''))
+          : rowKeyByIndexRef.current,
+      // 只传行号：分组后「表头 + records.length」不等于界面行数，内部靠 table.rowCount 判
+      isSummaryRow: (row: number) => isSummaryRow(row, tableRef.current ?? undefined),
       notifySelectionCount: (rowCount) =>
         handlers.current.onActiveSelectionChange?.({ rowCount }),
       notifyActiveRow: (info) => handlers.current.onSelectedChange?.(info),
@@ -691,15 +819,17 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
       const headerLevel = table.columnHeaderLevelCount;
       // row < headerLevel 是表头行；col / row 为 -1 是画布空白处的右键
       const inBody = col >= 0 && row >= headerLevel;
+      const contextRecord = inBody
+        ? (table.getCellOriginRecord(col, row) as Record<string, unknown> | undefined)
+        : undefined;
       return source({
         col,
         row,
         field,
         rowIndex: inBody ? row - headerLevel : -1,
-        record: inBody
-          ? (table.getCellOriginRecord(col, row) as Record<string, unknown> | undefined)
-          : undefined,
-        isSummaryRow: inBody && isSummaryRow(row, headerLevel),
+        record: contextRecord,
+        isSummaryRow: inBody && isSummaryRow(row, table),
+        isGroupRow: isGroupRow(contextRecord),
       });
     },
     [isSummaryRow],
@@ -773,23 +903,42 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
               width: typeof rowNumber === 'object' && rowNumber.width ? rowNumber.width : 48,
               headerStyle: { textAlign: 'center' as const },
               // 统计行灰底加粗；columns 上的 cellStyle 管不到这一列，必须在这里单独设
-              style: (args: { row: number; table: { columnHeaderLevelCount: number } }) => {
+              style: (args: {
+                row: number;
+                table: {
+                  columnHeaderLevelCount: number;
+                  rowCount?: number;
+                  getCellOriginRecord?: (col: number, row: number) => unknown;
+                };
+              }) => {
                 const centered = { textAlign: 'center' as const };
                 const headerLevel = args.table.columnHeaderLevelCount;
-                if (isSummaryRow(args.row, headerLevel)) {
+                if (isSummaryRow(args.row, args.table)) {
+                  return { ...centered, bgColor: '#fafafa', fontWeight: 'bold' as const };
+                }
+                // 组行与统计行同样处理（行号列不经过 columns 的样式包装）
+                if (hasGroup && isGroupRow(args.table.getCellOriginRecord?.(0, args.row))) {
                   return { ...centered, bgColor: '#fafafa', fontWeight: 'bold' as const };
                 }
                 // 展开行的序号也得留在原行高那一段里居中：行号列不经过 columns 的样式包装，
                 // 漏了这里序号就会飘到行中间、被展开层盖住（整列序号看起来是空的）
                 return { ...centered, ...expandedRowPadding(args.row, headerLevel) };
               },
-              // 统计行显示「汇总」，其余显示 1 起的连续行号（排序后重新编号）
-              format: (_col?: number, row?: number, table?: { columnHeaderLevelCount: number }) => {
+              // 统计行显示「汇总」，组行留空（它是层级标题、不是一条明细），其余显示 1 起的行号
+              format: (
+                _col?: number,
+                row?: number,
+                table?: {
+                  columnHeaderLevelCount: number;
+                  rowCount?: number;
+                  getCellOriginRecord?: (col: number, row: number) => unknown;
+                },
+              ) => {
                 const headerLevel = table?.columnHeaderLevelCount ?? 0;
                 const current = row ?? headerLevel;
-                return isSummaryRow(current, headerLevel)
-                  ? '汇总'
-                  : current - headerLevel + 1;
+                if (isSummaryRow(current, table)) return '汇总';
+                if (hasGroup && isGroupRow(table?.getCellOriginRecord?.(0, current))) return '';
+                return current - headerLevel + 1;
               },
             },
           }
@@ -807,12 +956,28 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
         // 拖拽扩格走的是 grabing 状态改 range 端点那条路，原生开关只有 disableDragSelect
         ...(multiSelect ? {} : { disableDragSelect: true }),
         blankAreaClickDeselect: true,
-        // 统计行不参与选中高亮
-        disableSelect: (_col: number, row: number, inner: { columnHeaderLevelCount: number }) =>
-          isSummaryRow(row, inner.columnHeaderLevelCount),
+        // 统计行不参与选中高亮；组行默认也不参与（group.selectable 可放开）
+        disableSelect: (
+          _col: number,
+          row: number,
+          inner: {
+            columnHeaderLevelCount: number;
+            rowCount?: number;
+            getCellOriginRecord?: (col: number, row: number) => unknown;
+          },
+        ) => {
+          if (isSummaryRow(row, inner)) return true;
+          if (groupSelectable) return false;
+          return isGroupRow(inner.getCellOriginRecord?.(0, row));
+        },
       },
       defaultRowHeight: rowHeight,
       defaultHeaderRowHeight: headerRowHeight,
+      // 树形分组的默认展开层级：1（默认）= 只显示组行、点箭头才展开明细。
+      // 这是建表时的配置，运行中改层级请用 table.toggleHierarchyState / collapseAll。
+      ...(group?.expandLevel ? { hierarchyExpandLevel: group.expandLevel } : {}),
+      // 组行与明细行之间的缩进（像素），让层级一眼看出来
+      ...(group ? { hierarchyIndent: group.indent ?? 12 } : {}),
       widthMode: 'standard',
       heightMode: 'standard',
       autoFillWidth,
@@ -845,15 +1010,23 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     // 记下建表用的那份配置，下面的同步 effect 据此判断要不要 updateOption
     syncedOptionRef.current = { columns: finalColumns, autoFillWidth };
 
-    const toInfo = (args: { col: number; row: number; field?: unknown }): VTableCellInfo => ({
-      col: args.col,
-      row: args.row,
-      field: args.field === undefined ? undefined : String(args.field),
-      isSummaryRow: isSummaryRow(args.row, table.columnHeaderLevelCount),
-      record: table.getCellOriginRecord(args.col, args.row) as
+    const toInfo = (args: {
+      col: number;
+      row: number;
+      field?: unknown;
+    }): VTableCellInfo => {
+      const record = table.getCellOriginRecord(args.col, args.row) as
         | Record<string, unknown>
-        | undefined,
-    });
+        | undefined;
+      return {
+        col: args.col,
+        row: args.row,
+        field: args.field === undefined ? undefined : String(args.field),
+        isSummaryRow: isSummaryRow(args.row, table),
+        isGroupRow: isGroupRow(record),
+        record,
+      };
+    };
 
     /**
      * Ctrl / Cmd 点击的准备：只记下「点击前的选中行」与按下位置，不在这里改范围。
@@ -933,15 +1106,17 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
       const headerLevel = table.columnHeaderLevelCount;
       const inTable = col >= 0 && row >= 0;
       const inBody = col >= 0 && row >= headerLevel;
+      const clickRecord = inBody
+        ? (table.getCellOriginRecord(col, row) as Record<string, unknown> | undefined)
+        : undefined;
       onClick({
         col,
         row,
         rowIndex: inBody ? row - headerLevel : -1,
         field: args.field === undefined ? undefined : String(args.field),
-        record: inBody
-          ? (table.getCellOriginRecord(col, row) as Record<string, unknown> | undefined)
-          : undefined,
-        isSummaryRow: inBody && isSummaryRow(row, headerLevel),
+        record: clickRecord,
+        isSummaryRow: inBody && isSummaryRow(row, table),
+        isGroupRow: isGroupRow(clickRecord),
         menuKey: String(args.menuKey ?? ''),
         text: String(args.text ?? ''),
         value: inTable ? table.getCellValue(col, row) : undefined,
@@ -996,13 +1171,20 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
       // 必须自己按坐标反查列字段，否则拿到的永远是空串、匹配不到任何错误。
       const eventField = (args as { field?: unknown }).field;
       const columnField = table.getHeaderField?.(args.col, args.row);
+      // 树形分组下显示行号与顶层数组下标不再对应，行对象一律向表格要
+      const rowRecord = hasGroup
+        ? (table.getCellOriginRecord(args.col, args.row) as Record<string, unknown> | undefined)
+        : rowsRef.current[index];
       const content = hook({
         row: args.row,
         rowIndex: index,
         field: String(eventField ?? columnField ?? ''),
-        rowKey: rowKeyByIndexRef.current[index] ?? '',
-        isSummaryRow: isSummaryRow(args.row, headerLevel),
-        record: rowsRef.current[index],
+        rowKey: hasGroup
+          ? String(rowRecord?.[rowKey] ?? '')
+          : (rowKeyByIndexRef.current[index] ?? ''),
+        isSummaryRow: isSummaryRow(args.row, table),
+        isGroupRow: isGroupRow(rowRecord),
+        record: rowRecord,
         dataValue: table.getCellOriginValue?.(args.col, args.row),
       });
       // 没文案就别调：VTable 自己的溢出文本提示还在用同一套 tooltip，
@@ -1184,20 +1366,21 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
       if (!table || !Number.isFinite(index)) return undefined;
       const rowIndex = Math.floor(index);
       if (rowIndex < 0) return undefined;
-      const record = rowsRef.current[rowIndex] as Record<string, unknown> | undefined;
+      // 树形分组下「显示第几行」与顶层数组下标不对应（组行、收起的明细都不占下标）
+      const record = (hasGroup
+        ? table.getCellOriginRecord(0, rowIndex + table.columnHeaderLevelCount)
+        : rowsRef.current[rowIndex]) as Record<string, unknown> | undefined;
       if (!record) return undefined;
       return {
         rowIndex,
         rowKey: String(record[rowKey] ?? ''),
         record,
         // 统计行的判定按 VTable 坐标（含表头），这里换算过去
-        isSummaryRow: isSummaryRow(
-          rowIndex + table.columnHeaderLevelCount,
-          table.columnHeaderLevelCount,
-        ),
+        isSummaryRow: isSummaryRow(rowIndex + table.columnHeaderLevelCount, table),
+        isGroupRow: isGroupRow(record),
       };
     },
-    [isSummaryRow, rowKey],
+    [hasGroup, isSummaryRow, rowKey],
   );
 
   useImperativeHandle(

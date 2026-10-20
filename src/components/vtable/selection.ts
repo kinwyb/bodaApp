@@ -12,6 +12,7 @@
  */
 import type { ListTable } from '@visactor/vtable';
 import { getStylePlugin } from './cellStyle';
+import { isGroupRow } from './group';
 
 /** 选中行整行底色的样式 id 与配色（配色与 theme.bodyStyle.select.cellBgColor 保持一致） */
 const SELECTED_ROW_STYLE_ID = '__selected_row__';
@@ -107,6 +108,8 @@ export interface VTableSelectedRowChangeInfo {
   rowKey: string;
   /** 是否底部统计行（统计行不参与选中，正常不会出现在这里） */
   isSummaryRow: boolean;
+  /** 是否树形分组的组行（组行没有业务主键，只有 children 与汇总字段） */
+  isGroupRow: boolean;
 }
 
 /** 没有激活行时的空信息（每次回传都是副本，页面改到不会污染下一次回调） */
@@ -116,6 +119,7 @@ const EMPTY_SELECTED_ROW: VTableSelectedRowChangeInfo = {
   rowIndex: -1,
   rowKey: '',
   isSummaryRow: false,
+  isGroupRow: false,
 };
 
 /**
@@ -130,8 +134,12 @@ export interface SelectionControllerDeps {
   getRows: () => Array<Record<string, unknown>>;
   /** 取「表格行号 -> 行主键」的映射 */
   getRowKeys: () => string[];
-  /** 统计行判定（按 VTable 行号，含表头） */
-  isSummaryRow: (row: number, headerLevel: number) => boolean;
+  /**
+   * 统计行判定（按 VTable 行号，含表头）。
+   * 只传行号：树形分组展开后「表头 + records.length」不等于界面行数，
+   * 组件那层要靠 table.rowCount 判，所以这里不把 headerLevel 透传下去。
+   */
+  isSummaryRow: (row: number) => boolean;
   /** 选中行数变化（转发给外部的 onActiveSelectionChange） */
   notifySelectionCount: (rowCount: number) => void;
   /** 当前激活行变化（转发给外部的 onSelectedChange） */
@@ -281,7 +289,8 @@ export function createSelectionController(deps: SelectionControllerDeps): Select
       row: pos.row,
       rowIndex,
       rowKey: deps.getRowKeys()[rowIndex] ?? '',
-      isSummaryRow: deps.isSummaryRow(pos.row, headerLevel),
+      isSummaryRow: deps.isSummaryRow(pos.row),
+      isGroupRow: isGroupRow(record),
     };
   };
 

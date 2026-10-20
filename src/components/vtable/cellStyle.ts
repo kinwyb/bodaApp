@@ -160,6 +160,8 @@ export interface VTableCellStyleInfo {
   rowKey: string;
   /** 是否底部统计行 */
   isSummaryRow: boolean;
+  /** 是否树形分组的组行（组行没有业务主键，只有 children 与汇总字段） */
+  isGroupRow: boolean;
   /** 该行原始记录 */
   record?: Record<string, unknown>;
   /** 该单元格原始值 */

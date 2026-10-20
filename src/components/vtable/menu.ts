@@ -65,6 +65,8 @@ export interface VTableMenuContext {
   record?: Record<string, unknown>;
   /** 是否底部统计行 */
   isSummaryRow: boolean;
+  /** 是否树形分组的组行（右键到组行时用它区分「对一组操作」还是「对一条单据操作」） */
+  isGroupRow: boolean;
 }
 
 /** 菜单项被点击时回传的信息 */
