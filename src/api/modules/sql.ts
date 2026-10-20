@@ -141,7 +141,6 @@ const buildSQLProcedureRequest = (params: SQLProcedure): sqlProcedureWithArrayAr
             args.push(`${key}:${params.Args[key]}`);
         }
     }
-
     // const signSource = [
     //     Common.DefaultAPI.Token,
     //     trimmed,
@@ -629,7 +628,7 @@ export const sqlApi = {
         if (!request.ProcedureName) {
             throw new ApiError(500, request.Secret)
         }
-        const result = await http.post<SQLResult>('/sqlAdapter/procedure', params);
+        const result = await http.post<SQLResult>('/sqlAdapter/procedure', request);
         return buildResult(result);
     },
 };
