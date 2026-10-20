@@ -1,4 +1,11 @@
-import React, {useCallback, useImperativeHandle, useMemo, useRef, useState} from 'react';
+import React, {
+    useCallback,
+    useEffect,
+    useImperativeHandle,
+    useMemo,
+    useRef,
+    useState,
+} from 'react';
 import {Button, Input, Pagination, Popover, Tooltip} from 'antd';
 import {ArrowDownOutlined, ArrowUpOutlined, GroupOutlined} from '@ant-design/icons';
 import type {ColumnsDefine} from '@visactor/vtable';
@@ -58,6 +65,9 @@ export interface FilterTableProps {
      *
      * 打开后**不需要再配任何列**：面板直接列出当前表格的所有列，用户自己挑、自己调先后顺序
      * （序号即层级，可上下移动）。组行汇总自动继承列上的 `AppColumnDef.aggregate`。
+     *
+     * 想「表格一进来就分组」，在列定义上写 `group: true` 即可 —— **不需要**开这个开关；
+     * 开关只决定「有没有那个按钮让人改」。两者可以只开一个。
      *
      * ⚠️ 分组只作用于**当前这一页的数据**（组件本身是服务端分页）：第 2 页又出现同一个月份，
      * 会变成第二个组。要跨页合并得由后端按分组维度分页。
@@ -200,8 +210,6 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
          * 行数这一路是全覆盖的（勾选会同步成整行选中并回调）。
          */
         const [activeRowCount, setActiveRowCount] = useState(0);
-        /** 用户选的分组列，**顺序即层级**（先点的在外层） */
-        const [groupFields, setGroupFields] = useState<string[]>([]);
 
         // 从当前 records 自动构建 enum 类型的筛选候选项
         const autoOptions = useMemo(() => {
@@ -280,13 +288,30 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
         }, [summary, filteredRecords, showSummary]);
 
         /** 可分组列：直接取当前表格的所有列，页面不用配 */
-        const groupOptions = useMemo(
-            () => (groupable ? collectGroupableColumns(columns) : []),
-            [groupable, columns],
+        const groupOptions = useMemo(() => collectGroupableColumns(columns), [columns]);
+
+        /** 列上标了 `group: true` 的字段（按列顺序）—— 表格一进来就按这些分层 */
+        const defaultGroupFields = useMemo(
+            () => groupOptions.filter((column) => column.group).map((column) => column.field),
+            [groupOptions],
         );
+
+        /**
+         * 当前生效的分组列，**顺序即层级**。
+         *
+         * 初值取列上的 `group: true`；用户一旦在面板里动过（dirty），
+         * 之后 columns 再变化也不覆盖他的选择。
+         */
+        const [groupFields, setGroupFields] = useState<string[]>(defaultGroupFields);
+        const groupDirtyRef = useRef(false);
+        useEffect(() => {
+            if (groupDirtyRef.current) return;
+            setGroupFields(defaultGroupFields);
+        }, [defaultGroupFields]);
 
         /** 点一下加入 / 取消（加入时排在最后，即最内层） */
         const toggleGroupField = useCallback((field: string) => {
+            groupDirtyRef.current = true;
             setGroupFields((prev) =>
                 prev.includes(field) ? prev.filter((item) => item !== field) : [...prev, field],
             );
@@ -294,6 +319,7 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
 
         /** 上下移动调整层级：-1 往外层走，+1 往内层走 */
         const moveGroupField = useCallback((index: number, offset: number) => {
+            groupDirtyRef.current = true;
             setGroupFields((prev) => {
                 const next = prev.slice();
                 const target = index + offset;
@@ -303,24 +329,28 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
             });
         }, []);
 
+        /** 清空分组，回到「不分层」的平铺状态 */
+        const clearGroupFields = useCallback(() => {
+            groupDirtyRef.current = true;
+            setGroupFields([]);
+        }, []);
+
         /**
-         * 分组配置：用户选了列才生成。
+         * 分组配置：选了列才生成。
          *
-         * 不传 `aggregates` —— 让它自动继承列上的 `AppColumnDef.aggregate`，
-         * 页面只要在列定义里声明一次，组行与底部统计行的口径就自动一致。
+         * - **不传 `title`**：组行直接显示值本身（`2023-12`）—— 值就在这一列下面，
+         *   再加「生产月份:」纯属重复；也顺带避免标题过长被列宽截断。
+         * - **不传 `aggregates`**：自动继承列上的 `AppColumnDef.aggregate`，
+         *   页面只要在列定义里声明一次，组行与底部统计行的口径就自动一致。
          */
         const groupConfig = useMemo<VTableGroupOptions | undefined>(() => {
-            if (!groupable || groupFields.length === 0) return undefined;
-            const titleOf = (field: string) =>
-                groupOptions.find((column) => column.field === field)?.title ?? field;
+            if (groupFields.length === 0) return undefined;
             return {
                 fields: groupFields,
-                title: (value, _rows, field) =>
-                    `${titleOf(field)}: ${value === null || value === undefined || value === '' ? '(空)' : String(value)}`,
                 // 默认只展开到第一层，点箭头再看下一层 —— 组多时不会一屏全是明细
                 expandLevel: 1,
             };
-        }, [groupable, groupFields, groupOptions]);
+        }, [groupFields]);
 
         // 懒初始化 SearchComponent：首次搜索时才创建，确保 table 已就绪
         const ensureSearchComponent = useCallback(() => {
@@ -431,7 +461,7 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
                                                 type="link"
                                                 size="small"
                                                 style={{padding: 0}}
-                                                onClick={() => setGroupFields([])}
+                                                onClick={clearGroupFields}
                                             >
                                                 清除
                                             </Button>

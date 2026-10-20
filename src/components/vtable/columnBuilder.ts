@@ -76,6 +76,13 @@ export interface AppColumnDef {
    * 显式配置优先：传了 `summary` 就用页面的那行，传了 `group.aggregates` 就只算那些字段。
    */
   aggregate?: GroupAggregateType;
+  /**
+   * 默认按这一列分组（只对 FilterTable 的 `groupable` 面板生效）。
+   *
+   * 标了 `true` 的列，表格一进来就是分组状态，用户不用每次手动点；
+   * 面板里仍然可以改层级 / 取消。多列都标了 `true` 时，**按列顺序**由外到内分层。
+   */
+  group?: boolean;
   /** 透传给 VTable 的其它列配置（会覆盖上面的默认值，包括 fieldFormat / style / mergeCell） */
   columnProps?: Record<string, unknown>;
 }
@@ -203,8 +210,9 @@ export function buildColumns(defs: AppColumnDef[]): ColumnsDefine {
       ...(style ? { style } : {}),
       // false 也是有效值（明确不合并），所以只跳过 undefined
       ...(def.mergeCell !== undefined ? { mergeCell: def.mergeCell } : {}),
-      // 默认汇总方式：VTable 不认识这个字段，单纯挂在列定义上供组件读取，不会渲染出来
+      // 默认汇总方式 / 默认分组：VTable 不认识这两个字段，单纯挂在列定义上供组件读取，不会渲染出来
       ...(def.aggregate ? { aggregate: def.aggregate } : {}),
+      ...(def.group ? { group: true } : {}),
       // 兜底口子放最后：写在 columnProps 里的同名配置整体覆盖（不与默认值合并）
       ...(def.columnProps ?? {}),
     } as ColumnsDefine[number];
@@ -246,10 +254,15 @@ export function collectColumnAggregates(columns: ColumnsDefine): GroupAggregate[
  * 规则：递归展开分组表头，只取**有 `field` 的叶子列**；`title` 是函数就先调一次拿文本；
  * 同一个字段只保留第一次出现。顺序与 columns 一致，面板里就按这个顺序列出来。
  */
-export function collectGroupableColumns(
-  columns: ColumnsDefine,
-): Array<{ field: string; title: string }> {
-  const result: Array<{ field: string; title: string }> = [];
+export interface GroupableColumn {
+  field: string;
+  title: string;
+  /** 列上标了 `group: true` —— 表格一进来就按它分组 */
+  group: boolean;
+}
+
+export function collectGroupableColumns(columns: ColumnsDefine): GroupableColumn[] {
+  const result: GroupableColumn[] = [];
   const seen = new Set<string>();
 
   const walk = (cols: ColumnsDefine) => {
@@ -257,11 +270,16 @@ export function collectGroupableColumns(
       if (typeof col === 'string') {
         if (!seen.has(col)) {
           seen.add(col);
-          result.push({ field: col, title: col });
+          result.push({ field: col, title: col, group: false });
         }
         continue;
       }
-      const cell = col as { columns?: ColumnsDefine; field?: unknown; title?: unknown };
+      const cell = col as {
+        columns?: ColumnsDefine;
+        field?: unknown;
+        title?: unknown;
+        group?: unknown;
+      };
       if (cell.columns) {
         walk(cell.columns);
         continue;
@@ -273,7 +291,7 @@ export function collectGroupableColumns(
         typeof rawTitle === 'function'
           ? String((rawTitle as () => string)())
           : String(rawTitle ?? cell.field);
-      result.push({ field: cell.field, title });
+      result.push({ field: cell.field, title, group: cell.group === true });
     }
   };
 
