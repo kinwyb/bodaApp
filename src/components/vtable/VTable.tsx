@@ -35,6 +35,7 @@ import {
 } from './expandable';
 import type { VTableMenuConfig, VTableMenuItem } from './menu';
 import { defaultCompare, type VTableSortState } from './sorting';
+import { buildMergeGroupIndex, type MergeGroupConfig } from './mergeGroup';
 import { THEME } from './theme';
 import type { StyleArgs, VTableCellInfo, VTableRowInfo } from './types';
 import { shallowEqualRecord } from './utils';
@@ -151,6 +152,16 @@ export interface VTableProps {
    * 判断统计行请用 cellStyle / menu / 单元格事件回调里的 isSummaryRow。
    */
   summary?: Record<string, unknown>;
+  /**
+   * 分组合并（纵向）：按「门槛列 + 顺序列前缀」把相邻同组的行并成一块。
+   *
+   * 走的是 VTable 的 `customMergeCell`，组件会把数据预扫描成索引（O(行数) 一次），
+   * 每格判断只是 O(1) 查表 —— 比列级 `mergeCell: true` 的「每格重扫整列」快得多。
+   *
+   * 只合并 `mergeColumnSort` 里声明的列；列上的 `mergeCell` 请保持 boolean/回调，别混用两套。
+   * 索引跟着「排序后、去掉统计行」的数据重建，所以表头排序 / 换数据后自动正确。
+   */
+  mergeGroups?: MergeGroupConfig;
   /** 选择高亮模式，默认整行高亮 */
   highlightMode?: 'row' | 'column' | 'cell' | 'cross';
   /**
@@ -257,6 +268,7 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
   maxFrozenWidth,
   unfreezeAllOnExceedsMaxWidth = false,
   summary,
+  mergeGroups,
   highlightMode = 'row',
   highlightInRange = true,
   multiSelect = true,
@@ -487,6 +499,60 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
       : records;
     return stableSummaryRow ? [...data, stableSummaryRow] : data;
   }, [records, stableSummaryRow, sortState]);
+
+  /** 排序后、去掉统计行的真实数据：分组合并只按这些行建索引（统计行不能被并进最后一块） */
+  const dataRows = useMemo(
+    () => (stableSummaryRow ? rows.slice(0, rows.length - 1) : rows),
+    [rows, stableSummaryRow],
+  );
+
+  /** 分组合并索引：字段 -> 每行所属块。依赖 dataRows，排序 / 换数据 / 改列后自动重建 */
+  const mergeIndex = useMemo(
+    () => (mergeGroups ? buildMergeGroupIndex(dataRows, mergeGroups) : null),
+    [dataRows, mergeGroups],
+  );
+  const mergeIndexRef = useRef(mergeIndex);
+  mergeIndexRef.current = mergeIndex;
+  const mergeGroupsRef = useRef(mergeGroups);
+  mergeGroupsRef.current = mergeGroups;
+
+  /**
+   * 交给 VTable 的 customMergeCell。引用必须永久稳定：options 只在建表时读一次，
+   * 之后排序换数据不会再走 updateOption，所以内部一律现读 ref。
+   *
+   * ⚠️ 取合并块的显示值必须 `getCellValue(col, row, true)` —— 第三参数跳过 customMerge，
+   * 否则 getCellValue → getCustomMerge → 本函数 → 无限递归。
+   */
+  const customMergeCellRef = useRef<
+    NonNullable<ListTableConstructorOptions['customMergeCell']> | null
+  >(null);
+  if (!customMergeCellRef.current) {
+    customMergeCellRef.current = (col, row, table) => {
+      if (!mergeGroupsRef.current) return undefined;
+      const index = mergeIndexRef.current;
+      if (!index || index.size === 0) return undefined;
+
+      const headerLevel = table.columnHeaderLevelCount;
+      const dataIndex = row - headerLevel;
+      if (dataIndex < 0) return undefined;
+
+      // 当前列字段要现查：同一个配置对不同的列取不同前缀
+      const define = table.getBodyColumnDefine(col, row) as unknown as
+        | { field?: unknown }
+        | undefined;
+      if (define?.field == null) return undefined;
+      const range = index.get(String(define.field))?.[dataIndex];
+      if (!range) return undefined;
+
+      const startRow = range.start + headerLevel;
+      return {
+        // range 用的是表格行号（含表头），统一在这里换算
+        range: { start: { col, row: startRow }, end: { col, row: range.end + headerLevel } },
+        // 区间内每一格都会回调，text 取块首行 —— 保证整块显示的是同一个值
+        text: table.getCellValue(col, startRow, true) ?? '',
+      };
+    };
+  }
 
   /** 表格行号 -> 行主键，供样式回调判断「哪一行」 */
   const rowKeyByIndex = useMemo(
@@ -750,6 +816,8 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
       widthMode: 'standard',
       heightMode: 'standard',
       autoFillWidth,
+      // 分组合并：函数引用恒定，内部现读索引（没配 mergeGroups 时立即返回 undefined）
+      customMergeCell: customMergeCellRef.current ?? undefined,
       theme: THEME,
       // 启用 Ctrl+C 复制选中单元格内容
       keyboardOptions: {

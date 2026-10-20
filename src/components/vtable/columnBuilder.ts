@@ -56,7 +56,16 @@ export interface AppColumnDef {
    * （给 number 列传 `{ bgColor }` 不会丢掉右对齐），同名字段以这里为准。
    */
   style?: AppColumnStyle;
-  /** 透传给 VTable 的其它列配置（会覆盖上面的默认值，包括 fieldFormat / style） */
+  /**
+   * 合并单元格（只作用于表头以下，纵向）：VTable 原生语义。
+   * - `true`：本列显示值相同就合并
+   * - 回调：完全自定义判断
+   *
+   * **只做「是否合并」的简单判断**。要按「门槛列 + 顺序列」分组合并，用表格的 `mergeGroups`
+   * 属性（见 ./mergeGroup.ts）——那条路预扫描建索引，不会让每格都重扫整列。
+   */
+  mergeCell?: TYPES.MergeCellOption;
+  /** 透传给 VTable 的其它列配置（会覆盖上面的默认值，包括 fieldFormat / style / mergeCell） */
   columnProps?: Record<string, unknown>;
 }
 
@@ -181,6 +190,8 @@ export function buildColumns(defs: AppColumnDef[]): ColumnsDefine {
       ...base,
       ...(fieldFormat ? { fieldFormat } : {}),
       ...(style ? { style } : {}),
+      // false 也是有效值（明确不合并），所以只跳过 undefined
+      ...(def.mergeCell !== undefined ? { mergeCell: def.mergeCell } : {}),
       // 兜底口子放最后：写在 columnProps 里的同名配置整体覆盖（不与默认值合并）
       ...(def.columnProps ?? {}),
     } as ColumnsDefine[number];

@@ -49,6 +49,7 @@ export type {
   VTableExportExcelOptions,
 } from './export';
 export type { VTableSortState } from './sorting';
+export type { MergeGroupConfig, MergeGroupIndex, MergeGroupRange } from './mergeGroup';
 export type {
   VTableExpandableInfo,
   VTableExpandableOptions,

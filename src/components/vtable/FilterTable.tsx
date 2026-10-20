@@ -16,6 +16,7 @@ import type {
     VTableExpandableOptions,
     VTableMenuConfig,
     VTableSelectedRowChangeInfo,
+    MergeGroupConfig,
 } from './index';
 import {toNumberOrZero} from "@/utils";
 
@@ -44,6 +45,11 @@ export interface FilterTableProps {
      * 主键不用自己填，VTable 会自动补成 SUMMARY_ROW_KEY。
      */
     summary?: Record<string, unknown> | ((records: Array<Record<string, unknown>>) => Record<string, unknown>);
+    /**
+     * 分组合并（表级）：按「门槛列 + 顺序列前缀」把相邻同组的行并成一块。
+     * 与列级 `mergeCell`（boolean/回调）二选一，别混用。
+     */
+    mergeGroups?: MergeGroupConfig;
     /** 选择高亮模式，默认整行高亮 */
     highlightMode?: 'row' | 'column' | 'cell' | 'cross';
     /** 框选、Shift 扩展这类「一个范围覆盖多格」的选中，是否把高亮铺满整行；默认 true */
@@ -135,6 +141,7 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
             maxFrozenWidth,
             unfreezeAllOnExceedsMaxWidth,
             summary,
+            mergeGroups,
             highlightMode,
             highlightInRange,
             multiSelect,
@@ -369,6 +376,7 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
                         maxFrozenWidth={maxFrozenWidth}
                         unfreezeAllOnExceedsMaxWidth={unfreezeAllOnExceedsMaxWidth}
                         summary={resolvedSummary}
+                        mergeGroups={mergeGroups}
                         highlightMode={highlightMode}
                         highlightInRange={highlightInRange}
                         multiSelect={multiSelect ?? false}
