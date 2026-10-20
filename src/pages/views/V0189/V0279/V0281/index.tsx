@@ -1,35 +1,116 @@
-import React, {useCallback, useEffect, useMemo, useState} from "react";
+import React, {useCallback, useEffect, useMemo, useRef, useState} from "react";
 import type {ViewPageProps} from "@/pages/types.ts";
 import {App, Button, DatePicker, Form, Input, Select, Space} from "antd";
-import {type ViewRowStatus} from "@/api";
 import {PageBreadcrumb} from "@/components/PageBreadcrumb.tsx";
-import {ReloadOutlined, SearchOutlined} from "@ant-design/icons";
-import {FilterTable, type VTableCellStyle, type VTableCellStyleInfo} from "@/components/vtable";
-import type {Dayjs} from "dayjs";
-import type {YupaiOrderChangeDetail} from "@/api/modules/yupai.ts";
+import {ExportOutlined, ReloadOutlined, SearchOutlined} from "@ant-design/icons";
+import {
+    FilterTable,
+    type MergeGroupConfig,
+    type VTableApi,
+    type VTableCellStyle,
+    type VTableCellStyleInfo
+} from "@/components/vtable";
+import dayjs, {type Dayjs} from "dayjs";
+import type {YupaiOrderChangeAction, YupaiOrderChangeDetail} from "@/api/modules/yupai.ts";
 import {yupaiService} from "@/services/yupai.ts";
 import {ErrorMessage} from "@/api/request.ts";
-import {DATE_FORMAT} from "@/utils";
-import {buildYupaiOrderChangeListColumns} from "@/pages/views/V0189/V0279/V0281/columns.ts";
+import {DATE_FORMAT, formatDate, now} from "@/utils";
+import {
+    buildYupaiOrderChangeListColumns,
+    yupaiOrderChangeListFilterFields
+} from "@/pages/views/V0189/V0279/V0281/columns.ts";
+import {
+    type CommandBaseContext,
+    type CommandContext,
+    type CommandFactory,
+    useCommandGroups
+} from "@/components/commands";
+import {CommandBar, type CommandItem} from "@/components/CommandBar.tsx";
 
 interface SearchValues {
     orderCode?: string;
     dateRange?: [Dayjs, Dayjs];
 }
 
-const statusMap: Record<ViewRowStatus, { color: string; label: string }> = {
-    enabled: {color: '#52c41a', label: '正常'},
-    disabled: {color: '#8c8c8c', label: '停用'},
+const actionMap: Record<YupaiOrderChangeAction, { color: string; label: string }> = {
+    0: {color: '#FF20B2AA', label: '新增'},
+    1: {color: '#FFEEE8AA', label: '更新'},
+    2: {color: '#FFDB7093', label: '删除'},
+    3: {color: '#FF7FFFD4', label: '恢复'},
+    4: {color: '#FF000000', label: '下生产单'},
 };
 
-const statusOptions = Object.entries(statusMap).map(([value, {label}]) => ({value, label}));
+const mergeColumnGroup: MergeGroupConfig = {
+    mergeColumnSort: ["ChangeDate", "OrderCode", "WorkPlace", "StyleCode", "ProductName", "Number", "QRDate", "ZHDate", "ActionName"],
+    topMergeColumn: ["ChangeDate", "OrderCode"]
+} as const;
 
-const YupaiOrderChangePage: React.FC<ViewPageProps> = ({trail}) => {
-    const {message} = App.useApp();
+const actionOptions = Object.entries(actionMap).map(([value, {label}]) => ({value, label}));
+
+/** 本页命令的上下文类型 = 通用层的框架能力（message / modal / tableRef）+ 本页业务依赖 */
+type commandContext = CommandContext<CommandBaseContext>;
+type commandFactory = CommandFactory<commandContext>;
+
+const exportCommand: commandFactory = ({message, tableRef}) => ({
+    key: 'export',
+    label: '导出',
+    icon: <ExportOutlined/>,
+    onClick: async () => {
+        const hide = message.loading('正在导出…', 0);
+        try {
+            await tableRef.current?.exportExcel(`预订单变更记录_${dayjs().format('YYYY-MM-DD')}`);
+            void message.success('导出成功');
+        } catch (error) {
+            void message.error(error instanceof Error ? error.message : '导出失败');
+        } finally {
+            hide();
+        }
+    },
+});
+
+/**
+ * 使用的命令
+ * @param context
+ */
+function useCommands(
+    context: commandContext,
+): CommandItem[] {
+    const groups = useMemo(
+        () => [
+            {context, factories: [exportCommand]} as const,
+        ],
+        [context],
+    );
+    return useCommandGroups(groups);
+}
+
+
+const YupaiOrderChangePage: React.FC<ViewPageProps> = ({view, trail}) => {
+
+    const startDate = now().add(-7, "day");
+    const endDate = now();
+
+    const {message, modal} = App.useApp();
     const [form] = Form.useForm<SearchValues>();
     const [dataSource, setDataSource] = useState<YupaiOrderChangeDetail[]>([]);
     const [loading, setLoading] = useState(false);
-    const [query, setQuery] = useState<{ orderCode?: string, startDate?: string, endDate?: string }>({});
+    const [query, setQuery] = useState<{
+        orderCode?: string,
+        startDate?: string,
+        endDate?: string
+    }>({startDate: formatDate(startDate), endDate: formatDate(endDate)});
+    const tableRef = useRef<VTableApi | null>(null);
+
+    /** 命令的公共依赖：业务动作全部在 command/ 目录，页面只负责装配状态 */
+    const commandContext = useMemo<commandContext>(
+        () => ({
+            message,
+            modal,
+            tableRef,
+        }),
+        [message, tableRef, modal],
+    );
+    const commands = useCommands(commandContext);
 
     const loadData = useCallback(
         async () => {
@@ -51,34 +132,25 @@ const YupaiOrderChangePage: React.FC<ViewPageProps> = ({trail}) => {
     const cellStyle = useCallback((info: VTableCellStyleInfo) => {
         if (info.isSummaryRow || !info.record || info.field != 'ActionName') return undefined;
         let styles: VTableCellStyle = {}
-        switch (info.record.ActionCode) {
-            case 0:
-                styles.backgroundColor = '#FF20B2AA'
-                break;
-            case 1:
-                styles.backgroundColor = '#FFEEE8AA'
-                break;
-            case 2:
-                styles.backgroundColor = '#FFDB7093'
-                break;
-            case 3:
-                styles.backgroundColor = '#FF7FFFD4'
-                break;
-        }
+        const actionOptions = actionMap[info.record.ActionCode as YupaiOrderChangeAction];
+        styles.backgroundColor = actionOptions.color;
         return styles
     }, [dataSource, columns])
 
     useEffect(() => {
+        form.setFieldValue("dateRange", [startDate, endDate]);
         void loadData();
     }, [loadData, query]);
 
     return (
         <div className="page-container page-fill">
             <PageBreadcrumb trail={trail}/>
+            {commands.length > 0 && <CommandBar view={view} items={commands}/>}
             <Form
                 className="page-search"
                 form={form}
                 layout="inline"
+                style={{marginTop: 20}}
                 onFinish={(values: SearchValues) => {
                     setQuery({
                         orderCode: values?.orderCode,
@@ -87,15 +159,14 @@ const YupaiOrderChangePage: React.FC<ViewPageProps> = ({trail}) => {
                     });
                 }}
             >
-                {/* 字段名要和 onFinish 里读的 key 一致（原来是 keyword，读的却是 orderCode，条件永远传不进去） */}
-                <Form.Item name="orderCode">
-                    <Input placeholder="订单号" allowClear/>
-                </Form.Item>
-                <Form.Item name="status">
-                    <Select placeholder="状态" allowClear style={{width: 120}} options={statusOptions}/>
+                <Form.Item name="status" hidden={true}>
+                    <Select placeholder="状态" allowClear style={{width: 120}} options={actionOptions}/>
                 </Form.Item>
                 <Form.Item name="dateRange">
                     <DatePicker.RangePicker/>
+                </Form.Item>
+                <Form.Item name="orderCode">
+                    <Input placeholder="订单号" allowClear/>
                 </Form.Item>
                 <Form.Item>
                     <Space>
@@ -106,7 +177,11 @@ const YupaiOrderChangePage: React.FC<ViewPageProps> = ({trail}) => {
                             icon={<ReloadOutlined/>}
                             onClick={() => {
                                 form.resetFields();
-                                setQuery({});
+                                form.setFieldValue("dateRange", [startDate, endDate]);
+                                setQuery({
+                                    startDate: formatDate(startDate),
+                                    endDate: formatDate(endDate),
+                                })
                             }}
                         >
                             重置
@@ -121,8 +196,10 @@ const YupaiOrderChangePage: React.FC<ViewPageProps> = ({trail}) => {
               外面套一个 .vtable-host（它只是 flex item，不是 flex 容器），.filter-table 的高度就变成 auto，
               里面那层 .vtable-host（flex-basis:0）会塌成 0 高 —— 画布高度 0，表现为整块空白。
             */}
-            <FilterTable columns={columns} records={dataSource} loading={loading} rowKey={'YupaiOrderChangeID'}
-                         cellStyle={cellStyle}/>
+            <FilterTable ref={tableRef} columns={columns} records={dataSource} loading={loading}
+                         rowKey={'YupaiOrderChangeID'}
+                         cellStyle={cellStyle} mergeGroups={mergeColumnGroup}
+                         filterFields={yupaiOrderChangeListFilterFields}/>
 
         </div>
     );
