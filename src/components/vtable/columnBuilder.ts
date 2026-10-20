@@ -239,3 +239,44 @@ export function collectColumnAggregates(columns: ColumnsDefine): GroupAggregate[
   walk(columns);
   return result;
 }
+
+/**
+ * 从列定义里推导「可以拿来分组」的列（给 FilterTable 的分组面板用）。
+ *
+ * 规则：递归展开分组表头，只取**有 `field` 的叶子列**；`title` 是函数就先调一次拿文本；
+ * 同一个字段只保留第一次出现。顺序与 columns 一致，面板里就按这个顺序列出来。
+ */
+export function collectGroupableColumns(
+  columns: ColumnsDefine,
+): Array<{ field: string; title: string }> {
+  const result: Array<{ field: string; title: string }> = [];
+  const seen = new Set<string>();
+
+  const walk = (cols: ColumnsDefine) => {
+    for (const col of cols) {
+      if (typeof col === 'string') {
+        if (!seen.has(col)) {
+          seen.add(col);
+          result.push({ field: col, title: col });
+        }
+        continue;
+      }
+      const cell = col as { columns?: ColumnsDefine; field?: unknown; title?: unknown };
+      if (cell.columns) {
+        walk(cell.columns);
+        continue;
+      }
+      if (typeof cell.field !== 'string' || seen.has(cell.field)) continue;
+      seen.add(cell.field);
+      const rawTitle = cell.title;
+      const title =
+        typeof rawTitle === 'function'
+          ? String((rawTitle as () => string)())
+          : String(rawTitle ?? cell.field);
+      result.push({ field: cell.field, title });
+    }
+  };
+
+  walk(columns);
+  return result;
+}

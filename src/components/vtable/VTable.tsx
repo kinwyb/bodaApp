@@ -166,6 +166,13 @@ export interface VTableProps {
    */
   summary?: Record<string, unknown>;
   /**
+   * 没传 `summary` 时，是否按列的 `aggregate` 自动生成统计行，**默认 true**。
+   *
+   * 关掉它的场景：外层组件有自己的「显示汇总」开关（如 FilterTable 的 `showSummary`），
+   * 关掉汇总时这里也必须一起关，否则列上配了 aggregate 仍会冒出一行合计。
+   */
+  autoSummary?: boolean;
+  /**
    * 分组合并（纵向）：按「门槛列 + 顺序列前缀」把相邻同组的行并成一块。
    *
    * 走的是 VTable 的 `customMergeCell`，组件会把数据预扫描成索引（O(行数) 一次），
@@ -300,6 +307,7 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
   maxFrozenWidth,
   unfreezeAllOnExceedsMaxWidth = false,
   summary,
+  autoSummary = true,
   mergeGroups,
   group,
   highlightMode = 'row',
@@ -461,7 +469,7 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
    * 空表不生成 —— 否则「暂无数据」下面会多出一行 0。
    */
   const autoSummaryEnabled =
-    !summary && columnAggregates.length > 0 && records.length > 0;
+    autoSummary && !summary && columnAggregates.length > 0 && records.length > 0;
   const hasSummary = Boolean(stableSummaryRow) || autoSummaryEnabled;
   const hasGroup = Boolean(group);
   // tree 列只能是**最外层**分组字段那一列：VTable 只认一个 tree 列，箭头统一画在那里，

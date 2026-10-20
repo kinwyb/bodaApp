@@ -1,9 +1,11 @@
 import React, {useCallback, useImperativeHandle, useMemo, useRef, useState} from 'react';
-import {Input, Pagination} from 'antd';
+import {Button, Input, Pagination, Popover, Tooltip} from 'antd';
+import {ArrowDownOutlined, ArrowUpOutlined, GroupOutlined} from '@ant-design/icons';
 import type {ColumnsDefine} from '@visactor/vtable';
 import {SearchComponent} from '@visactor/vtable-search';
 import {type FilterField, type FilterModel, TableFilter} from './TableFilter';
 import {VTable} from './VTable';
+import {collectGroupableColumns} from './columnBuilder';
 // 类型从模块入口取（type-only，不产生运行时依赖，所以不会与 index → FilterTable 形成循环）
 import type {
     EditCellTrigger,
@@ -17,6 +19,7 @@ import type {
     VTableMenuConfig,
     VTableSelectedRowChangeInfo,
     MergeGroupConfig,
+    VTableGroupOptions,
 } from './index';
 import {toNumberOrZero} from "@/utils";
 
@@ -50,6 +53,16 @@ export interface FilterTableProps {
      * 与列级 `mergeCell`（boolean/回调）二选一，别混用。
      */
     mergeGroups?: MergeGroupConfig;
+    /**
+     * 是否显示「分组」按钮（在搜索框左侧），默认 false。
+     *
+     * 打开后**不需要再配任何列**：面板直接列出当前表格的所有列，用户自己挑、自己调先后顺序
+     * （序号即层级，可上下移动）。组行汇总自动继承列上的 `AppColumnDef.aggregate`。
+     *
+     * ⚠️ 分组只作用于**当前这一页的数据**（组件本身是服务端分页）：第 2 页又出现同一个月份，
+     * 会变成第二个组。要跨页合并得由后端按分组维度分页。
+     */
+    groupable?: boolean;
     /** 选择高亮模式，默认整行高亮 */
     highlightMode?: 'row' | 'column' | 'cell' | 'cross';
     /** 框选、Shift 扩展这类「一个范围覆盖多格」的选中，是否把高亮铺满整行；默认 true */
@@ -142,6 +155,7 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
             unfreezeAllOnExceedsMaxWidth,
             summary,
             mergeGroups,
+            groupable = false,
             highlightMode,
             highlightInRange,
             multiSelect,
@@ -186,6 +200,8 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
          * 行数这一路是全覆盖的（勾选会同步成整行选中并回调）。
          */
         const [activeRowCount, setActiveRowCount] = useState(0);
+        /** 用户选的分组列，**顺序即层级**（先点的在外层） */
+        const [groupFields, setGroupFields] = useState<string[]>([]);
 
         // 从当前 records 自动构建 enum 类型的筛选候选项
         const autoOptions = useMemo(() => {
@@ -262,6 +278,49 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
             if (typeof summary === 'function') return summary(filteredRecords);
             return summary;
         }, [summary, filteredRecords, showSummary]);
+
+        /** 可分组列：直接取当前表格的所有列，页面不用配 */
+        const groupOptions = useMemo(
+            () => (groupable ? collectGroupableColumns(columns) : []),
+            [groupable, columns],
+        );
+
+        /** 点一下加入 / 取消（加入时排在最后，即最内层） */
+        const toggleGroupField = useCallback((field: string) => {
+            setGroupFields((prev) =>
+                prev.includes(field) ? prev.filter((item) => item !== field) : [...prev, field],
+            );
+        }, []);
+
+        /** 上下移动调整层级：-1 往外层走，+1 往内层走 */
+        const moveGroupField = useCallback((index: number, offset: number) => {
+            setGroupFields((prev) => {
+                const next = prev.slice();
+                const target = index + offset;
+                if (target < 0 || target >= next.length) return prev;
+                [next[index], next[target]] = [next[target], next[index]];
+                return next;
+            });
+        }, []);
+
+        /**
+         * 分组配置：用户选了列才生成。
+         *
+         * 不传 `aggregates` —— 让它自动继承列上的 `AppColumnDef.aggregate`，
+         * 页面只要在列定义里声明一次，组行与底部统计行的口径就自动一致。
+         */
+        const groupConfig = useMemo<VTableGroupOptions | undefined>(() => {
+            if (!groupable || groupFields.length === 0) return undefined;
+            const titleOf = (field: string) =>
+                groupOptions.find((column) => column.field === field)?.title ?? field;
+            return {
+                fields: groupFields,
+                title: (value, _rows, field) =>
+                    `${titleOf(field)}: ${value === null || value === undefined || value === '' ? '(空)' : String(value)}`,
+                // 默认只展开到第一层，点箭头再看下一层 —— 组多时不会一屏全是明细
+                expandLevel: 1,
+            };
+        }, [groupable, groupFields, groupOptions]);
 
         // 懒初始化 SearchComponent：首次搜索时才创建，确保 table 已就绪
         const ensureSearchComponent = useCallback(() => {
@@ -358,12 +417,123 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
                             />
                         </div>
                     )}
-                    <Input.Search
-                        placeholder={searchPlaceholder}
-                        onSearch={handleSearch}
-                        allowClear
-                        style={{width: searchWidth, marginLeft: 'auto'}}
-                    />
+                    {/* 右侧工具区：分组按钮 + 搜索框（整体靠右，两个都在一条线上） */}
+                    <div style={{marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8}}>
+                        {groupable && groupOptions.length > 0 && (
+                            <Popover
+                                trigger="click"
+                                placement="bottomRight"
+                                title={
+                                    <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between'}}>
+                                        <span>按列分组</span>
+                                        {groupFields.length > 0 && (
+                                            <Button
+                                                type="link"
+                                                size="small"
+                                                style={{padding: 0}}
+                                                onClick={() => setGroupFields([])}
+                                            >
+                                                清除
+                                            </Button>
+                                        )}
+                                    </div>
+                                }
+                                content={
+                                    <div style={{width: 240}}>
+                                        <div style={{maxHeight: 300, overflowY: 'auto'}}>
+                                            {groupOptions.map((column) => {
+                                                const index = groupFields.indexOf(column.field);
+                                                const selected = index >= 0;
+                                                return (
+                                                    <div
+                                                        key={column.field}
+                                                        onClick={() => toggleGroupField(column.field)}
+                                                        style={{
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            gap: 6,
+                                                            padding: '4px 6px',
+                                                            borderRadius: 4,
+                                                            cursor: 'pointer',
+                                                            background: selected ? '#e6f4ff' : undefined,
+                                                        }}
+                                                    >
+                                                        <span
+                                                            style={{
+                                                                width: 18,
+                                                                textAlign: 'center',
+                                                                fontSize: 12,
+                                                                color: selected ? '#1677ff' : '#bfbfbf',
+                                                            }}
+                                                        >
+                                                            {selected ? index + 1 : '·'}
+                                                        </span>
+                                                        <span
+                                                            style={{
+                                                                flex: 1,
+                                                                fontSize: 13,
+                                                                overflow: 'hidden',
+                                                                textOverflow: 'ellipsis',
+                                                                whiteSpace: 'nowrap',
+                                                            }}
+                                                        >
+                                                            {column.title}
+                                                        </span>
+                                                        {selected && (
+                                                            <span
+                                                                style={{display: 'flex', gap: 2}}
+                                                                onClick={(event) => event.stopPropagation()}
+                                                            >
+                                                                <Tooltip title="往外层">
+                                                                    <Button
+                                                                        size="small"
+                                                                        type="text"
+                                                                        icon={<ArrowUpOutlined />}
+                                                                        disabled={index === 0}
+                                                                        onClick={() => moveGroupField(index, -1)}
+                                                                    />
+                                                                </Tooltip>
+                                                                <Tooltip title="往内层">
+                                                                    <Button
+                                                                        size="small"
+                                                                        type="text"
+                                                                        icon={<ArrowDownOutlined />}
+                                                                        disabled={index === groupFields.length - 1}
+                                                                        onClick={() => moveGroupField(index, 1)}
+                                                                    />
+                                                                </Tooltip>
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                        <div
+                                            style={{
+                                                marginTop: 6,
+                                                paddingTop: 6,
+                                                borderTop: '1px solid #f0f0f0',
+                                                fontSize: 12,
+                                                color: '#999',
+                                            }}
+                                        >
+                                            序号即层级，可上下调整
+                                        </div>
+                                    </div>
+                                }
+                            >
+                                <Button icon={<GroupOutlined />}>
+                                    分组{groupFields.length > 0 ? ` (${groupFields.length})` : ''}
+                                </Button>
+                            </Popover>
+                        )}
+                        <Input.Search
+                            placeholder={searchPlaceholder}
+                            onSearch={handleSearch}
+                            allowClear
+                            style={{width: searchWidth}}
+                        />
+                    </div>
                 </div>
 
                 <div className="vtable-host">
@@ -377,7 +547,10 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
                         maxFrozenWidth={maxFrozenWidth}
                         unfreezeAllOnExceedsMaxWidth={unfreezeAllOnExceedsMaxWidth}
                         summary={resolvedSummary}
+                        // showSummary 关掉时，列上的 aggregate 也不能偷偷生成统计行
+                        autoSummary={showSummary}
                         mergeGroups={mergeGroups}
+                        group={groupConfig}
                         highlightMode={highlightMode}
                         highlightInRange={highlightInRange}
                         multiSelect={multiSelect ?? false}
