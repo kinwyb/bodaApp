@@ -2,7 +2,7 @@ import React, {useCallback, useEffect, useMemo, useRef, useState} from "react";
 import type {ViewPageProps} from "@/pages/types.ts";
 import {App, Button, DatePicker, Form, Input, Select, Space} from "antd";
 import {PageBreadcrumb} from "@/components/PageBreadcrumb.tsx";
-import {ExportOutlined, ReloadOutlined, SearchOutlined} from "@ant-design/icons";
+import {ReloadOutlined, SearchOutlined} from "@ant-design/icons";
 import {
     FilterTable,
     type MergeGroupConfig,
@@ -10,7 +10,7 @@ import {
     type VTableCellStyle,
     type VTableCellStyleInfo
 } from "@/components/vtable";
-import dayjs, {type Dayjs} from "dayjs";
+import {type Dayjs} from "dayjs";
 import type {YupaiOrderChangeAction, YupaiOrderChangeDetail} from "@/api/modules/yupai.ts";
 import {yupaiService} from "@/services/yupai.ts";
 import {ErrorMessage} from "@/api/request.ts";
@@ -19,13 +19,8 @@ import {
     buildYupaiOrderChangeListColumns,
     yupaiOrderChangeListFilterFields
 } from "@/pages/views/V0189/V0279/V0281/columns.ts";
-import {
-    type CommandBaseContext,
-    type CommandContext,
-    type CommandFactory,
-    useCommandGroups
-} from "@/components/commands";
-import {CommandBar, type CommandItem} from "@/components/CommandBar.tsx";
+import {CommandBar} from "@/components/CommandBar.tsx";
+import {useTableExportCommand} from "@/components/commands/exportCommand.tsx";
 
 interface SearchValues {
     orderCode?: string;
@@ -47,50 +42,12 @@ const mergeColumnGroup: MergeGroupConfig = {
 
 const actionOptions = Object.entries(actionMap).map(([value, {label}]) => ({value, label}));
 
-/** 本页命令的上下文类型 = 通用层的框架能力（message / modal / tableRef）+ 本页业务依赖 */
-type commandContext = CommandContext<CommandBaseContext>;
-type commandFactory = CommandFactory<commandContext>;
-
-const exportCommand: commandFactory = ({message, tableRef}) => ({
-    key: 'export',
-    label: '导出',
-    icon: <ExportOutlined/>,
-    onClick: async () => {
-        const hide = message.loading('正在导出…', 0);
-        try {
-            await tableRef.current?.exportExcel(`预订单变更记录_${dayjs().format('YYYY-MM-DD')}`);
-            void message.success('导出成功');
-        } catch (error) {
-            void message.error(error instanceof Error ? error.message : '导出失败');
-        } finally {
-            hide();
-        }
-    },
-});
-
-/**
- * 使用的命令
- * @param context
- */
-function useCommands(
-    context: commandContext,
-): CommandItem[] {
-    const groups = useMemo(
-        () => [
-            {context, factories: [exportCommand]} as const,
-        ],
-        [context],
-    );
-    return useCommandGroups(groups);
-}
-
-
 const YupaiOrderChangePage: React.FC<ViewPageProps> = ({view, trail}) => {
 
     const startDate = now().add(-7, "day");
     const endDate = now();
 
-    const {message, modal} = App.useApp();
+    const {message} = App.useApp();
     const [form] = Form.useForm<SearchValues>();
     const [dataSource, setDataSource] = useState<YupaiOrderChangeDetail[]>([]);
     const [loading, setLoading] = useState(false);
@@ -101,16 +58,7 @@ const YupaiOrderChangePage: React.FC<ViewPageProps> = ({view, trail}) => {
     }>({startDate: formatDate(startDate), endDate: formatDate(endDate)});
     const tableRef = useRef<VTableApi | null>(null);
 
-    /** 命令的公共依赖：业务动作全部在 command/ 目录，页面只负责装配状态 */
-    const commandContext = useMemo<commandContext>(
-        () => ({
-            message,
-            modal,
-            tableRef,
-        }),
-        [message, tableRef, modal],
-    );
-    const commands = useCommands(commandContext);
+    const commands = useTableExportCommand(tableRef, '预订单变更记录');
 
     const loadData = useCallback(
         async () => {
@@ -138,9 +86,12 @@ const YupaiOrderChangePage: React.FC<ViewPageProps> = ({view, trail}) => {
     }, [dataSource, columns])
 
     useEffect(() => {
-        form.setFieldValue("dateRange", [startDate, endDate]);
         void loadData();
     }, [loadData, query]);
+
+    useEffect(() => {
+        form.setFieldValue("dateRange", [startDate, endDate]);
+    }, []);
 
     return (
         <div className="page-container page-fill">

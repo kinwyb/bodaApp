@@ -1,12 +1,13 @@
 import type {ApiResponse, YupaiOrder, YupaiOrderDto, YupaiOrderQuery} from "@/api";
 import {sqlApi, yupaiApi, YupaiMachineSizeHeader} from "@/api";
-import {formatDate, isBlank, isBlankExcept, toDayjs, toNumberOrZero, toStringOrEmpty} from "@/utils";
+import {formatDate, isBlank, isBlankExcept, now, toDayjs, toNumberOrZero, toStringOrEmpty} from "@/utils";
 import {
     type YupaiOrderChangeDetail,
     type YupaiOrderChangeDetailDto,
     YupaiOrderChangeMapping,
     YupaiOrderMapping
 } from "@/api/modules/yupai.ts";
+import type {Dayjs} from "dayjs";
 
 /**
  * 订单周转期（天）：确认下单期(QRDate) → 尾货期(WCDate)，没有尾货期就退到走货期(ZHDate)。
@@ -100,6 +101,47 @@ export function toYupaiOrderChangeDetail(dto: YupaiOrderChangeDetailDto): YupaiO
     }
     return result
 }
+
+/**
+ * 全订单汇总（按年查询的一行）。
+ *
+ * 刻意写成 `type`（对象类型字面量）而不是 `interface`：表格组件的 `records` 是
+ * `Array<Record<string, unknown>>`，而 **interface 不会隐式获得字符串索引签名**，
+ * 直接传给 FilterTable / VTable 会报
+ * `Index signature for type 'string' is missing in type 'YupaiAllGroup'`（TS2322）。
+ * 对象类型字面量则会隐式带索引签名（microsoft/TypeScript#15300），所以能直接传。
+ * 同类 DTO（如 `YupaiOrderChangeDetail`）也都是 `type`。
+ */
+export type YupaiAllGroup = {
+    Ywy: string;
+    Ywz: string;
+    WorkPlace: string;
+    YPDate?: Dayjs;
+    Tp: number;
+    TpName: string;
+    OrderCode: string;
+    OrderPrefix: string;
+    StyleCode: string;
+    ProductName: string;
+    Color: string;
+    Size: string;
+    JHDate?: Dayjs;
+    QRDate?: Dayjs;
+    CompleteDate?: Dayjs;
+    StyleQty: number;
+    ZHDate?: Dayjs;
+    POCount: number;
+    WorkDate?: Dayjs;
+    ZHMonth: string;
+    WorkMonth: string;
+    KnitWt: number;
+    DyeWg: number;
+    SewWt: number;
+    KnitSumWt: number;
+    DyeSumWg: number;
+    SewSumWt: number;
+    SewGroup: string;
+};
 
 /**
  * 预订单服务
@@ -202,6 +244,65 @@ export const yupaiService = {
             code: result.code,
             data: changes?.map(toYupaiOrderChangeDetail) ?? [],
         }
+    },
+
+    /**
+     * 全订单汇总
+     * @param year
+     */
+    async allGroup(year: string): Promise<YupaiAllGroup[]> {
+        if (!year) {
+            year = now().format('YYYY');
+        }
+        const result = await sqlApi.procedure({
+            ProcedureName: '[transitDB].dbo.YupaiOrderAllNoColorSize',
+            Args: {
+                year: year,
+            }
+        })
+        if (!result.data || !result.data.DataVals || result.data.DataVals.length < 1) {
+            return []
+        }
+        return result.data.DataVals.map((row): YupaiAllGroup => {
+            const tp = toNumberOrZero(row['Tp']);
+            const orderCode = toStringOrEmpty(row['OrderCode']);
+            const zhDate = toDayjs(row['ZHDate']);
+            const knitWt = toNumberOrZero(row['KnitWt']);
+            const dyeWg = toNumberOrZero(row['DyeWg']);
+            const sewWt = toNumberOrZero(row['SewWt']);
+            const workDate = zhDate?.add(-7, 'day')
+            const styleQty = toNumberOrZero(row['StyleQty']);
+            return {
+                Ywy: toStringOrEmpty(row['Ywy']),
+                Ywz: toStringOrEmpty(row['Ywz']),
+                WorkPlace: toStringOrEmpty(row['WorkPlace']),
+                YPDate: toDayjs(row['YPDate']),
+                Tp: tp,
+                TpName: tp == 1 ? '预订单' : tp == 2 ? '下单' : '',
+                OrderCode: orderCode,
+                OrderPrefix: orderCode.split('-')[0],
+                StyleCode: toStringOrEmpty(row['StyleCode']),
+                ProductName: toStringOrEmpty(row['ProductName']),
+                Color: toStringOrEmpty(row['Color']),
+                Size: toStringOrEmpty(row['Size']),
+                JHDate: toDayjs(row['JHDate']),
+                QRDate: toDayjs(row['QRDate']),
+                CompleteDate: toDayjs(row['CompleteDate']),
+                StyleQty: styleQty,
+                ZHDate: zhDate,
+                POCount: toNumberOrZero(row['POCount']),
+                WorkDate: workDate,
+                ZHMonth: zhDate?.format('YYYY-MM') ?? '',
+                WorkMonth: workDate?.format('YYYY-MM') ?? '',
+                KnitWt: knitWt,
+                DyeWg: dyeWg,
+                SewWt: sewWt,
+                KnitSumWt: knitWt * styleQty / 1000,
+                DyeSumWg: dyeWg * styleQty / 1000,
+                SewSumWt: sewWt * styleQty / 1000,
+                SewGroup: toStringOrEmpty(row['SewGroup']),
+            }
+        });
     }
 
 }
