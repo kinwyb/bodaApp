@@ -732,6 +732,24 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
   /** 是否处于树形分组模式（供只创建一次的控制器闭包现读，避免锁死首次渲染的值） */
   const hasGroupRef = useRef(hasGroup);
   hasGroupRef.current = hasGroup;
+  /**
+   * 上一次同步给表格的「是否分组」，以及表格实例版本号。
+   *
+   * 分组开关会改变**列上有没有 `tree`**，这会决定 VTable 要不要按「树形行」解析 records。
+   * 这个判定是在建表/挂数据时定下的，**`updateOption` 换列改不动它** —— 从「不分组」切回
+   * 「分组」时，组行还在、但展开箭头没有（清除分组再重新分组必现；再多选一列分组又会好，
+   * 因为那一次走的是另一条重建路径）。
+   *
+   * 所以分组开关一变就重建表格实例（版本号 +1，建表 effect 重跑），拿新列 + 新数据从头建。
+   * 代价是滚动位置 / 选中会重置 —— 分组切换本来就是换了一套行结构，可以接受。
+   */
+  const groupedRef = useRef(hasGroup);
+  const [instanceVersion, setInstanceVersion] = useState(0);
+  useEffect(() => {
+    if (groupedRef.current === hasGroup) return;
+    groupedRef.current = hasGroup;
+    setInstanceVersion((version) => version + 1);
+  }, [hasGroup]);
   /** 列定义与行高的最新值：吸顶控制器只创建一次，靠 ref 现读（同 selection 的模式） */
   const columnsPropsRef = useRef(columns);
   columnsPropsRef.current = columns;
@@ -1372,9 +1390,9 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
       tableRef.current = null;
       syncedOptionRef.current = null;
     };
-    // 仅初始化一次，后续更新由下面的 effect 处理
+    // 只在「分组开关切换」时重建（instanceVersion 变），其余更新由下面的 effect 处理
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [instanceVersion]);
 
   /**
    * 数据变化后重建表格。
@@ -1389,8 +1407,6 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
     const table = tableRef.current;
     if (!table) return;
     const sortState = table.sortState;
-    // 先清掉排序状态，避免 setRecords 内部再排一次把统计行带走
-    table.updateSortState(null, false);
     // 先写冻结配置再 setRecords：让它内部的 createSceneGraph 直接按冻结行建场景，
     // 一次画对。放到 setRecords 之后（哪怕同帧）都会闪一帧 —— 那时它结尾的同步 render()
     // 已按旧值画出「汇总行在数据末尾」，下一帧补偿才贴底，这一跳肉眼可见。
@@ -1398,7 +1414,15 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
     // 展开态重建的第一步：记下每个展开行当前的行号。行高 map 按行号存且不会被
     // setRecords 清掉，换数据后旧行号上撑着的高度必须靠这一步记下的坐标还原
     rowExpander.captureRows();
-    table.setRecords(rows);
+    // `sortState: null` 有两个作用，缺一不可：
+    // 1. 让 setRecords 内部不再排一次序（否则统计行会被一起排走）；
+    // 2. **把 @visactor/vtable 的 stateManager.sort 缓存一并清空** —— 这是表头图标点不亮的根因。
+    //    只调 `updateSortState(null, false)` 的话，它只把图标改回灰色双箭头，stateManager 里
+    //    那份「上次排序的字段 + 方向」还留着；下面还原同一个状态时，stateManager.updateSortState
+    //    的 isSame 判断（字段与方向都相同）会直接 return，updateSortIcon 根本不执行，
+    //    表现就是「不管怎么点，表头永远是灰色双箭头」。
+    //    而 setRecords 见到 sortState 选项会先走 stateManager.setSortState(null)，缓存被真正清空。
+    table.setRecords(rows, { sortState: null });
     table.clearSelected();
     // setRecords 会重置排序状态（表头图标会消失），这里还原状态但不再执行排序
     if (sortState) table.updateSortState(sortState, false);
@@ -1536,13 +1560,18 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
     // 传入完整 options（去掉 records，避免重复 setRecords），否则 theme 等配置会被重置
     const next: ListTableConstructorOptions = { ...base, columns: finalColumns };
     delete next.records;
+    // 分组相关的建表项也要跟着走：`base` 是建表时那份，那时可能根本没分组
+    if (hasGroup) {
+      next.hierarchyExpandLevel = group?.expandLevel;
+      next.hierarchyIndent = group?.indent ?? 12;
+    }
     void table.updateOption(next);
     // updateOption 会重建场景图并把展开行的行高打回原值，重建完立刻把它补回来
     // （positionAll 顺带做这件事，见 expandable.ts）
     rowExpander.positionAll();
     // 列宽 / 列顺序 / 冻结列都可能在这次 updateOption 里变过，吸层的列位置要重新量
     refreshStickyGroup();
-  }, [finalColumns, autoFillWidth, rowExpander, refreshStickyGroup]);
+  }, [finalColumns, autoFillWidth, rowExpander, refreshStickyGroup, hasGroup, group?.expandLevel, group?.indent]);
 
   // 行高变化时吸层的高度与定位要跟着改（分组开关本身由上面的 updateOption 覆盖）
   useEffect(() => {
