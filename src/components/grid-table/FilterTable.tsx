@@ -6,8 +6,8 @@ import React, {
     useRef,
     useState,
 } from 'react';
-import {Button, Input, Pagination, Popover, Tooltip} from 'antd';
-import {ArrowDownOutlined, ArrowUpOutlined, GroupOutlined} from '@ant-design/icons';
+import {App, Button, Input, Pagination, Popover, Tooltip} from 'antd';
+import {ArrowDownOutlined, ArrowUpOutlined, ExportOutlined, GroupOutlined} from '@ant-design/icons';
 import type {ColumnsDefine} from '@visactor/vtable';
 import {SearchComponent} from '@visactor/vtable-search';
 import {type FilterModel, TableFilter} from './TableFilter';
@@ -28,7 +28,7 @@ import type {
     MergeGroupConfig,
     GridTableGroupOptions,
 } from './index';
-import {toNumberOrZero} from "@/utils";
+import {formatDate, now, toNumberOrZero, toStringOrEmpty} from "@/utils";
 
 const DEFAULT_PAGE_SIZE = 30;
 
@@ -102,6 +102,11 @@ export interface FilterTableProps {
     loadingTip?: string;
     /** 导出配置，透传给 GridTable 的 TableExportPlugin（不传也能导出） */
     exportOptions?: TableExportPluginOptions;
+    /**
+     * 导出名称：**有值就显示工具栏「导出」按钮**（在筛选按钮右边），值即导出文件名前缀
+     * （文件名 = 前缀 + 当天日期，不用带 .xlsx，插件会补）。不传 / 空串 = 不显示导出按钮。
+     */
+    exportName?: string;
     /** 按行展开配置，透传给 GridTable（按钮是否有效按行数据判断） */
     expandable?: GridTableExpandableOptions;
 
@@ -178,6 +183,7 @@ export const FilterTable = React.forwardRef<GridTableApi, FilterTableProps>(
             loading,
             loadingTip,
             exportOptions,
+            exportName,
             expandable,
             total,
             page = 1,
@@ -199,6 +205,8 @@ export const FilterTable = React.forwardRef<GridTableApi, FilterTableProps>(
     ) => {
         const tableRef = useRef<GridTableApi | null>(null);
         const searchRef = useRef<SearchComponent | null>(null);
+        // 导出的 loading / 结果提示（App.useApp 只能组件顶层调，与页面取 message 同一来源）
+        const {message} = App.useApp();
         const [filters, setFilters] = useState<FilterModel>({});
         /**
          * 选中的行数，只用于底部计数。
@@ -389,6 +397,22 @@ export const FilterTable = React.forwardRef<GridTableApi, FilterTableProps>(
             [onPageChange],
         );
 
+        /**
+         * 导出 Excel：`exportName` 有值才会有按钮，文件名 = 前缀 + 当天日期
+         * （与 `components/commands/exportCommand` 的命名规则一致，插件自动补 .xlsx）。
+         */
+        const handleExport = useCallback(async () => {
+            const hide = message.loading('正在导出…', 0);
+            try {
+                await tableRef.current?.exportExcel(`${toStringOrEmpty(exportName)}${formatDate(now())}`);
+                void message.success('导出成功');
+            } catch (error) {
+                void message.error(error instanceof Error ? error.message : '导出失败');
+            } finally {
+                hide();
+            }
+        }, [exportName, message]);
+
         // 向外暴露 GridTable 实例方法
         useImperativeHandle(
             ref,
@@ -432,19 +456,27 @@ export const FilterTable = React.forwardRef<GridTableApi, FilterTableProps>(
 
         const hasFilter = filterFields.length > 0;
 
+        // 导出按钮：exportName 有值才显示（值即文件名前缀），尺寸与筛选 / 分组按钮一致
+        const exportButton = exportName ? (
+            <Button icon={<ExportOutlined />} onClick={() => void handleExport()}>
+                导出
+            </Button>
+        ) : null;
+
         return (
             <div className="filter-table">
                 <div style={{display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, marginBottom: 8}}>
                     {hasFilter && (
-                        <div style={{marginTop: 2}}>
-                            <TableFilter
-                                fields={filterFields}
-                                options={autoOptions}
-                                value={filters}
-                                onChange={handleFilterChange}
-                            />
-                        </div>
+                        <TableFilter
+                            fields={filterFields}
+                            options={autoOptions}
+                            value={filters}
+                            onChange={handleFilterChange}
+                            extra={exportButton}
+                        />
                     )}
+                    {/* 没有筛选字段时 TableFilter 不渲染，导出按钮自己顶上 */}
+                    {!hasFilter && exportButton}
                     {/* 右侧工具区：分组按钮 + 搜索框（整体靠右，两个都在一条线上） */}
                     <div style={{marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8}}>
                         {groupable && groupOptions.length > 0 && (

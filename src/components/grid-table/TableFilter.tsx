@@ -33,6 +33,8 @@ export interface TableFilterProps {
   options?: Record<string, Array<string | number>>;
   value: FilterModel;
   onChange: (value: FilterModel) => void;
+  /** 渲染在筛选按钮右侧的附加内容（如导出按钮），排在条件标签之前 */
+  extra?: React.ReactNode;
 }
 
 const isEmpty = (condition?: FilterCondition): boolean => {
@@ -62,7 +64,7 @@ function describe(condition: FilterCondition, type: FilterField['type']): string
  * - date / number：区间
  * - text：包含
  */
-export const TableFilter: React.FC<TableFilterProps> = ({ fields, options, value, onChange }) => {
+export const TableFilter: React.FC<TableFilterProps> = ({ fields, options, value, onChange, extra }) => {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<FilterModel>(value);
 
@@ -188,11 +190,14 @@ export const TableFilter: React.FC<TableFilterProps> = ({ fields, options, value
         content={panel}
       >
         <Badge count={activeFields.length} size="small">
-          <Button size="small" icon={<FilterOutlined />}>
+          {/* 不设 size：默认尺寸与工具栏里的分组按钮 / 搜索框对齐（曾是 small，明显矮一截） */}
+          <Button icon={<FilterOutlined />}>
             筛选
           </Button>
         </Badge>
       </Popover>
+
+      {extra}
 
       {activeFields.map((item) => (
         <Tag
