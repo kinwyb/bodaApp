@@ -37,6 +37,7 @@ import {
 import type { VTableMenuConfig, VTableMenuItem } from './menu';
 import { defaultCompare, type VTableSortState } from './sorting';
 import { buildMergeGroupIndex, type MergeGroupConfig } from './mergeGroup';
+import { createStickyGroupController, type StickyGroupController } from './stickyGroup';
 import {
   buildAggregateRow,
   buildGroupRows,
@@ -731,6 +732,36 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
   /** 是否处于树形分组模式（供只创建一次的控制器闭包现读，避免锁死首次渲染的值） */
   const hasGroupRef = useRef(hasGroup);
   hasGroupRef.current = hasGroup;
+  /** 列定义与行高的最新值：吸顶控制器只创建一次，靠 ref 现读（同 selection 的模式） */
+  const columnsPropsRef = useRef(columns);
+  columnsPropsRef.current = columns;
+  const rowHeightRef = useRef(rowHeight);
+  rowHeightRef.current = rowHeight;
+  /** 组行吸顶控制器：只在分组模式下存在，首次进入分组时惰性创建 */
+  const stickyGroupRef = useRef<StickyGroupController | null>(null);
+  /**
+   * 确保吸顶控制器存在并重绘。
+   *
+   * 分组是运行时可开关的（FilterTable 的分组面板），所以不能只在建表时建一次：
+   * 每次数据 / 列配置变化后都调它，没有分组时什么都不做。
+   */
+  const refreshStickyGroup = useCallback(() => {
+    if (!hasGroupRef.current || !tableRef.current) {
+      // 分组被关掉：摘掉覆盖层，别留一条灰底浮在表格上
+      stickyGroupRef.current?.release();
+      stickyGroupRef.current = null;
+      return;
+    }
+    if (!stickyGroupRef.current) {
+      stickyGroupRef.current = createStickyGroupController({
+        getTable: () => tableRef.current,
+        getRows: () => rowsRef.current,
+        getColumns: () => columnsPropsRef.current,
+        getRowHeight: () => rowHeightRef.current,
+      });
+    }
+    stickyGroupRef.current.refresh();
+  }, []);
 
   /**
    * 按**显示顺序**取出当前表格里每一行的真实记录（含组行与已展开的明细）。
@@ -1071,6 +1102,8 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     optionsRef.current = options;
     const table = new ListTable(container, options);
     tableRef.current = table;
+    // 首次建表就可能带着分组配置进来（列上标了 group: true 的页面），先把吸顶层挂上
+    refreshStickyGroup();
     // 记下建表用的那份配置，下面的同步 effect 据此判断要不要 updateOption
     syncedOptionRef.current = { columns: finalColumns, autoFillWidth };
 
@@ -1329,6 +1362,9 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
       observer.disconnect();
       // 展开区覆盖层是挂在容器里的 React root，必须随表格一起卸掉，否则泄漏
       rowExpander.dispose();
+      // 吸顶层同样是挂在容器里的 DOM，一起摘掉
+      stickyGroupRef.current?.release();
+      stickyGroupRef.current = null;
       table.release();
       tableRef.current = null;
       syncedOptionRef.current = null;
@@ -1366,6 +1402,8 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     scheduleBottomFrozen(table, summaryRef.current ? 1 : 0);
     // 换页 / 换数据后重置选中：铺过的底色一并撤掉（行号在新数据里已经没意义了）
     selection.clearPaintedRows();
+    // 新数据的组行对象全换了：吸层要按新树重建「记录 → 祖先组行」索引，再重画一次
+    refreshStickyGroup();
     // 展开态重建的第二步：还原旧行高、按新行号撑高并重挂覆盖层（排序 / 筛选 / 换页
     // 后展开行跟着自己的主键走，不会被行号变化打乱）
     rowExpander.reapply();
@@ -1379,7 +1417,7 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     // 不依赖 summary：统计行内容没变时 stableSummaryRow 复用旧引用，rows 不失效，
     // 父组件重渲染就不会再触发一次全量 setRecords。
     // rowExpander 是 ref 惰性创建的单例，引用永远稳定，放进 deps 只为消警告
-  }, [rows, selection, rowExpander]);
+  }, [rows, selection, rowExpander, refreshStickyGroup]);
 
   /** 重绘：异步拿到业务标记（如变更明细）后调用，让 cellStyle 生效 */
   const repaint = useCallback(() => {
@@ -1499,7 +1537,14 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     // updateOption 会重建场景图并把展开行的行高打回原值，重建完立刻把它补回来
     // （positionAll 顺带做这件事，见 expandable.ts）
     rowExpander.positionAll();
-  }, [finalColumns, autoFillWidth, rowExpander]);
+    // 列宽 / 列顺序 / 冻结列都可能在这次 updateOption 里变过，吸层的列位置要重新量
+    refreshStickyGroup();
+  }, [finalColumns, autoFillWidth, rowExpander, refreshStickyGroup]);
+
+  // 行高变化时吸层的高度与定位要跟着改（分组开关本身由上面的 updateOption 覆盖）
+  useEffect(() => {
+    refreshStickyGroup();
+  }, [rowHeight, refreshStickyGroup]);
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%', minHeight: 0 }}>
