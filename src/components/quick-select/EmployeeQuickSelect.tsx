@@ -1,8 +1,7 @@
-import React, { useMemo } from 'react';
-import type { ColumnsDefine } from '@visactor/vtable';
+import React from 'react';
 import type { EmployeeRecord } from '@/api';
 import { QuickSelectModal } from '../QuickSelectModal';
-import { buildColumns, type AppColumnDef } from '../grid-table/columnBuilder';
+import type { AppColumnDef } from '../grid-table/columnBuilder';
 
 export type { EmployeeRecord } from '@/api';
 
@@ -66,13 +65,11 @@ export const EmployeeQuickSelect: React.FC<EmployeeQuickSelectProps> = ({
   localFilter = true,
   autoFillWidth = true,
 }) => {
-  const columns = useMemo<ColumnsDefine>(() => buildColumns(EMPLOYEE_COLUMNS), []);
-
   return (
     <QuickSelectModal<EmployeeRecord>
       open={open}
       title={title}
-      columns={columns}
+      columns={EMPLOYEE_COLUMNS}
       rowKey="EmployeeNo"
       loadData={loadData}
       searchFields={localFilter ? ['EmployeeNo', 'Employee', 'Department'] : undefined}

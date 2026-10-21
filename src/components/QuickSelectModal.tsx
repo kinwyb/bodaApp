@@ -3,6 +3,7 @@ import {App, Button, Input, Modal, Spin} from 'antd';
 import {CheckOutlined} from '@ant-design/icons';
 import type {ColumnsDefine} from '@visactor/vtable';
 import {GridTable, type GridTableApi, type GridTableCellInfo} from './grid-table';
+import {type AppColumnDef} from './grid-table/columnBuilder';
 import {isBlank, toStringOrEmpty} from "@/utils";
 
 /** 快速选择的一行数据：字段由调用方通过 columns 自定义 */
@@ -14,8 +15,12 @@ export interface QuickSelectModalProps<T extends QuickSelectRow = QuickSelectRow
     /** 弹窗标题，如「快速选择-业务员」 */
     title?: string;
 
-    /** 表格列定义：显示哪些字段、列宽、渲染类型完全由调用方决定 */
-    columns: ColumnsDefine;
+    /**
+     * 表格列定义：显示哪些字段、列宽、渲染类型完全由调用方决定。
+     * 支持 @visactor/vtable 原生的 `ColumnsDefine`，也支持本项目的 `AppColumnDef[]`
+     * （自动用 buildColumns 转换）。
+     */
+    columns: ColumnsDefine | AppColumnDef[];
     /** 行主键字段名，默认 id */
     rowKey?: string;
 
@@ -111,7 +116,10 @@ export function QuickSelectModal<T extends QuickSelectRow = QuickSelectRow>({
         if (searchFields && searchFields.length > 0) {
             return searchFields;
         }
-        return columns
+        // 没给 searchFields 时按列上的字段过滤：两种列定义写法都带 field；
+        // 原生分组表头没有 field（会被下面的 isBlank 滤掉）
+        const list = columns as Array<{ field?: unknown }>;
+        return list
             .map((col) => toStringOrEmpty(col.field))
             .filter((v) => !isBlank(v));
     }, [searchFields, columns]);

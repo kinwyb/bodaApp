@@ -46,7 +46,12 @@ import {
   resolveGroupFields,
   type GridTableGroupOptions,
 } from './group';
-import { collectColumnAggregates, collectDefaultSort } from './columnBuilder';
+import {
+  collectColumnAggregates,
+  collectDefaultSort,
+  normalizeColumns,
+  type AppColumnDef,
+} from './columnBuilder';
 import { THEME } from './theme';
 import type { StyleArgs, GridTableCellInfo, GridTableRowInfo } from './types';
 import { shallowEqualRecord } from './utils';
@@ -134,7 +139,17 @@ export interface GridTableApi {
 }
 
 export interface GridTableProps {
-  columns: ColumnsDefine;
+  /**
+   * 列定义。两种写法都支持：
+   *
+   * 1. **@visactor/vtable 原生的 `ColumnsDefine`**（原样使用，不做任何加工）；
+   * 2. **`AppColumnDef[]`**（本项目的列定义）—— 组件会自动用 `buildColumns` 转成 `ColumnsDefine`，
+   *    所以页面不必再自己包一层 `buildColumns(COLUMNS)`。
+   *
+   * 两种写法可以混用吗？不行：一个数组要么整体是 AppColumnDef[]，要么整体是原生 ColumnsDefine。
+   * 判定规则见 `columnBuilder.ts` 的 `isAppColumnDefs`（有一列是原生列就整个按原生处理）。
+   */
+  columns: ColumnsDefine | AppColumnDef[];
   records: Array<Record<string, unknown>>;
   /** 行主键字段 */
   rowKey?: string;
@@ -300,7 +315,7 @@ export interface GridTableProps {
  * 表格渲染在 canvas 上，单元格内容通过 columns 的样式/类型配置，交互通过事件回调。
  */
 export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
-  columns,
+  columns: columnsProp,
   records,
   rowKey = 'id',
   frozenColCount = 0,
@@ -333,6 +348,12 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
   onActiveSelectionChange,
   onSelectedChange,
 }, ref) => {
+  /**
+   * 列定义归一化：传 `AppColumnDef[]` 时自动用 buildColumns 转成 `ColumnsDefine`；
+   * 传原生 `ColumnsDefine` 时原样返回（**引用不变**，不会白白触发表格重建）。
+   * 组件内部一律用归一化后的 columns。
+   */
+  const columns = useMemo(() => normalizeColumns(columnsProp), [columnsProp]);
   const containerRef = useRef<HTMLDivElement>(null);
   const tableRef = useRef<ListTable | null>(null);
   /** 构造时的完整 options：updateOption 需要完整配置，否则 theme / 行高等会被重置为默认值 */

@@ -12,7 +12,7 @@ import type {ColumnsDefine} from '@visactor/vtable';
 import {SearchComponent} from '@visactor/vtable-search';
 import {type FilterModel, TableFilter} from './TableFilter';
 import {GridTable} from './GridTable';
-import {collectFilterFields, collectGroupableColumns} from './columnBuilder';
+import {collectFilterFields, collectGroupableColumns, type AppColumnDef} from './columnBuilder';
 // 类型从模块入口取（type-only，不产生运行时依赖，所以不会与 index → FilterTable 形成循环）
 import type {
     EditCellTrigger,
@@ -33,8 +33,17 @@ import {formatDate, now, toNumberOrZero, toStringOrEmpty} from "@/utils";
 const DEFAULT_PAGE_SIZE = 30;
 
 export interface FilterTableProps {
-    /** GridTable 列定义。筛选字段不用单独配：列上写 `filterType` 即会出现在筛选面板里 */
-    columns: ColumnsDefine;
+    /**
+     * GridTable 列定义。两种写法都支持：
+     *
+     * 1. **@visactor/vtable 原生的 `ColumnsDefine`**（原样使用）；
+     * 2. **`AppColumnDef[]`** —— 内部 GridTable 会自动用 `buildColumns` 转成 `ColumnsDefine`，
+     *    页面不必再自己包一层 `buildColumns(COLUMNS)`。
+     *
+     * 筛选字段不用单独配：列上写 `filterType` 即会出现在筛选面板里
+     * （筛选面板与分组面板直接读列上的原始键，两种写法都认）
+     */
+    columns: ColumnsDefine | AppColumnDef[];
     /** 原始数据 */
     records: Array<Record<string, unknown>>;
     /** 行主键字段 */

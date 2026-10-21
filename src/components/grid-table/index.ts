@@ -62,4 +62,14 @@ export type {
 } from './expandable';
 export type { FilterTableProps } from './FilterTable';
 export type { FilterCondition, FilterField, FilterModel, TableFilterProps } from './TableFilter';
-export type { FilterType, SortableOption } from './columnBuilder';
+export type {
+  AppColumnDef,
+  AppColumnFieldFormat,
+  AppColumnStyle,
+  ColumnDataType,
+  ColumnSource,
+  ColumnTagItem,
+  ColumnTagItemLike,
+  FilterType,
+  SortableOption,
+} from './columnBuilder';

@@ -114,6 +114,53 @@ export interface AppColumnDef {
   columnProps?: Record<string, unknown>;
 }
 
+/**
+ * 「这列已经由 buildColumns 转换过」的标记。
+ *
+ * 挂在数组对象上（不可枚举的 Symbol 键）：@visactor/vtable 只看数组下标，
+ * 展开运算 / JSON.stringify 也看不见它，所以对渲染没有任何影响。
+ * 作用是让 normalizeColumns 认出「这已经是 ColumnsDefine」，不再二次转换。
+ */
+const BUILT_COLUMNS = Symbol('appColumnsBuilt');
+
+/**
+ * AppColumnDef 的「键词汇表」：AppColumnDef 自己的字段，
+ * 加上 buildColumns 会**原样带过去**的原生键（field / title / width / fieldFormat / style / mergeCell）。
+ *
+ * 判定列定义类型时拿它当白名单：出现表外的键（type / cellType / editor / columns / sort …）
+ * 就说明那是 @visactor/vtable 的原生 ColumnsDefine，不能按 AppColumnDef 处理 ——
+ * 宁可当成原生列（AppColumnDef 的字段名直接透传给 vtable，多数也能正常显示），
+ * 也不能把原生列的配置悄悄丢掉。
+ */
+const APP_COLUMN_KEYS: ReadonlySet<string> = new Set([
+  // AppColumnDef 自己的字段
+  'dataType',
+  'precision',
+  'tagMap',
+  'booleanText',
+  'sortable',
+  'filterType',
+  'aggregate',
+  'group',
+  'columnProps',
+  // buildColumns 会原样带过去的原生键
+  'field',
+  'title',
+  'width',
+  'fieldFormat',
+  'style',
+  'mergeCell',
+]);
+
+/**
+ * 列定义的两种来源：@visactor/vtable 原生的 `ColumnsDefine`，或本项目的 `AppColumnDef[]`。
+ *
+ * 「只读列上某几个属性」的函数（collectFilterFields / collectGroupableColumns）用这个类型 ——
+ * 两种写法的列都带 `field` / `title`，也都可能带 `filterType` / `group`，
+ * 所以读它们不需要先转换成 ColumnsDefine。
+ */
+export type ColumnSource = ColumnsDefine | AppColumnDef[];
+
 /** 只读复选框的样式：看起来和普通勾选框一致，但用户点不动 */
 const READONLY_CHECKBOX = {
   disableFill: '#ffffff',
@@ -148,7 +195,7 @@ function mergeStyle(base: AppColumnStyle | undefined, override: AppColumnStyle):
 
 /** 把带数据类型的列定义转成 GridTable 的列配置 */
 export function buildColumns(defs: AppColumnDef[]): ColumnsDefine {
-  return defs.map((def) => {
+  const columns = defs.map((def) => {
     const base: Record<string, unknown> = {
       field: def.field,
       title: def.title,
@@ -255,6 +302,59 @@ export function buildColumns(defs: AppColumnDef[]): ColumnsDefine {
       ...(def.columnProps ?? {}),
     } as ColumnsDefine[number];
   }) as ColumnsDefine;
+  // 标记「已转换」：normalizeColumns 再碰到这个数组时不会二次转换
+  Object.defineProperty(columns, BUILT_COLUMNS, {
+    value: true,
+    enumerable: false,
+    configurable: true,
+  });
+  return columns;
+}
+
+/** 是不是「普通对象」（排除 null 与数组） */
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * 单列判定：是「带 field + title 的普通对象」，且键全在 AppColumnDef 词汇表内。
+ *
+ * 两个条件缺一不可：
+ * - 键全在表内 → 排除 @visactor/vtable 原生列（原生列常有 type / cellType / editor / columns / sort 等表外键）；
+ * - field + title 都是字符串 → 排除分组表头（只有 title 没有 field）。
+ */
+function isAppColumnDef(col: unknown): col is AppColumnDef {
+  if (!isPlainObject(col)) return false;
+  if (!Object.keys(col).every((key) => APP_COLUMN_KEYS.has(key))) return false;
+  return typeof col.field === 'string' && col.field !== '' && typeof col.title === 'string';
+}
+
+/**
+ * 判断列定义是不是「AppColumnDef[]」（而不是 @visactor/vtable 原生的 ColumnsDefine）。
+ *
+ * 判定口径：**每一列**都像 AppColumnDef 才算 —— 只要有一列是原生列（带 type / cellType /
+ * editor / 分组表头等表外键），整个数组就按原生 ColumnsDefine 处理，不做转换。
+ * 宁可漏转（AppColumnDef 的字段名会直接透传给 vtable，多数也能正常显示），
+ * 也不能把原生列的配置悄悄丢掉。
+ */
+export function isAppColumnDefs(
+  columns: ColumnsDefine | AppColumnDef[],
+): columns is AppColumnDef[] {
+  if (!Array.isArray(columns) || columns.length === 0) return false;
+  // buildColumns 的产物：已经是 ColumnsDefine，别再转一次
+  if (Object.prototype.hasOwnProperty.call(columns, BUILT_COLUMNS)) return false;
+  return (columns as unknown[]).every(isAppColumnDef);
+}
+
+/**
+ * 列定义归一化：传 `AppColumnDef[]` 时自动用 buildColumns 转成 `ColumnsDefine`；
+ * 传原生 `ColumnsDefine` 时**原样返回**（引用不变，不会白白触发表格重建）。
+ *
+ * GridTable / FilterTable / QuickSelectModal 的 columns 属性都走这里，
+ * 所以页面既可以 `columns={buildColumns(COLUMNS)}`，也可以直接 `columns={COLUMNS}`。
+ */
+export function normalizeColumns(columns: ColumnsDefine | AppColumnDef[]): ColumnsDefine {
+  return isAppColumnDefs(columns) ? buildColumns(columns) : (columns as ColumnsDefine);
 }
 
 /**
@@ -299,11 +399,11 @@ export interface GroupableColumn {
   group: boolean;
 }
 
-export function collectGroupableColumns(columns: ColumnsDefine): GroupableColumn[] {
+export function collectGroupableColumns(columns: ColumnSource): GroupableColumn[] {
   const result: GroupableColumn[] = [];
   const seen = new Set<string>();
 
-  const walk = (cols: ColumnsDefine) => {
+  const walk = (cols: ColumnSource) => {
     for (const col of cols) {
       if (typeof col === 'string') {
         if (!seen.has(col)) {
@@ -351,11 +451,11 @@ export type FilterableColumn = {
  * `title` 是函数就先调一次拿文本；同一个字段只保留第一次出现。顺序与 columns 一致。
  * 没配 `filterType` 的列不参与筛选。
  */
-export function collectFilterFields(columns: ColumnsDefine): FilterableColumn[] {
+export function collectFilterFields(columns: ColumnSource): FilterableColumn[] {
   const result: FilterableColumn[] = [];
   const seen = new Set<string>();
 
-  const walk = (cols: ColumnsDefine) => {
+  const walk = (cols: ColumnSource) => {
     for (const col of cols) {
       if (typeof col === 'string') continue;
       const cell = col as {
