@@ -2,13 +2,14 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Badge, Button, DatePicker, Divider, Input, InputNumber, Popover, Select, Space, Tag } from 'antd';
 import { FilterOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
+import type { FilterType } from './columnBuilder';
 
-/** 可筛选的列：类型决定用哪种筛选控件 */
+/** 可筛选的列：类型决定用哪种筛选控件。通常不用手写 —— FilterTable 从列定义的 `filterType` 自动收集 */
 export interface FilterField {
   field: string;
   title: string;
-  /** enum 多选（候选项由后端按数据去重返回）、date / number 区间、text 包含 */
-  type: 'enum' | 'date' | 'number' | 'text';
+  /** enum 多选（候选项按当前页数据去重）、date / number 区间、text 包含 */
+  type: FilterType;
 }
 
 /** 单个字段的筛选条件 */

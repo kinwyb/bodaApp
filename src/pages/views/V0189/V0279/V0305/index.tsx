@@ -5,8 +5,7 @@ import {PageBreadcrumb} from "@/components/PageBreadcrumb.tsx";
 import {SearchOutlined} from "@ant-design/icons";
 import {FilterTable, type GridTableApi} from "@/components/grid-table";
 import {
-    buildYupaiOrderAllGroupColumns,
-    yupaiOrderAllGroupFilterFields
+    buildYupaiOrderAllGroupColumns
 } from "@/pages/views/V0189/V0279/V0305/columns.ts";
 import {type Dayjs} from "dayjs";
 import {CommandBar} from "@/components/CommandBar.tsx";
@@ -76,8 +75,7 @@ const YupaiOrderAllGroupPage: React.FC<ViewPageProps> = ({view, trail}) => {
                 </Form.Item>
             </Form>
             <FilterTable ref={tableRef} columns={columns} records={dataSource} loading={loading}
-                         rowKey={'_id'} groupable={true}
-                         filterFields={yupaiOrderAllGroupFilterFields}/>
+                         rowKey={'_id'} groupable={true}/>
 
         </div>
     );

@@ -16,8 +16,7 @@ import {yupaiService} from "@/services/yupai.ts";
 import {ErrorMessage} from "@/api/request.ts";
 import {DATE_FORMAT, formatDate, now} from "@/utils";
 import {
-    buildYupaiOrderChangeListColumns,
-    yupaiOrderChangeListFilterFields
+    buildYupaiOrderChangeListColumns
 } from "@/pages/views/V0189/V0279/V0281/columns.ts";
 import {CommandBar} from "@/components/CommandBar.tsx";
 import {useTableExportCommand} from "@/components/commands/exportCommand.tsx";
@@ -149,8 +148,7 @@ const YupaiOrderChangePage: React.FC<ViewPageProps> = ({view, trail}) => {
             */}
             <FilterTable ref={tableRef} columns={columns} records={dataSource} loading={loading}
                          rowKey={'YupaiOrderChangeID'}
-                         cellStyle={cellStyle} mergeGroups={mergeColumnGroup}
-                         filterFields={yupaiOrderChangeListFilterFields}/>
+                         cellStyle={cellStyle} mergeGroups={mergeColumnGroup}/>
 
         </div>
     );

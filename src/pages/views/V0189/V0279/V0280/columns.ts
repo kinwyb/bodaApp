@@ -1,48 +1,35 @@
 import type {ColumnsDefine} from '@visactor/vtable';
 import type {YupaiOrder} from '@/api';
 import {YupaiMachineSizeHeader} from '@/api'
-import type {FilterField} from '@/components/grid-table';
 import {type AppColumnDef, buildColumns} from '@/components/grid-table/columnBuilder';
 import {ORG_NAME} from "@/store/orgs.ts";
 
-/** 可筛选的列：类型决定筛选控件（enum 多选 / date、number 区间 / text 包含） */
-export const preorderFilterFields: FilterField[] = [
-    {field: 'WorkPlace', title: '产地', type: 'enum'},
-    {field: 'Ywy', title: '业务员', type: 'enum'},
-    {field: 'YPDate', title: '预订日期', type: 'date'},
-    {field: 'JHDate', title: '计划下单期', type: 'date'},
-    {field: 'OrderCode', title: '订单号', type: 'text'},
-    {field: 'StyleCode', title: '款号', type: 'text'},
-    {field: 'Qty', title: '总数量', type: 'number'},
-    {field: 'OrderZQ', title: '订单周期', type: 'number'},
-    {field: 'ProduceName', title: '款式描述', type: 'enum'},
-    {field: 'HDWorkName', title: '后道主工序', type: 'enum'},
-    {field: 'XDRate', title: '下单把握度', type: 'enum'},
-];
-
-/** 列定义：dataType 决定渲染控件（text / number / date / boolean / tag） */
+/**
+ * 列定义：dataType 决定渲染控件（text / int / double / date / boolean / tag），
+ * filterType 决定这一列进不进筛选面板（不配 = 不参与筛选，不用再单独配 FilterField）。
+ */
 export const COLUMNS: AppColumnDef[] = [
-    {field: 'WorkPlace', title: '产地', width: 90},
-    {field: 'YPDate', title: '预订日期', width: 100, dataType: 'date', sortable: true},
+    {field: 'WorkPlace', title: '产地', width: 90, filterType: 'enum'},
+    {field: 'YPDate', title: '预订日期', width: 100, dataType: 'date', sortable: true, filterType: 'date'},
     {
         field: 'KnitOrgID',
         title: '织造产地',
         width: 90,
         fieldFormat: (record: YupaiOrder) => ORG_NAME(record.KnitOrgID),
     },
-    {field: 'Ywy', title: '业务员', width: 80},
-    {field: 'OrderCode', title: '订单号', width: 110, sortable: true},
-    {field: 'Qty', title: '总数量', width: 90, dataType: 'number', sortable: true},
-    {field: 'Number', title: '款式数量', width: 80, dataType: 'number', sortable: true},
-    {field: 'StyleCode', title: '款号', width: 110},
-    {field: 'ProduceName', title: '款式描述', width: 150},
+    {field: 'Ywy', title: '业务员', width: 80, filterType: 'enum'},
+    {field: 'OrderCode', title: '订单号', width: 110, sortable: true, filterType: 'text'},
+    {field: 'Qty', title: '总数量', width: 90, dataType: 'int', sortable: true, filterType: 'number'},
+    {field: 'Number', title: '款式数量', width: 80, dataType: 'int', sortable: true},
+    {field: 'StyleCode', title: '款号', width: 110, filterType: 'text'},
+    {field: 'ProduceName', title: '款式描述', width: 150, filterType: 'enum'},
     {field: 'Color', title: '预估颜色', width: 170},
     {field: 'TSWorkName', title: '特殊工序', width: 130},
-    {field: 'HDWorkName', title: '后道主工序', width: 100},
-    {field: 'JHDate', title: '计划下单期', width: 100, dataType: 'date'},
+    {field: 'HDWorkName', title: '后道主工序', width: 100, filterType: 'enum'},
+    {field: 'JHDate', title: '计划下单期', width: 100, dataType: 'date', filterType: 'date'},
     {field: 'QRDate', title: '确认下单期', width: 100, dataType: 'date'},
     {field: 'WCDate', title: '尾货期', width: 100, dataType: 'date'},
-    {field: 'OrderZQ', title: '订单周期', width: 80, dataType: 'number', sortable: true},
+    {field: 'OrderZQ', title: '订单周期', width: 80, dataType: 'int', sortable: true, filterType: 'number'},
     {field: 'ZHDate', title: '走货期', width: 100, dataType: 'date'},
     // 阶段列：1 选中 / 0 未选中，渲染成复选框
     {field: 'SSStep', title: '产能阶段', width: 100, dataType: 'boolean'},
@@ -57,6 +44,7 @@ export const COLUMNS: AppColumnDef[] = [
         title: '下单把握度',
         width: 95,
         style: {textAlign: 'right'},
+        filterType: 'enum',
     },
     {field: 'Memo', title: '备注', width: 190},
     {field: 'YLDate', title: '原料可下单期', width: 110, dataType: 'date'},
@@ -64,17 +52,17 @@ export const COLUMNS: AppColumnDef[] = [
     {field: 'YLDHDate', title: '原料计划到货期', width: 110, dataType: 'date'},
     {field: 'FLDate', title: '辅料可下单期', width: 110, dataType: 'date'},
     {field: 'BZFLDate', title: '包装辅料提供期', width: 110, dataType: 'date'},
-    {field: 'MWeight', title: '中码下机克重', width: 110, dataType: 'number'},
-    {field: 'MCycle', title: '中码下机时间', width: 110, dataType: 'number'},
-    {field: 'MSewWt', title: '缝制工时', width: 110, dataType: 'number'},
+    {field: 'MWeight', title: '中码下机克重', width: 110, dataType: 'double'},
+    {field: 'MCycle', title: '中码下机时间', width: 110, dataType: 'double'},
+    {field: 'MSewWt', title: '缝制工时', width: 110, dataType: 'double'},
     ...YupaiMachineSizeHeader.map((title, index) => {
         const fieldName = `MCSize${index + 1}`;
         return {
             field: fieldName,
             title,
             width: 82,
-            dataType: 'number' as const,
-            // number 默认右对齐，这里只覆盖显示格式（0 与空值都当未填）
+            dataType: 'int' as const,
+            // int 默认右对齐、只显示整数，这里只覆盖显示格式（0 与空值都当未填）
             fieldFormat: (record: YupaiOrder) => {
                 const value = record[fieldName];
                 if (value === null || value === undefined || value === '') return '';

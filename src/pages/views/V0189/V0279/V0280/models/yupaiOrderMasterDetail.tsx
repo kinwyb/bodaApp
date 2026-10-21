@@ -27,7 +27,7 @@ const YupaiOrderMasterDetail: React.FC<YupaiOrderMasterDetailProps> = ({records}
                 field: 'BatchDate', title: '出货日期', width: 80, dataType: "date"
             },
             {
-                field: 'BatchRate', title: '出货比例', width: 80, dataType: "number",
+                field: 'BatchRate', title: '出货比例', width: 80, dataType: "double",
                 fieldFormat: (record: Record<string, unknown>) => {
                     const rate = toNumberOrZero(record.BatchRate);
                     return (rate * 100).toFixed(2) + "%";

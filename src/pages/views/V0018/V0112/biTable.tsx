@@ -33,7 +33,7 @@ export const BITable: React.FC<BITableProps> = ({node}) => {
         try {
             const result = await biService.query(node);
             const dataTable = new DataTable(result);
-            let summaryCols = dataTable.columns.filter(col => col.dataType === 'number').map(col => col.field);
+            let summaryCols = dataTable.columns.filter(col => col.dataType === 'int' || col.dataType === 'double').map(col => col.field);
             setSummaryColumns(summaryCols);
             setColumns(buildColumns(dataTable.columns))
             setDatas(dataTable.datas);

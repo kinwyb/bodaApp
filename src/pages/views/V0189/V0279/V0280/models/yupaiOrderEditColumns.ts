@@ -53,24 +53,21 @@ const hdWorkNames = [
 /** 后道主工序的候选值：工序名本身就是值和文案 */
 const HD_WORK_OPTIONS = hdWorkNames.map((name) => ({value: name, label: name}));
 
-/** 这些数值列允许小数，其余数值列按整数处理 */
-const DECIMAL_FIELDS = new Set(['MWeight', 'MCycle', 'MSewWt']);
-
 const DETAIL_COLUMNS: AppColumnDef[] = [
     {field: 'StyleCode', title: '款号', width: 96},
-    {field: 'Number', title: '款式数量', width: 76, dataType: 'number'},
+    {field: 'Number', title: '款式数量', width: 76, dataType: 'int'},
     {field: 'ProduceName', title: '款式描述', width: 130},
     {field: 'Color', title: '预估颜色', width: 140},
     {field: 'TSWorkName', title: '特殊工序', width: 110},
     {field: 'HDWorkName', title: '后道主工序', width: 100},
-    {field: 'MWeight', title: '中码下机克重', width: 108, dataType: 'number'},
-    {field: 'MCycle', title: '中码下机时间', width: 108, dataType: 'number'},
-    {field: 'MSewWt', title: '缝制工时', width: 88, dataType: 'number'},
+    {field: 'MWeight', title: '中码下机克重', width: 108, dataType: 'double'},
+    {field: 'MCycle', title: '中码下机时间', width: 108, dataType: 'double'},
+    {field: 'MSewWt', title: '缝制工时', width: 88, dataType: 'double'},
     ...YupaiMachineSizeHeader.map((title, index) => ({
         field: `MCSize${index + 1}`,
         title,
         width: 82,
-        dataType: 'number' as const,
+        dataType: 'int' as const,
     })),
 ];
 
@@ -161,10 +158,11 @@ function registerDetailEditor(column: AppColumnDef): string {
         return name;
     }
 
-    if (dataType === 'number') {
+    if (dataType === 'int' || dataType === 'double') {
+        // int 锁死整数输入；double 允许小数（显示默认 2 位）
         registerAntdNumberEditor(
             name,
-            {min: 0, ...(DECIMAL_FIELDS.has(field) ? {} : {precision: 0})},
+            {min: 0, ...(dataType === 'int' ? {precision: 0} : {})},
             options,
         );
         return name;
@@ -177,7 +175,7 @@ function registerDetailEditor(column: AppColumnDef): string {
 /** 详情表格可编辑字段 -> 编辑器名，交给 GridTable 的 editableFields */
 export const DETAIL_EDITOR_FIELDS: Record<string, string> = Object.fromEntries(
     DETAIL_COLUMNS.map((column) => {
-        if (column.dataType === 'number') {
+        if (column.dataType === 'int' || column.dataType === 'double') {
             // 未填（null）与 0 都显示成空白，避免表格里一片 0
             column.fieldFormat = (record: yupaiOrderDetailRow) => {
                 const value = record[column.field];

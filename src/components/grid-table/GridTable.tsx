@@ -46,7 +46,7 @@ import {
   resolveGroupFields,
   type GridTableGroupOptions,
 } from './group';
-import { collectColumnAggregates } from './columnBuilder';
+import { collectColumnAggregates, collectDefaultSort } from './columnBuilder';
 import { THEME } from './theme';
 import type { StyleArgs, GridTableCellInfo, GridTableRowInfo } from './types';
 import { shallowEqualRecord } from './utils';
@@ -368,8 +368,8 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
     rows: number[];
   } | null>(null);
 
-  /** 当前排序状态（由表头排序图标驱动，排序在本地完成，统计行不参与） */
-  const [sortState, setSortState] = useState<GridTableSortState | null>(null);
+  /** 当前排序状态（由表头排序图标驱动，排序在本地完成，统计行不参与）。初始值取列上 `sortable: 'asc' | 'desc'` 配的默认排序 */
+  const [sortState, setSortState] = useState<GridTableSortState | null>(() => collectDefaultSort(columns));
 
   /**
    * 导出插件的两个配置对象。
@@ -1340,6 +1340,9 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
       table.updateSortState(next, false);
       return false;
     });
+    // 初始排序：列上配了 sortable: 'asc' | 'desc' 时，数据已经在 rows 里排好（shapedRows），
+    // 这里只点亮表头的排序图标，与 sort_click 的处理保持一致（不再执行排序）
+    if (sortState) table.updateSortState(sortState, false);
 
     // ResizeObserver 的通知是异步投递的：disconnect() 之后仍可能有一次已经排队的回调落地，
     // 而那时 table 已经 release、内部 scenegraph 被置空，resize() 会抛

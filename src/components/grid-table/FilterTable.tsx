@@ -10,9 +10,9 @@ import {Button, Input, Pagination, Popover, Tooltip} from 'antd';
 import {ArrowDownOutlined, ArrowUpOutlined, GroupOutlined} from '@ant-design/icons';
 import type {ColumnsDefine} from '@visactor/vtable';
 import {SearchComponent} from '@visactor/vtable-search';
-import {type FilterField, type FilterModel, TableFilter} from './TableFilter';
+import {type FilterModel, TableFilter} from './TableFilter';
 import {GridTable} from './GridTable';
-import {collectGroupableColumns} from './columnBuilder';
+import {collectFilterFields, collectGroupableColumns} from './columnBuilder';
 // 类型从模块入口取（type-only，不产生运行时依赖，所以不会与 index → FilterTable 形成循环）
 import type {
     EditCellTrigger,
@@ -33,10 +33,7 @@ import {toNumberOrZero} from "@/utils";
 const DEFAULT_PAGE_SIZE = 30;
 
 export interface FilterTableProps {
-    /** 筛选字段定义；不传则不渲染筛选条 */
-    filterFields?: FilterField[];
-
-    /** GridTable 列定义 */
+    /** GridTable 列定义。筛选字段不用单独配：列上写 `filterType` 即会出现在筛选面板里 */
     columns: ColumnsDefine;
     /** 原始数据 */
     records: Array<Record<string, unknown>>;
@@ -155,7 +152,6 @@ export interface FilterTableProps {
 export const FilterTable = React.forwardRef<GridTableApi, FilterTableProps>(
     (
         {
-            filterFields,
             columns,
             records,
             rowKey,
@@ -211,9 +207,11 @@ export const FilterTable = React.forwardRef<GridTableApi, FilterTableProps>(
          */
         const [activeRowCount, setActiveRowCount] = useState(0);
 
+        /** 筛选字段：从列定义上配的 `filterType` 自动收集，页面不用再单独配 FilterField */
+        const filterFields = useMemo(() => collectFilterFields(columns), [columns]);
+
         // 从当前 records 自动构建 enum 类型的筛选候选项
         const autoOptions = useMemo(() => {
-            if (!filterFields) return {};
             const enumFields = filterFields.filter((f) => f.type === 'enum');
             if (enumFields.length === 0) return {};
 
@@ -250,7 +248,7 @@ export const FilterTable = React.forwardRef<GridTableApi, FilterTableProps>(
         // 客户端筛选：根据 FilterModel 过滤 records
         const filteredRecords = useMemo(() => {
             const activeFilters = Object.entries(filters);
-            if (activeFilters.length === 0 || !filterFields) return records;
+            if (activeFilters.length === 0 || filterFields.length === 0) return records;
             const fieldMap = new Map(filterFields.map((f) => [f.field, f.type]));
             return records.filter((record) =>
                 activeFilters.every(([field, condition]) => {
@@ -432,7 +430,7 @@ export const FilterTable = React.forwardRef<GridTableApi, FilterTableProps>(
             [],
         );
 
-        const hasFilter = filterFields && filterFields.length > 0;
+        const hasFilter = filterFields.length > 0;
 
         return (
             <div className="filter-table">

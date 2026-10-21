@@ -234,7 +234,7 @@ export function buildBatchColumns(byDate: boolean): ColumnsDefine {
             field: 'BatchPercent',
             title: '出货比例',
             width: 220,
-            dataType: 'number',
+            dataType: 'double',
             fieldFormat: (record: Record<string, unknown>) => {
                 const percent = toNumberOrNull(record.BatchPercent);
                 // 空行显示空白，别显示 0（0 在这里是「没填」，不是「0%」）

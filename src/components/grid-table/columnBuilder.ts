@@ -1,15 +1,34 @@
 import type { ColumnsDefine, TextColumnDefine, TYPES } from '@visactor/vtable';
 import { formatDate, formatDateTime } from '@/utils';
 import type { GroupAggregate, GroupAggregateType } from './group';
+import type { GridTableSortState } from './sorting';
 
 /** 列的数据类型：决定渲染成什么控件以及对齐/格式 */
 export type ColumnDataType =
   | 'text' // 普通文本
-  | 'number' // 数值，右对齐，可指定小数位
+  | 'int' // 整数，右对齐，只显示整数（0 位小数）
+  | 'double' // 浮点数，右对齐，默认 2 位小数（precision 可覆盖）
   | 'date' // 日期，只显示到日（YYYY-MM-DD）
   | 'datetime' // 日期时间，显示到秒（YYYY-MM-DD HH:mm:ss）
   | 'boolean' // 1 / 0，渲染成只读复选框
   | 'tag'; // 枚举，按值映射文案与颜色
+
+/**
+ * 输入过滤类型：配了 `filterType` 的列会出现在 FilterTable 的筛选面板里，
+ * 不用再单独配 FilterField —— 筛选字段直接从列定义上收集（见 collectFilterFields）。
+ *
+ * - `enum`：多选（候选项从当前页数据去重）
+ * - `date` / `number`：区间
+ * - `text`：包含
+ */
+export type FilterType = 'enum' | 'date' | 'number' | 'text';
+
+/**
+ * 可排序配置：
+ * - `true`：仅开启排序（点表头切换升/降/取消）
+ * - `'asc'` / `'desc'`：开启排序，**并作为表格的初始排序方向**（多列都配时取列顺序最前的一列）
+ */
+export type SortableOption = boolean | 'asc' | 'desc';
 
 export interface ColumnTagItem {
   label: string;
@@ -42,14 +61,22 @@ export interface AppColumnDef {
   width?: number;
   /** 数据类型，默认 text */
   dataType?: ColumnDataType;
-  /** number：小数位 */
+  /** double：小数位，默认 2（int 始终 0 位小数，忽略此项） */
   precision?: number;
   /** tag：值 -> 文案（字符串简写）或 {label, color}（要指定颜色时） */
   tagMap?: Record<string, ColumnTagItemLike>;
   /** boolean：勾选框右侧的文字（选中 / 未选中），不传则只显示勾选框 */
   booleanText?: [string, string];
-  /** 是否可排序 */
-  sortable?: boolean;
+  /**
+   * 可排序：`true` 仅开启；`'asc'` / `'desc'` 额外作为表格的**初始排序方向**
+   * （多列都配了方向时，取列顺序最前的一列）。
+   */
+  sortable?: SortableOption;
+  /**
+   * 输入过滤类型：配了它，FilterTable 的筛选面板自动收进这一列，
+   * 不用再单独配 FilterField。不配 = 这一列不参与筛选。
+   */
+  filterType?: FilterType;
   /** 显示格式：传了就用它，覆盖 dataType 推导出的默认格式（如 date 的 formatDate） */
   fieldFormat?: AppColumnFieldFormat;
   /**
@@ -134,15 +161,23 @@ export function buildColumns(defs: AppColumnDef[]): ColumnsDefine {
     let typeStyle: AppColumnStyle | undefined;
 
     switch (def.dataType ?? 'text') {
-      case 'number':
+      case 'int':
         typeStyle = { textAlign: 'right' };
-        if (def.precision !== undefined) {
-          typeFieldFormat = (record: Record<string, unknown>) => {
-            const value = Number(record[def.field]);
-            return Number.isFinite(value) ? value.toFixed(def.precision) : '';
-          };
-        }
+        typeFieldFormat = (record: Record<string, unknown>) => {
+          const value = Number(record[def.field]);
+          return Number.isFinite(value) ? value.toFixed(0) : '';
+        };
         break;
+
+      case 'double': {
+        typeStyle = { textAlign: 'right' };
+        const precision = def.precision ?? 2;
+        typeFieldFormat = (record: Record<string, unknown>) => {
+          const value = Number(record[def.field]);
+          return Number.isFinite(value) ? value.toFixed(precision) : '';
+        };
+        break;
+      }
 
       case 'date':
         typeFieldFormat = (record: Record<string, unknown>) => formatDate(record[def.field]);
@@ -210,9 +245,12 @@ export function buildColumns(defs: AppColumnDef[]): ColumnsDefine {
       ...(style ? { style } : {}),
       // false 也是有效值（明确不合并），所以只跳过 undefined
       ...(def.mergeCell !== undefined ? { mergeCell: def.mergeCell } : {}),
-      // 默认汇总方式 / 默认分组：@visactor/vtable 不认识这两个字段，单纯挂在列定义上供组件读取，不会渲染出来
+      // 默认汇总方式 / 默认分组 / 默认排序方向 / 过滤类型：@visactor/vtable 不认识这几个字段，
+      // 单纯挂在列定义上供组件读取（GridTable 初始排序、FilterTable 筛选面板），不会渲染出来
       ...(def.aggregate ? { aggregate: def.aggregate } : {}),
       ...(def.group ? { group: true } : {}),
+      ...(typeof def.sortable === 'string' ? { defaultSort: def.sortable } : {}),
+      ...(def.filterType ? { filterType: def.filterType } : {}),
       // 兜底口子放最后：写在 columnProps 里的同名配置整体覆盖（不与默认值合并）
       ...(def.columnProps ?? {}),
     } as ColumnsDefine[number];
@@ -297,4 +335,76 @@ export function collectGroupableColumns(columns: ColumnsDefine): GroupableColumn
 
   walk(columns);
   return result;
+}
+
+/** 筛选面板条目：与 TableFilter 的 FilterField 同形状 */
+export type FilterableColumn = {
+  field: string;
+  title: string;
+  type: FilterType;
+};
+
+/**
+ * 从列定义里收集「配了 `filterType` 的列」（给 FilterTable 的筛选面板用）。
+ *
+ * 规则与 collectGroupableColumns 一致：递归展开分组表头，只取有 `field` 的叶子列；
+ * `title` 是函数就先调一次拿文本；同一个字段只保留第一次出现。顺序与 columns 一致。
+ * 没配 `filterType` 的列不参与筛选。
+ */
+export function collectFilterFields(columns: ColumnsDefine): FilterableColumn[] {
+  const result: FilterableColumn[] = [];
+  const seen = new Set<string>();
+
+  const walk = (cols: ColumnsDefine) => {
+    for (const col of cols) {
+      if (typeof col === 'string') continue;
+      const cell = col as {
+        columns?: ColumnsDefine;
+        field?: unknown;
+        title?: unknown;
+        filterType?: unknown;
+      };
+      if (cell.columns) {
+        walk(cell.columns);
+        continue;
+      }
+      if (typeof cell.field !== 'string' || seen.has(cell.field)) continue;
+      if (typeof cell.filterType !== 'string') continue;
+      seen.add(cell.field);
+      const rawTitle = cell.title;
+      const title =
+        typeof rawTitle === 'function'
+          ? String((rawTitle as () => string)())
+          : String(rawTitle ?? cell.field);
+      result.push({ field: cell.field, title, type: cell.filterType as FilterType });
+    }
+  };
+
+  walk(columns);
+  return result;
+}
+
+/**
+ * 从列定义里收集「初始排序」：取列顺序最前一个 `sortable: 'asc' | 'desc'` 的列，
+ * 供 GridTable 建表时设定 sortState 并同步表头排序图标。没有配方向的列返回 null。
+ */
+export function collectDefaultSort(columns: ColumnsDefine): GridTableSortState | null {
+  for (const col of columns) {
+    if (typeof col === 'string') continue;
+    const cell = col as {
+      columns?: ColumnsDefine;
+      field?: unknown;
+      defaultSort?: unknown;
+    };
+    if (cell.columns) {
+      const nested = collectDefaultSort(cell.columns);
+      if (nested) return nested;
+      continue;
+    }
+    if (typeof cell.field !== 'string') continue;
+    if (cell.defaultSort === 'asc' || cell.defaultSort === 'desc') {
+      return { field: cell.field, order: cell.defaultSort };
+    }
+  }
+  return null;
 }

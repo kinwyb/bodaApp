@@ -15,7 +15,7 @@ import {PageBreadcrumb} from '@/components/PageBreadcrumb';
 import type {ViewPageProps} from '@/pages/types';
 import {yupaiService} from '@/services/yupai.ts';
 import {isBlank} from '@/utils';
-import {buildPreorderColumns, preorderFilterFields} from './columns';
+import {buildPreorderColumns} from './columns';
 import YupaiOrderEdit from './models/yupaiOrderEdit';
 import YupaiOrderMasterDetail from './models/yupaiOrderMasterDetail.tsx';
 import YupaiOrderBatchModal from './models/yupaiOrderBatch.tsx';
@@ -345,7 +345,6 @@ const yupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
                 {commands.length > 0 && <CommandBar view={view} items={commands}/>}
                 <FilterTable
                     ref={tableRef}
-                    filterFields={preorderFilterFields}
                     columns={columns}
                     records={dataSource}
                     rowKey="ID"

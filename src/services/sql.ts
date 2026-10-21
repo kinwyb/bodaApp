@@ -20,10 +20,12 @@ export class DataTable {
                     dataType = 'date';
                     break;
                 case 'INT':
+                    dataType = 'int';
+                    break;
                 case 'DECIMAL':
                 case 'FLOAT':
                 case 'DOUBLE':
-                    dataType = 'number';
+                    dataType = 'double';
                     break;
                 case 'BIT':
                     dataType = 'boolean';
