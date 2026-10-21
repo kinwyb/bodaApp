@@ -26,6 +26,31 @@ export function toStringOrEmpty(value: unknown): string {
 }
 
 /**
+ * 稳定序列化：对象的键按字典序排序后再拼，**键的插入顺序不影响结果**。
+ *
+ * 用途：给「同一份数据算一个稳定标识」用 —— 比如页签 key
+ * （`{a:1,b:2}` 与 `{b:2,a:1}` 必须算成同一个，否则用户会莫名其妙多出一个页签）。
+ *
+ * 与 JSON.stringify 的差别：
+ * - 键排序（JSON.stringify 保持插入顺序）
+ * - undefined 归一成 null（JSON.stringify 会**整个键丢掉**，
+ *   那样 `{a: undefined}` 与 `{}` 就成了两个不同的东西）
+ *
+ * 数组保序（数组的顺序是有意义的，不能排序）。
+ */
+export function stableStringify(value: unknown): string {
+  if (value === undefined) return 'null';
+  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null';
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableStringify(item)).join(',')}]`;
+  }
+  const obj = value as Record<string, unknown>;
+  const keys = Object.keys(obj).sort();
+  const parts = keys.map((key) => `${JSON.stringify(key)}:${stableStringify(obj[key])}`);
+  return `{${parts.join(',')}}`;
+}
+
+/**
  * 转成十六进制字符串（UTF-8 字节 → 小写 hex）。
  *
  * 用途：本项目后端约定登录的 password 必须传 hex 而不是明文 ——

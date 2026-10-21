@@ -1,4 +1,4 @@
-import React, { Suspense, useCallback, useMemo, useRef, useState } from 'react';
+import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Layout, Menu, Button, Tabs, theme, Avatar, Dropdown, Typography, Input, Spin } from 'antd';
 import type { MenuProps } from 'antd';
 import {
@@ -28,6 +28,8 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../store/auth-context';
 import { usePermission } from '../store/permission-context';
 import { TabsContext, type TabsApi } from '../store/tabs';
+import { buildTabKey, instanceOfParams, sameParams } from '../store/tab-key';
+import { TabTitleContext, type TabTitleScope } from '../store/tab-title-context';
 import type { DesktopMenu } from '../api';
 import { isNavigableMenu } from '../services';
 import Dashboard from '../pages/Dashboard';
@@ -39,15 +41,39 @@ const { Text } = Typography;
 
 type AntdMenuItems = NonNullable<MenuProps['items']>;
 
-interface TabMeta {
-  key: string;
+/**
+ * 菜单节点的基础信息：标签名与面包屑层级。
+ * 不含页签 key —— key 是「运行时」的，见 tab-key.ts。
+ */
+interface MenuMeta {
   label: string;
   trail: ViewTrailItem[];
-  /** 带参数跳转时携带的入参；点菜单打开的是普通标签，没有这个字段 */
+}
+
+/**
+ * 一个页签的完整信息。
+ *
+ * - `key`：页签唯一标识（`view` 或 `view::实例标识`），见 tab-key.ts；
+ * - `view`：菜单 View，用来解析页面组件（registry）与面包屑；
+ * - `label`：菜单名，页签标题的默认值；
+ * - `customTitle`：页面运行时指定的标题（优先于 label），见 useTabTitle。
+ */
+interface TabMeta {
+  key: string;
+  view: string;
+  label: string;
+  customTitle?: string;
+  trail: ViewTrailItem[];
   params?: Record<string, unknown>;
 }
 
-const HOME_TAB: TabMeta = { key: 'dashboard', label: '工作台', trail: [] };
+/** 页签上显示的文字：页面自定义过就用自定义的 */
+function displayTitle(meta: TabMeta): string {
+  return meta.customTitle ?? meta.label;
+}
+
+const HOME_TAB: TabMeta = { key: 'dashboard', view: '', label: '工作台', trail: [] };
+
 
 const iconByMenuName: Record<string, React.ReactNode> = {
   基础资料: <DatabaseOutlined />,
@@ -131,9 +157,9 @@ const MainLayout: React.FC = () => {
 
   const tabInstances = useRef<Map<string, React.ReactNode>>(new Map());
 
-  /** View -> Tab 元数据，含从根到当前的层级，用于面包屑 */
-  const tabMetaMap = useMemo(() => {
-    const map = new Map<string, TabMeta>();
+  /** View -> 菜单元数据（标签名 + 从根到当前的层级，用于面包屑） */
+  const menuMetaMap = useMemo(() => {
+    const map = new Map<string, MenuMeta>();
     const walk = (nodes: DesktopMenu[], trail: ViewTrailItem[]) => {
       nodes.forEach((node) => {
         if (node.IsAction) {
@@ -141,7 +167,7 @@ const MainLayout: React.FC = () => {
           return;
         }
         const nextTrail = [...trail, { view: node.View, name: node.MenuName }];
-        map.set(node.View, { key: node.View, label: node.MenuName, trail: nextTrail });
+        map.set(node.View, { label: node.MenuName, trail: nextTrail });
         if (node.Children) walk(node.Children, nextTrail);
       });
     };
@@ -152,17 +178,48 @@ const MainLayout: React.FC = () => {
   const displayTree = useMemo(() => filterMenuTree(menuTree, menuKeyword), [menuTree, menuKeyword]);
   const menuItems = useMemo(() => buildMenuItems(displayTree, 0), [displayTree]);
 
+  /**
+   * 左侧菜单的高亮项：**用 view**（菜单项的 key），不是页签 key。
+   * 页签 key 可能带 `::实例标识` 后缀，同一个菜单可以同时开着好几个页签，
+   * 高亮的是它们共同的菜单节点。
+   */
+  const activeView = useMemo(() => {
+    const active = openTabs.find((tab) => tab.key === activeTab);
+    return active?.view ?? '';
+  }, [openTabs, activeTab]);
+
+  /**
+   * 打开（或激活）一个页签。
+   *
+   * 同一个 key 再次打开时：
+   * - 参数没变 → 只激活，不动页面状态与标题；
+   * - 参数变了 → 换参数并重建页面（否则页面内部还拿着旧参数）。
+   */
   const openTab = useCallback(
     (meta: TabMeta) => {
       setOpenTabs((prev) => {
         const index = prev.findIndex((tab) => tab.key === meta.key);
         if (index < 0) return [...prev, meta];
-        // 已经开着：只有参数变了才替换，否则原样返回（避免无谓的重渲染）
-        if (prev[index].params === meta.params) return prev;
+        const current = prev[index];
+        if (sameParams(current.params, meta.params)) {
+          // 显式传了标题就以它为准；没传则保留页面自己设的标题
+          if (meta.customTitle === undefined || meta.customTitle === current.customTitle) {
+            return prev;
+          }
+          const next = [...prev];
+          next[index] = { ...current, customTitle: meta.customTitle };
+          return next;
+        }
         // 参数变了，丢掉这个页面的元素缓存，否则会复用带旧参数的旧元素
         tabInstances.current.delete(meta.key);
         const next = [...prev];
-        next[index] = meta;
+        next[index] = {
+          ...current,
+          params: meta.params,
+          // 标题一并重置：页面会重新挂载、由它自己按新数据再设一次
+          // （留着旧标题会出现「标题还是上一单的号、内容已经是新单」的错位）
+          customTitle: meta.customTitle,
+        };
         return next;
       });
       setActiveTab(meta.key);
@@ -178,28 +235,66 @@ const MainLayout: React.FC = () => {
    * 暴露给业务页面的跳转能力，见 store/tabs.tsx。
    * 页面只依赖「传 View + 参数」这个抽象，不关心底层的标签页状态怎么存 ——
    * 所以将来若把标签页改成 URL 驱动，只需换掉这里的实现，页面代码不用动。
+   *
+   * 页签怎么区分（见 store/tab-key.ts）：
+   * - 菜单点进来的：实例标识为空 → key 就是 view，**同一菜单永远只有一个页签**；
+   * - 代码 openView 的：实例标识 = 参数指纹（或业务指定的 tabKey）
+   *   → 参数一样是同一个页签，参数不一样各开一个，可以同时看几张单子。
    */
   const tabsApi = useMemo<TabsApi>(
     () => ({
-      openView: (view, params) => {
-        // 菜单树里有就用它（标签名、面包屑都在这儿），没有就退化成 View 本身
-        const meta = tabMetaMap.get(view) ?? { key: view, label: view, trail: [] };
-        openTab({ ...meta, params });
+      openView: (view, params, options) => {
+        // 菜单树里有就用它的标签名与面包屑，没有就退化成 View 本身
+        const menuMeta = menuMetaMap.get(view);
+        const instance = options?.tabKey ?? instanceOfParams(params);
+        openTab({
+          key: buildTabKey(view, instance),
+          view,
+          label: menuMeta?.label ?? view,
+          customTitle: options?.title,
+          trail: menuMeta?.trail ?? [],
+          params,
+        });
       },
     }),
-    [openTab, tabMetaMap],
+    [openTab, menuMetaMap],
   );
 
   const handleMenuClick = useCallback(
     (info: { key: string }) => {
-      const meta = tabMetaMap.get(info.key);
-      if (meta) openTab(meta);
+      const menuMeta = menuMetaMap.get(info.key);
+      // 菜单进来的实例标识为空 → 永远是「view」这一个页签，已开着就只激活
+      if (menuMeta) {
+        openTab({
+          key: buildTabKey(info.key, ''),
+          view: info.key,
+          label: menuMeta.label,
+          trail: menuMeta.trail,
+        });
+      }
       // 选中菜单后收起搜索并还原完整菜单树
       setSearchOpen(false);
       setMenuKeyword('');
     },
-    [openTab, tabMetaMap],
+    [openTab, menuMetaMap],
   );
+
+  /**
+   * 页面运行时改写自己页签的标题（订单号之类），见 store/tab-title-context.ts。
+   * 只改 openTabs 里的那一项，页面元素缓存不动 → 不会导致页面重挂载。
+   */
+  const setTabTitle = useCallback((tabKey: string, title: string | undefined) => {
+    setOpenTabs((prev) => {
+      const index = prev.findIndex((tab) => tab.key === tabKey);
+      if (index < 0) return prev;
+      const current = prev[index];
+      if (current.customTitle === title) return prev;
+      const next = [...prev];
+      next[index] = { ...current, customTitle: title };
+      return next;
+    });
+  }, []);
+
 
   const handleTabEdit = useCallback(
     (targetKey: string | React.MouseEvent | React.KeyboardEvent, action: 'add' | 'remove') => {
@@ -251,39 +346,62 @@ const MainLayout: React.FC = () => {
         if (meta.key === HOME_TAB.key) {
           node = <Dashboard />;
         } else {
-          const PageComponent = resolveView(meta.key);
+          // 页面组件按 **view** 解析（页签 key 可能带 `::实例标识` 后缀，不是 View 路径）
+          const PageComponent = resolveView(meta.view);
+          // 作用域绑定到「本页签自己的 key」：页面改标题时只改自己那个页签，不会串到别的页签
+          const scope: TabTitleScope = {
+            tabKey: meta.key,
+            baseLabel: meta.label,
+            setTitle: (title: string | undefined) => setTabTitle(meta.key, title),
+          };
           node = (
-            <Suspense
-              // key 带上参数指纹：同一个 View 用不同参数再次打开时强制重建，让页面拿到新参数
-              // （不然 React 会复用组件实例，只更新 props，页面内部的初始状态还是旧的）
-              key={`${meta.key}::${JSON.stringify(meta.params ?? null)}`}
-              fallback={
-                <div style={{ textAlign: 'center', padding: '48px 0' }}>
-                  <Spin />
-                </div>
-              }
-            >
-              <PageComponent view={meta.key} trail={meta.trail} params={meta.params} />
-            </Suspense>
+            <TabTitleContext.Provider value={scope}>
+              <Suspense
+                // key 带上参数：业务指定了 tabKey 时，同一个页签可能被换成另一组参数，
+                // 带上参数才能强制重建，让页面拿到新参数
+                // （不然 React 会复用组件实例，只更新 props，页面内部的初始状态还是旧的）
+                key={`${meta.key}::${JSON.stringify(meta.params ?? null)}`}
+                fallback={
+                  <div style={{ textAlign: 'center', padding: '48px 0' }}>
+                    <Spin />
+                  </div>
+                }
+              >
+                <PageComponent view={meta.view} trail={meta.trail} params={meta.params} />
+              </Suspense>
+            </TabTitleContext.Provider>
           );
         }
         tabInstances.current.set(meta.key, node);
       }
       return node;
     },
-    [],
+    [setTabTitle],
   );
 
   const tabItems = useMemo(
     () =>
       openTabs.map((meta) => ({
         key: meta.key,
-        label: meta.label,
+        label: displayTitle(meta),
         closable: meta.key !== HOME_TAB.key,
         children: renderTabContent(meta),
       })),
     [openTabs, renderTabContent],
   );
+
+  /**
+   * 窗口标题跟着当前页签走。
+   *
+   * 桌面壳那边（MyGo）默认让原生窗口标题跟随页面的 `<title>`（没注册阻止逻辑），
+   * 所以这里改 document.title 就同时改了浏览器标签页与桌面窗口标题。
+   */
+  useEffect(() => {
+    const active = openTabs.find((tab) => tab.key === activeTab);
+    const title = active ? displayTitle(active) : '';
+    document.title = title ? `${title} - bodaWay` : 'bodaWay';
+  }, [openTabs, activeTab]);
+
 
   return (
     <Layout style={{ height: '100%', overflow: 'hidden' }}>
@@ -324,7 +442,7 @@ const MainLayout: React.FC = () => {
               theme="light"
               mode="inline"
               items={menuItems}
-              selectedKeys={[activeTab]}
+              selectedKeys={activeView ? [activeView] : []}
               openKeys={openKeys}
               onOpenChange={setOpenKeys}
               onClick={handleMenuClick}
