@@ -9,7 +9,8 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "app:dev": "mygo dev app",
-    "app:build": "mygo build app"
+    "app:build": "mygo build app",
+    "gen:api": "node scripts/gen-api-schemas.mjs"
   },
   "dependencies": {
     "@ant-design/icons": "^6.3.4",
@@ -20,7 +21,8 @@
     "dayjs": "^1.11.23",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "react-router-dom": "^7.18.4"
+    "react-router-dom": "^7.18.4",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",
