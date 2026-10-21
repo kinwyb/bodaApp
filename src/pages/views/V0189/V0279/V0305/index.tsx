@@ -1,21 +1,17 @@
-import React, {useCallback, useEffect, useMemo, useRef, useState} from "react";
+import React, {useCallback, useEffect, useRef, useState} from "react";
 import type {ViewPageProps} from "@/pages/types.ts";
 import {Button, DatePicker, Form, message, Space} from "antd";
 import {PageBreadcrumb} from "@/components/PageBreadcrumb.tsx";
 import {SearchOutlined} from "@ant-design/icons";
 import {FilterTable, type GridTableApi} from "@/components/grid-table";
-import {
-    buildYupaiOrderAllGroupColumns
-} from "@/pages/views/V0189/V0279/V0305/columns.ts";
+import {YUPAIALLGROUP_COLUMNS} from "@/pages/views/V0189/V0279/V0305/columns.ts";
 import {type Dayjs} from "dayjs";
-import {CommandBar} from "@/components/CommandBar.tsx";
-import {useTableExportCommand} from "@/components/commands/exportCommand.tsx";
 import {now} from "@/utils";
 import {type YupaiAllGroup, yupaiService} from "@/services/yupai.ts";
 import {ErrorMessage} from "@/api/request.ts";
 
 
-const YupaiOrderAllGroupPage: React.FC<ViewPageProps> = ({view, trail}) => {
+const YupaiOrderAllGroupPage: React.FC<ViewPageProps> = ({trail}) => {
 
     const tableRef = useRef<GridTableApi | null>(null);
     const [form] = Form.useForm<{ year?: Dayjs }>();
@@ -35,11 +31,6 @@ const YupaiOrderAllGroupPage: React.FC<ViewPageProps> = ({view, trail}) => {
         }
     }, [year])
 
-    /** 导出命令：传 tableRef + 文件名前缀即可，message 由组件内部取 */
-    const commands = useTableExportCommand(tableRef, '全订单汇总');
-
-    const columns = useMemo(() => buildYupaiOrderAllGroupColumns(), []);
-
     /** 表单初值只在挂载时给一次；不能和数据加载放同一个 effect，否则每次查询都会把选中的年份重置回今年 */
     useEffect(() => {
         form.setFieldValue("year", now());
@@ -53,7 +44,6 @@ const YupaiOrderAllGroupPage: React.FC<ViewPageProps> = ({view, trail}) => {
     return (
         <div className="page-container page-fill">
             <PageBreadcrumb trail={trail}/>
-            {commands.length > 0 && <CommandBar view={view} items={commands}/>}
             <Form
                 className="page-search"
                 form={form}
@@ -74,8 +64,8 @@ const YupaiOrderAllGroupPage: React.FC<ViewPageProps> = ({view, trail}) => {
                     </Space>
                 </Form.Item>
             </Form>
-            <FilterTable ref={tableRef} columns={columns} records={dataSource} loading={loading}
-                         rowKey={'_id'} groupable={true}/>
+            <FilterTable ref={tableRef} columns={YUPAIALLGROUP_COLUMNS} records={dataSource} loading={loading}
+                         rowKey={'_id'} exportName={'全订单汇总'} groupable={true}/>
 
         </div>
     );

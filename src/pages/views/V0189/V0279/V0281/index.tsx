@@ -5,21 +5,17 @@ import {PageBreadcrumb} from "@/components/PageBreadcrumb.tsx";
 import {ReloadOutlined, SearchOutlined} from "@ant-design/icons";
 import {
     FilterTable,
-    type MergeGroupConfig,
     type GridTableApi,
     type GridTableCellStyle,
-    type GridTableCellStyleInfo
+    type GridTableCellStyleInfo,
+    type MergeGroupConfig
 } from "@/components/grid-table";
 import {type Dayjs} from "dayjs";
 import type {YupaiOrderChangeAction, YupaiOrderChangeDetail} from "@/api/modules/yupai.ts";
 import {yupaiService} from "@/services/yupai.ts";
 import {ErrorMessage} from "@/api/request.ts";
 import {DATE_FORMAT, formatDate, now} from "@/utils";
-import {
-    buildYupaiOrderChangeListColumns
-} from "@/pages/views/V0189/V0279/V0281/columns.ts";
-import {CommandBar} from "@/components/CommandBar.tsx";
-import {useTableExportCommand} from "@/components/commands/exportCommand.tsx";
+import {buildYupaiOrderChangeListColumns} from "@/pages/views/V0189/V0279/V0281/columns.ts";
 
 interface SearchValues {
     orderCode?: string;
@@ -41,7 +37,7 @@ const mergeColumnGroup: MergeGroupConfig = {
 
 const actionOptions = Object.entries(actionMap).map(([value, {label}]) => ({value, label}));
 
-const YupaiOrderChangePage: React.FC<ViewPageProps> = ({view, trail}) => {
+const YupaiOrderChangePage: React.FC<ViewPageProps> = ({trail}) => {
 
     const startDate = now().add(-7, "day");
     const endDate = now();
@@ -56,8 +52,6 @@ const YupaiOrderChangePage: React.FC<ViewPageProps> = ({view, trail}) => {
         endDate?: string
     }>({startDate: formatDate(startDate), endDate: formatDate(endDate)});
     const tableRef = useRef<GridTableApi | null>(null);
-
-    const commands = useTableExportCommand(tableRef, '预订单变更记录');
 
     const loadData = useCallback(
         async () => {
@@ -95,7 +89,6 @@ const YupaiOrderChangePage: React.FC<ViewPageProps> = ({view, trail}) => {
     return (
         <div className="page-container page-fill">
             <PageBreadcrumb trail={trail}/>
-            {commands.length > 0 && <CommandBar view={view} items={commands}/>}
             <Form
                 className="page-search"
                 form={form}
@@ -147,7 +140,7 @@ const YupaiOrderChangePage: React.FC<ViewPageProps> = ({view, trail}) => {
               里面那层 .grid-table-host（flex-basis:0）会塌成 0 高 —— 画布高度 0，表现为整块空白。
             */}
             <FilterTable ref={tableRef} columns={columns} records={dataSource} loading={loading}
-                         rowKey={'YupaiOrderChangeID'}
+                         rowKey={'YupaiOrderChangeID'} exportName={'预订单变更记录'}
                          cellStyle={cellStyle} mergeGroups={mergeColumnGroup}/>
 
         </div>

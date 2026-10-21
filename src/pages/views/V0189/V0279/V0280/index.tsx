@@ -357,6 +357,7 @@ const yupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
                     loading={loading}
                     total={total}
                     page={query.page ?? 1}
+                    exportName={'预订单'}
                     pageSize={query.pageSize ?? 30}
                     searchPlaceholder="关键字"
                     onPageChange={(page, pageSize) => {

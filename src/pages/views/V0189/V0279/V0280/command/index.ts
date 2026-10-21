@@ -5,7 +5,6 @@ import {batchCommand} from './batch';
 import {copyCommand, copyOrderedCommand} from './copyOrdered';
 import {deleteCommand} from './delete';
 import {editCommand} from './edit';
-import {exportCommand} from './exportExcel';
 import {publishCommand} from './publish';
 import {refreshCommand} from './refresh';
 import {changeLogCommand} from "./changeLog";
@@ -53,7 +52,6 @@ const COMMAND_ORDER = [
     'plan',
     'refresh',
     'autoWidth',
-    'export',
     'auth',
 ] as const;
 
@@ -68,7 +66,6 @@ const yupaiOrderCommandFactories: YupaiOrderCommandFactory[] = [
     workflowPlaceholderCommands,
     refreshCommand,
     autoWidthCommand,
-    exportCommand,
     authPlaceholderCommand,
 ];
 

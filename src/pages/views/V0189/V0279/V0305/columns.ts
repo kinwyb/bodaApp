@@ -1,12 +1,11 @@
-import {type AppColumnDef, buildColumns} from "@/components/grid-table/columnBuilder.ts";
-import type {ColumnsDefine} from "@visactor/vtable";
+import {type AppColumnDef} from "@/components/grid-table/columnBuilder.ts";
 
 /**
  * 列定义：dataType 决定渲染控件（text / int / double / date / boolean / tag），
  * filterType 决定这一列进不进筛选面板（不配 = 不参与筛选）。
  */
-const COLUMNS: AppColumnDef[] = [
-    {field: 'WorkMonth', title: '生产月份', width: 100, group: true, sortable: true},
+export const YUPAIALLGROUP_COLUMNS: AppColumnDef[] = [
+    {field: 'WorkMonth', title: '生产月份', width: 100, group: true, sortable: 'asc'},
     {field: 'WorkPlace', title: '产地', width: 100, filterType: 'enum'},
     {field: 'TpName', title: '订单类型', width: 70},
     {field: 'OrderPrefix', title: '客户', width: 100},
@@ -29,7 +28,3 @@ const COLUMNS: AppColumnDef[] = [
     {field: 'ZHMonth', title: '走货月份', width: 100},
     {field: 'WorkDate', title: '生产期', width: 100, dataType: 'date'},
 ];
-
-export function buildYupaiOrderAllGroupColumns(): ColumnsDefine {
-    return buildColumns(COLUMNS);
-}
