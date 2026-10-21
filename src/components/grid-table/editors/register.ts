@@ -28,7 +28,7 @@ export type { EditorOptions };
 /**
  * antd 编辑器的注册入口
  *
- * VTable 的列配置只认「已注册的编辑器名」（字符串），所以任何要用 antd 控件的列，
+ * @visactor/vtable 的列配置只认「已注册的编辑器名」（字符串），所以任何要用 antd 控件的列，
  * 都必须先在这里 register 一次，再通过 editableFields / 列配置的 editor 引用名字。
  * antd-editors.tsx 只提供控件类，注册与命名放在这一层。
  *

@@ -3,7 +3,7 @@ import type {ViewPageProps} from "@/pages/types.ts";
 import {Button, DatePicker, Form, message, Space} from "antd";
 import {PageBreadcrumb} from "@/components/PageBreadcrumb.tsx";
 import {SearchOutlined} from "@ant-design/icons";
-import {FilterTable, type VTableApi} from "@/components/vtable";
+import {FilterTable, type GridTableApi} from "@/components/grid-table";
 import {
     buildYupaiOrderAllGroupColumns,
     yupaiOrderAllGroupFilterFields
@@ -18,7 +18,7 @@ import {ErrorMessage} from "@/api/request.ts";
 
 const YupaiOrderAllGroupPage: React.FC<ViewPageProps> = ({view, trail}) => {
 
-    const tableRef = useRef<VTableApi | null>(null);
+    const tableRef = useRef<GridTableApi | null>(null);
     const [form] = Form.useForm<{ year?: Dayjs }>();
     const [dataSource, setDataSource] = useState<YupaiAllGroup[]>([]);
     const [loading, setLoading] = useState(false);

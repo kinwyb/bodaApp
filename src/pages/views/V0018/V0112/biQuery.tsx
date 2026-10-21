@@ -6,7 +6,7 @@ import {ORGS} from "@/store/orgs.ts";
 import QuickSelectModal from "@/components/QuickSelectModal.tsx";
 import type {ColumnsDefine} from "@visactor/vtable";
 import {sqlApi} from "@/api";
-import {type AppColumnDef, buildColumns} from "@/components/vtable/columnBuilder.ts";
+import {type AppColumnDef, buildColumns} from "@/components/grid-table/columnBuilder.ts";
 
 export interface BIQueryParamProps {
     open: boolean;

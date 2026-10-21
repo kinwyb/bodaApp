@@ -40,7 +40,7 @@ export const EXPAND_COLUMN_WIDTH = 44;
 /**
  * 展开行的单元格样式补偿：**把下内边距撑到展开区的高度**。
  *
- * 撑高行之后 VTable 会按新行高重新摆放这一行的内容（默认垂直居中），内容于是落到行中部 ——
+ * 撑高行之后 @visactor/vtable 会按新行高重新摆放这一行的内容（默认垂直居中），内容于是落到行中部 ——
  * 而展开层压在原行高下方的位置，正好把它整个盖住，看起来就是「展开后这一行空白了」
  * （实测：行高 28 → 92 时文字中心落在 y≈46，展开层盖住 28~92 这一段）。
  *
@@ -66,32 +66,32 @@ const BUTTON_SIZE = 18;
 const MIN_DETAIL_HEIGHT = 40;
 /**
  * 「按下 -> 抬起」的位移阈值（px）：超过就当成拖拽（框选 / 滚动），不当作点击。
- * 与 VTable 自己判断 Ctrl 点击是否拖拽用的是同一量级（3px）。
+ * 与 @visactor/vtable 自己判断 Ctrl 点击是否拖拽用的是同一量级（3px）。
  */
 const CLICK_MOVE_THRESHOLD = 4;
 
 // ─── 对外类型 ────────────────────────────────────────────────────────────────
 
 /** 展开行的上下文信息：按钮判定、展开内容都用它 */
-export interface VTableExpandableInfo {
+export interface GridTableExpandableInfo {
   /** 行主键 */
   rowKey: string;
   /** 数据行下标（不含表头，0 起，跟随显示顺序） */
   rowIndex: number;
-  /** VTable 行号（含表头） */
+  /** GridTable 行号（含表头） */
   row: number;
   /** 该行的数据 */
   record: Record<string, unknown>;
 }
 
-export interface VTableExpandableOptions {
+export interface GridTableExpandableOptions {
   /**
    * 该行按钮是否有效（能否展开）：返回 false 时按钮置灰、点击无响应。
    * 不传则所有行可展开。统计行永远不可展开（组件内部拦截）。
    */
-  rowExpandable?: (info: VTableExpandableInfo) => boolean;
+  rowExpandable?: (info: GridTableExpandableInfo) => boolean;
   /** 展开区内容：返回任意 React 节点（antd 表单 / 子表格 / 图表都行） */
-  renderExpanded: (info: VTableExpandableInfo) => ReactNode;
+  renderExpanded: (info: GridTableExpandableInfo) => ReactNode;
   /**
    * 展开区高度的**上限**（px），默认 200。
    *
@@ -106,7 +106,7 @@ export interface VTableExpandableOptions {
 // ─── customRender 的最小类型声明 ─────────────────────────────────────────────
 
 /**
- * VTable 没有从包根导出 ICustomRender 系列类型（es/index.d.ts 只转出了列定义等少量类型），
+ * @visactor/vtable 没有从包根导出 ICustomRender 系列类型（es/index.d.ts 只转出了列定义等少量类型），
  * 这里按官方定义（ts-types/customElement.d.ts）摘一个最小集，装配列定义时再整体断言。
  * 注意 RectElement 上没有 lineWidth（边框粗细恒为 1），折线才有。
  */
@@ -134,7 +134,7 @@ interface ExpandButtonArgs {
   col: number;
   row: number;
   rect?: { width: number; height: number };
-  /** VTable 未导出 BaseTableAPI，按 unknown 收，用的时候再断言 */
+  /** @visactor/vtable 未导出 BaseTableAPI，按 unknown 收，用的时候再断言 */
   table: unknown;
 }
 
@@ -187,17 +187,17 @@ export interface ExpandableControllerDeps {
   /** 取「数据行下标 -> 行主键」的映射 */
   getRowKeys: () => string[];
   /** 取展开配置（页面每次渲染都是新对象，必须现取现读） */
-  getOptions: () => VTableExpandableOptions | undefined;
+  getOptions: () => GridTableExpandableOptions | undefined;
   /** 展开列列号：行号列占 1 列时为 1，否则为 0 */
   getExpandCol: () => number;
-  /** 统计行判定（按 VTable 行号，含表头） */
+  /** 统计行判定（按 GridTable 行号，含表头） */
   isSummaryRow: (row: number, headerLevel: number) => boolean;
   /**
    * 画布被强制重建之后的通知（`renderWithRecreateCells`）。
    *
    * 重建会重置**底部冻结**（实测 `bottomFrozenRowCount` 掉成 0），而冻结状态只有宿主知道
    * （有没有统计行），所以这里只发通知、由宿主补回来。与 `resize()` 的副作用同一类
-   * —— 见 VTable.tsx 里 resize 后补 `scheduleBottomFrozen` 的那段。
+   * —— 见 GridTable.tsx 里 resize 后补 `scheduleBottomFrozen` 的那段。
    */
   onCanvasRecreated?: () => void;
 }
@@ -256,7 +256,7 @@ export function createExpandableController(deps: ExpandableControllerDeps): Expa
   /**
    * 行高变化后的收尾：把滚动位置夹回有效区间，并让画布真的重画。
    *
-   * 为什么必须重建单元格：行高收缩后，VTable 的**几何都是对的**（实测：真实滚动位置
+   * 为什么必须重建单元格：行高收缩后，@visactor/vtable 的**几何都是对的**（实测：真实滚动位置
    * `stateManager.scroll.verticalBarPos`、汇总行的位置、canvas 尺寸全正常），但**画布不会
    * 自己重画** —— 收起后那一整块停在残缺的旧画面上，看起来就是「展开的地方变成空白，
    * 下面的数据看不见了」。光调 `render()` / `scenegraph.updateNextFrame()` 都救不回来
@@ -286,7 +286,7 @@ export function createExpandableController(deps: ExpandableControllerDeps): Expa
     return index;
   };
 
-  const buildInfo = (rowKey: string, rowIndex: number, row: number): VTableExpandableInfo => ({
+  const buildInfo = (rowKey: string, rowIndex: number, row: number): GridTableExpandableInfo => ({
     rowKey,
     rowIndex,
     row,
@@ -416,7 +416,7 @@ export function createExpandableController(deps: ExpandableControllerDeps): Expa
     }
 
     const wrapper = document.createElement('div');
-    wrapper.className = 'vtable-expand-overlay';
+    wrapper.className = 'grid-table-expand-overlay';
     ensureHost(container).appendChild(wrapper);
 
     const onWheel = (event: WheelEvent) => {
@@ -425,7 +425,7 @@ export function createExpandableController(deps: ExpandableControllerDeps): Expa
       //
       // 两个都试过、都被实测否掉了：
       // 1. 让事件冒泡（不 stopPropagation）：覆盖层就挂在表格容器里，事件冒上去会进
-      //    VTable 的滚动逻辑，于是展开区自己还没滚、主表格已经跟着滚了；
+      //    @visactor/vtable 的滚动逻辑，于是展开区自己还没滚、主表格已经跟着滚了；
       // 2. 展开区滚不动时把滚轮转给画布：同样会让主表格动起来。
       // 后果都是展开区随行滚出视口，用户正想看/正在操作的内容直接消失。
       //
@@ -448,7 +448,7 @@ export function createExpandableController(deps: ExpandableControllerDeps): Expa
     flushSync(() => root.render(node));
     applyDetailHeight(rowKey, row, entry, applyMeasuredHeight(wrapper, maxHeight));
 
-    // 下一帧再量一次：展开区里可能放着要等 effect 跑完才定高的东西（比如嵌套的 VTable），
+    // 下一帧再量一次：展开区里可能放着要等 effect 跑完才定高的东西（比如嵌套的 GridTable），
     // 第一帧量到的会偏小，这里发现差异就修正（值没变时什么都不做）
     requestAnimationFrame(() => {
       if (!overlays.has(rowKey)) return; // 已经收起了
@@ -554,7 +554,7 @@ export function createExpandableController(deps: ExpandableControllerDeps): Expa
    * 容器上的 pointerdown（**捕获阶段**）：清掉上一次没抬起就结束的待确认点击。
    *
    * 必须挂捕获 + 挂在容器上：vrender 是在**画布**上以捕获阶段监听 pointerdown 的，
-   * 捕获顺序是「容器 -> 画布」，所以这个处理器一定早于 VTable 的派发（也就早于 notePress），
+   * 捕获顺序是「容器 -> 画布」，所以这个处理器一定早于 @visactor/vtable 的派发（也就早于 notePress），
    * 不会把本次刚记下的 pending 清掉。挂在画布上就踩过这个坑 —— 画布是事件目标，
    * 目标阶段的冒泡监听器在 vrender 的捕获监听器之后执行，正好把 notePress 刚设的值清空。
    */
@@ -565,16 +565,16 @@ export function createExpandableController(deps: ExpandableControllerDeps): Expa
   /**
    * 容器上的 pointerup（**冒泡阶段**）：确认「按下后没怎么移动」就当作点了一次展开列。
    *
-   * 为什么不用 VTable 的 click_cell：**自绘（customRender）单元格的第一次点击不会派发
-   * click_cell**（实测复现，纯 VTable 环境同样如此 —— 一个只有 customRender 列、不带任何
+   * 为什么不用 @visactor/vtable 的 click_cell：**自绘（customRender）单元格的第一次点击不会派发
+   * click_cell**（实测复现，纯 @visactor/vtable 环境同样如此 —— 一个只有 customRender 列、不带任何
    * 展开逻辑的表格，第一次点该列也没有 click_cell，第二次起才正常）。
    * 原因是选中态变化会在 pointerup 派发到 tableGroup 之前触发一次单元格内容重建，
-   * VTable 处理器里随后的命中判定落空，整个 click_cell 分支被跳过。这是上游行为，改不动；
+   * @visactor/vtable 处理器里随后的命中判定落空，整个 click_cell 分支被跳过。这是上游行为，改不动；
    * 而 DOM 事件与场景图完全解耦，用「mousedown_cell 记位置 + pointerup 确认位移」自己判定，
    * 任何一次点击都可靠。
    *
    * 挂冒泡 + 挂在容器上：冒泡顺序是「画布 -> 容器」，所以它一定在 vrender 的处理之后执行，
-   * 不与 VTable 自己的 pointerup 逻辑抢时序。
+   * 不与 @visactor/vtable 自己的 pointerup 逻辑抢时序。
    */
   const onCanvasPointerUp = (event: PointerEvent) => {
     const press = pendingPress;
@@ -827,7 +827,7 @@ export function createExpandableController(deps: ExpandableControllerDeps): Expa
 /**
  * 生成展开列：插在行号列之后、业务列之前（这样它能跟行号一起被冻住，横向滚动时按钮不消失）。
  *
- * customRender 用双重断言挂上去：VTable 没从包根导出 ICustomRender 类型，
+ * customRender 用双重断言挂上去：@visactor/vtable 没从包根导出 ICustomRender 类型，
  * 且 RectElement 上没有 lineWidth 等字段，直接赋值过不了元素联合类型的检查。
  */
 export function buildExpandColumn(

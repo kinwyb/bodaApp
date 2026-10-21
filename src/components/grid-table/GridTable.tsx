@@ -14,28 +14,28 @@ import { TableExportPlugin } from '@visactor/vtable-plugins';
 import type { TableExportPluginOptions } from '@visactor/vtable-plugins';
 import { isDebugEnv } from '@/utils';
 import {
-  toVTableCellStyle,
-  type VTableCellStyleHook,
-  type VTableCellTooltipHook,
+  toDataTableCellStyle,
+  type GridTableCellStyleHook,
+  type GridTableCellTooltipHook,
 } from './cellStyle';
 import {
   collectRowIndexes,
   createSelectionController,
-  type VTableSelectedRowChangeInfo,
-  type VTableSelection,
+  type GridTableSelectedRowChangeInfo,
+  type GridTableSelection,
 } from './selection';
-import type { EditCellTrigger, VTableCellValueChangeInfo } from './editing';
-import type { VTableExportCsvOptions, VTableExportExcelOptions } from './export';
+import type { EditCellTrigger, GridTableCellValueChangeInfo } from './editing';
+import type { GridTableExportCsvOptions, GridTableExportExcelOptions } from './export';
 import { prepareBottomFrozen, scheduleBottomFrozen } from './frozen';
 import {
   buildExpandColumn,
   createExpandableController,
   expandedRowCellStyle,
   type ExpandableController,
-  type VTableExpandableOptions,
+  type GridTableExpandableOptions,
 } from './expandable';
-import type { VTableMenuConfig, VTableMenuItem } from './menu';
-import { defaultCompare, type VTableSortState } from './sorting';
+import type { GridTableMenuConfig, GridTableMenuItem } from './menu';
+import { defaultCompare, type GridTableSortState } from './sorting';
 import { buildMergeGroupIndex, type MergeGroupConfig } from './mergeGroup';
 import { createStickyGroupController, type StickyGroupController } from './stickyGroup';
 import {
@@ -44,11 +44,11 @@ import {
   flattenGroupDetails,
   isGroupRow,
   resolveGroupFields,
-  type VTableGroupOptions,
+  type GridTableGroupOptions,
 } from './group';
 import { collectColumnAggregates } from './columnBuilder';
 import { THEME } from './theme';
-import type { StyleArgs, VTableCellInfo, VTableRowInfo } from './types';
+import type { StyleArgs, GridTableCellInfo, GridTableRowInfo } from './types';
 import { shallowEqualRecord } from './utils';
 
 // 本组件只负责「装配 + 事件绑定」，各功能域的实现分别在：
@@ -70,20 +70,20 @@ import { shallowEqualRecord } from './utils';
 export const SUMMARY_ROW_KEY = '__summary__';
 
 /** 表格实例对外暴露的方法 */
-export interface VTableApi {
+export interface GridTableApi {
   /** 按内容自适应所有列宽（与双击列边界的效果一致） */
   autoFitColumns: () => void;
   /** 重绘表格：页面自定义样式（cellStyle）变化后调用即可生效 */
   repaint: () => void;
   /**
-   * 当前选中态（行 + 单元格 + 最后点选的单元格），取自 VTable 原生选中态。
+   * 当前选中态（行 + 单元格 + 最后点选的单元格），取自 @visactor/vtable 原生选中态。
    *
    * rows 就是「选中的行」（勾选与点选/框选已同步成同一套），业务层要操作对象时直接取它，
    * 不要自己再维护一份 selectedKeys —— 两份状态必然会出现「页面以为选了 2 行、表格里亮着 3 行」
    * 这类不同步。只关心行数（比如按钮 disabled）时用 onActiveSelectionChange 回传的 rowCount。
    * 统计行有可能被框选进来，按业务数据源过滤一下即可（预订单页那层 filter 就是干这个的）。
    */
-  getSelection: () => VTableSelection;
+  getSelection: () => GridTableSelection;
   /** 获取内部 ListTable 实例（供 SearchComponent 等外部工具使用） */
   getTable: () => ListTable | null;
   /**
@@ -96,7 +96,7 @@ export interface VTableApi {
    * 底部统计行也算一行（下标等于数据行数），会照常返回并把 isSummaryRow 标为 true；
    * 越界返回 undefined。
    */
-  getRowByIndex: (index: number) => VTableRowInfo | undefined;
+  getRowByIndex: (index: number) => GridTableRowInfo | undefined;
   /**
    * 当前激活行（鼠标点选 / 键盘方向键移动到的**那一行**）及其数据，判定规则与
    * onSelectedChange 完全一致 —— Ctrl+A、选中被清空、点表头时 record 为 undefined。
@@ -105,7 +105,7 @@ export interface VTableApi {
    * 且看不出「哪一条是当前聚焦的」）；这个只回答「当前聚焦的是哪一行」。
    * 要操作选中集合用 getSelection，要操作「当前这一行」用它。
    */
-  getActiveRow: () => VTableSelectedRowChangeInfo;
+  getActiveRow: () => GridTableSelectedRowChangeInfo;
   /**
    * 清空表格的选中态：原生选中范围与铺过的整行底色一起清，并回调
    * onActiveSelectionChange({ rowCount: 0 })。
@@ -133,7 +133,7 @@ export interface VTableApi {
   isRowExpanded: (rowKey: string) => boolean;
 }
 
-export interface VTableProps {
+export interface GridTableProps {
   columns: ColumnsDefine;
   records: Array<Record<string, unknown>>;
   /** 行主键字段 */
@@ -142,19 +142,19 @@ export interface VTableProps {
   frozenColCount?: number;
   /**
    * 最左侧的行号顺序列，**默认启用**。
-   * 用 VTable 原生 rowSeriesNumber 生成，位置在所有 columns 之前，显示 1 起的连续行号
+   * 用 @visactor/vtable 原生 rowSeriesNumber 生成，位置在所有 columns 之前，显示 1 起的连续行号
    * （排序后重新编号），统计行显示「汇总」。
    * 传 false 关闭；传对象可自定义标题 / 宽度。
    */
   rowNumber?: boolean | { title?: string; width?: number };
   /**
-   * 冻结区允许的最大宽度，默认沿用 VTable 的 '80%'。
-   * 冻结列多时必须放宽：一旦冻结区总宽超过该值，VTable 会按下面的开关处理。
+   * 冻结区允许的最大宽度，默认沿用 @visactor/vtable 的 '80%'。
+   * 冻结列多时必须放宽：一旦冻结区总宽超过该值，@visactor/vtable 会按下面的开关处理。
    */
   maxFrozenWidth?: number | string;
   /**
    * 冻结列总宽超过 maxFrozenWidth 时是否取消**全部**冻结。
-   * 默认 false：只从右侧裁掉超出的列；VTable 原生默认是 true（整块冻结被静默清空，很难排查）。
+   * 默认 false：只从右侧裁掉超出的列；@visactor/vtable 原生默认是 true（整块冻结被静默清空，很难排查）。
    */
   unfreezeAllOnExceedsMaxWidth?: boolean;
   /**
@@ -176,7 +176,7 @@ export interface VTableProps {
   /**
    * 分组合并（纵向）：按「门槛列 + 顺序列前缀」把相邻同组的行并成一块。
    *
-   * 走的是 VTable 的 `customMergeCell`，组件会把数据预扫描成索引（O(行数) 一次），
+   * 走的是 @visactor/vtable 的 `customMergeCell`，组件会把数据预扫描成索引（O(行数) 一次），
    * 每格判断只是 O(1) 查表 —— 比列级 `mergeCell: true` 的「每格重扫整列」快得多。
    *
    * 只合并 `mergeColumnSort` 里声明的列；列上的 `mergeCell` 请保持 boolean/回调，别混用两套。
@@ -190,7 +190,7 @@ export interface VTableProps {
    *
    * - `field` / `fields` 指定分组字段：`fields` 数组**顺序即层级**，`['Month','Customer']`
    *   就是「月份组 → 客户组 → 明细行」；内层组行只在客户列有值，月份列留空靠缩进表达从属。
-   *   只有**最外层**字段那一列会被设成 `tree: true`（VTable 只认一个 tree 列，箭头统一画在那里）；
+   *   只有**最外层**字段那一列会被设成 `tree: true`（@visactor/vtable 只认一个 tree 列，箭头统一画在那里）；
    * - `aggregates` 里的字段会写进每一层组行：内置 `sum`（默认）/ `count` / `distinct` / `avg` /
    *   `max` / `min` / `first`，不够就用 `{ field, aggregate: (rows) => ... }` 自定义（拿到本组明细行）；
    *   所以它必须是**列里真实存在的字段**，格式与对齐自动沿用列定义；
@@ -201,13 +201,13 @@ export interface VTableProps {
    * 与 `mergeGroups` 二选一：那个是「合并单元格」的视觉分组，这个是真正的层级。
    * 与 `expandable` 也互斥：两者都在改行高，同时开会打架。
    */
-  group?: VTableGroupOptions;
+  group?: GridTableGroupOptions;
   /** 选择高亮模式，默认整行高亮 */
   highlightMode?: 'row' | 'column' | 'cell' | 'cross';
   /**
    * 框选、Shift 扩展这类「一个范围覆盖多格」的选中，是否把高亮铺满整行。
    *
-   * VTable 这项默认是 false（见 es/state/state.js:216 的 Object.assign 默认值），
+   * @visactor/vtable 这项默认是 false（见 es/state/state.js:216 的 Object.assign 默认值），
    * 后果是：只有「单击一个单元格」才走整行高亮分支（isCellSelected 里要求范围是单格），
    * 一旦范围跨格就掉到多范围分支 —— 而那条分支只在 selectionFillMode === 'replace' 时才上色，
    * 主题默认是 'overlay'（theme-define.js:546），于是连单元格底色都没有，看起来就像「选中丢了」。
@@ -216,25 +216,25 @@ export interface VTableProps {
   highlightInRange?: boolean;
   /**
    * 是否允许多选。true：Ctrl/Cmd 点选追加、Shift 点选扩展范围、可拖拽框选、
-   * Ctrl+A 全选、点表头整列选中（VTable 原生行为）；
+   * Ctrl+A 全选、点表头整列选中（@visactor/vtable 原生行为）；
    * false：只能单选 —— 点新的会替换掉旧的，上面这些批量入口全部关闭。
    */
   multiSelect?: boolean;
   /** 列宽总和不足容器宽度时，是否自动拉宽各列来填满容器；默认 false（右侧留白） */
   autoFillWidth?: boolean;
   /** 页面自定义单元格样式（业务提醒用，如最近变更标绿） */
-  cellStyle?: VTableCellStyleHook;
+  cellStyle?: GridTableCellStyleHook;
   /**
    * 单元格悬停提示：返回文案即在该格显示 tooltip。
    * 与 cellStyle 配套，用来解释「为什么这一格是红的」这类信息。
    */
-  cellTooltip?: VTableCellTooltipHook;
+  cellTooltip?: GridTableCellTooltipHook;
   /** 可编辑列：字段 -> 已注册的编辑器名（用 register.editor 注册），不传则整表只读 */
   editableFields?: Record<string, string>;
   /** 进入编辑的触发方式，默认双击 */
   editCellTrigger?: EditCellTrigger;
   /** 单元格编辑完成回调（含行索引与新值），用于把编辑结果同步回页面 */
-  onCellValueChange?: (info: VTableCellValueChangeInfo) => void;
+  onCellValueChange?: (info: GridTableCellValueChangeInfo) => void;
   rowHeight?: number;
   headerRowHeight?: number;
   emptyTip?: string;
@@ -242,7 +242,7 @@ export interface VTableProps {
    * 是否加载中：为 true 时在表格上盖一层不透明的加载遮罩。
    * 不传则永远不显示，对现有调用方没有影响。
    *
-   * 遮罩刻意做成不透明：表格的 emptyTip（「暂无数据」的图标和文字）是 VTable 用 canvas
+   * 遮罩刻意做成不透明：表格的 emptyTip（「暂无数据」的图标和文字）是 @visactor/vtable 用 canvas
    * 画在画布上的，不是独立 DOM，z-index 压不下去 —— 半透明遮罩会让它透出来和遮罩文案叠成一团。
    */
   loading?: boolean;
@@ -255,8 +255,8 @@ export interface VTableProps {
    * downloadFile: true 整个替换掉（变成只返回内容不下载）—— 组件里已经显式补上了 downloadFile。
    */
   exportOptions?: TableExportPluginOptions;
-  /** 右键菜单 / 表头菜单配置；不传则保持 VTable 默认（没有菜单） */
-  menu?: VTableMenuConfig;
+  /** 右键菜单 / 表头菜单配置；不传则保持 @visactor/vtable 默认（没有菜单） */
+  menu?: GridTableMenuConfig;
   /**
    * 按行展开：在行号列后插入一列展开/收起按钮，点击后撑开该行，
    * 在展开区里渲染 renderExpanded 返回的任意 React 控件（antd 表单 / 子表格 / 图表）。
@@ -269,9 +269,9 @@ export interface VTableProps {
    * 注意：建议挂载时确定好传不传，运行中增删该配置不会重建表格实例（列会更新，
    * 但冻结列补偿只按建表时的值算）。
    */
-  expandable?: VTableExpandableOptions;
-  onCellClick?: (info: VTableCellInfo) => void;
-  onCellDblClick?: (info: VTableCellInfo) => void;
+  expandable?: GridTableExpandableOptions;
+  onCellClick?: (info: GridTableCellInfo) => void;
+  onCellDblClick?: (info: GridTableCellInfo) => void;
   /** 选中变化（点击 / 框选 / Ctrl+A 全选），回传选中的行数 */
   onActiveSelectionChange?: (info: { rowCount: number }) => void;
   /**
@@ -292,14 +292,14 @@ export interface VTableProps {
    * 与 onActiveSelectionChange 的分工：那个报「选了几行」（驱动按钮 disabled），
    * 这个报「哪一行是激活行 + 它的数据」（驱动右侧详情、编辑态等）。多选时激活行只有一个。
    */
-  onSelectedChange?: (info: VTableSelectedRowChangeInfo) => void;
+  onSelectedChange?: (info: GridTableSelectedRowChangeInfo) => void;
 }
 
 /**
- * VTable（VisActor）的 React 封装：负责实例创建、数据更新、容器自适应与销毁。
+ * VisActor VTable（@visactor/vtable）的 React 封装：负责实例创建、数据更新、容器自适应与销毁。
  * 表格渲染在 canvas 上，单元格内容通过 columns 的样式/类型配置，交互通过事件回调。
  */
-export const VTable = React.forwardRef<VTableApi, VTableProps>(({
+export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
   columns,
   records,
   rowKey = 'id',
@@ -369,7 +369,7 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
   } | null>(null);
 
   /** 当前排序状态（由表头排序图标驱动，排序在本地完成，统计行不参与） */
-  const [sortState, setSortState] = useState<VTableSortState | null>(null);
+  const [sortState, setSortState] = useState<GridTableSortState | null>(null);
 
   /**
    * 导出插件的两个配置对象。
@@ -382,12 +382,12 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
    * downloadFile / fileName 显式写出来：浅合并下只要传了 exportExcelOptions，
    * 插件自带的 { downloadFile: true, fileName: 'export' } 就会被整个替换掉。
    */
-  const exportExcelOptionsRef = useRef<VTableExportExcelOptions>({
+  const exportExcelOptionsRef = useRef<GridTableExportExcelOptions>({
     ...exportOptions?.exportExcelOptions,
     downloadFile: exportOptions?.exportExcelOptions?.downloadFile ?? true,
     fileName: exportOptions?.exportExcelOptions?.fileName ?? 'export',
   });
-  const exportCsvOptionsRef = useRef<VTableExportCsvOptions>({
+  const exportCsvOptionsRef = useRef<GridTableExportCsvOptions>({
     ...exportOptions?.exportCsvOptions,
     downloadFile: exportOptions?.exportCsvOptions?.downloadFile ?? true,
     fileName: exportOptions?.exportCsvOptions?.fileName ?? 'export',
@@ -473,7 +473,7 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     autoSummary && !summary && columnAggregates.length > 0 && records.length > 0;
   const hasSummary = Boolean(stableSummaryRow) || autoSummaryEnabled;
   const hasGroup = Boolean(group);
-  // tree 列只能是**最外层**分组字段那一列：VTable 只认一个 tree 列，箭头统一画在那里，
+  // tree 列只能是**最外层**分组字段那一列：@visactor/vtable 只认一个 tree 列，箭头统一画在那里，
   // 内层组行的箭头也落在同一列（该列在这一层是空的，靠缩进表达从属关系）
   const groupField = resolveGroupFields(group)[0];
   /**
@@ -507,14 +507,14 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
   useEffect(() => {
     if (!isDebugEnv || !hasGroup || hasGroupColumn) return;
     console.warn(
-      `[VTable] group 里声明的分组字段「${groupField}」没有任何一列绑定，表格不会分组。` +
+      `[GridTable] group 里声明的分组字段「${groupField}」没有任何一列绑定，表格不会分组。` +
         '请检查 columns 里是否存在 field 等于它的列（分组字段列也不能是 number 类型，否则组标题会被数值格式化）。',
     );
   }, [hasGroup, hasGroupColumn, groupField]);
   /**
    * 展开按钮的绘制：转交给控制器（展开态、禁用态都在它手里）。
    * 做成稳定引用：它是列定义的一部分，引用变化会连带整份列配置失效、触发 updateOption。
-   * 控制器可能还没建好（首次渲染的顺序问题），那时返回 renderDefault 让 VTable 画默认内容，
+   * 控制器可能还没建好（首次渲染的顺序问题），那时返回 renderDefault 让 @visactor/vtable 画默认内容，
    * 表格真正渲染单元格时控制器必然已就位。
    */
   const renderExpandButton = useCallback(
@@ -535,7 +535,7 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
         const cell = col as { style?: unknown; field?: string };
         const previous = cell.style;
         const editor = cell.field ? editableFields?.[cell.field] : undefined;
-        // 树形分组的入口：VTable 要求至少一列 `tree: true` 才会走层级模式，
+        // 树形分组的入口：@visactor/vtable 要求至少一列 `tree: true` 才会走层级模式，
         // 展开箭头就画在这一列文字的左侧。它必须是绑定分组字段的那一列。
         const isGroupColumn = Boolean(groupField) && cell.field === groupField;
         return {
@@ -587,8 +587,8 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
               dataValue: args.dataValue,
             });
             if (custom) {
-              // 语义化字段在这里落到 VTable 原生样式名上；空对象翻译成 undefined，等于不改
-              const translated = toVTableCellStyle(custom);
+              // 语义化字段在这里落到 @visactor/vtable 原生样式名上；空对象翻译成 undefined，等于不改
+              const translated = toDataTableCellStyle(custom);
               if (translated) return { ...base, ...translated };
             }
             return base;
@@ -683,7 +683,7 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
   mergeGroupsRef.current = mergeGroups;
 
   /**
-   * 交给 VTable 的 customMergeCell。引用必须永久稳定：options 只在建表时读一次，
+   * 交给 @visactor/vtable 的 customMergeCell。引用必须永久稳定：options 只在建表时读一次，
    * 之后排序换数据不会再走 updateOption，所以内部一律现读 ref。
    *
    * ⚠️ 取合并块的显示值必须 `getCellValue(col, row, true)` —— 第三参数跳过 customMerge，
@@ -843,7 +843,7 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
    * 展开行要补的单元格样式：下内边距撑到展开区高度，内容就仍留在「原行高」那一段里居中
    * （理由见 expandedRowCellStyle 的说明）。没展开的行返回 undefined，等于不改样式。
    *
-   * **行号列与业务列都要用**：行号列是 VTable 原生列（rowSeriesNumber），不走 columns
+   * **行号列与业务列都要用**：行号列是 @visactor/vtable 原生列（rowSeriesNumber），不走 columns
    * 那层样式包装，漏了它序号就会飘到行中间被展开层盖住 —— 界面上一整列的序号就空了。
    */
   const expandedRowPadding = (row: number, headerLevel: number) => {
@@ -854,7 +854,7 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
 
   /**
    * 按内容自适应所有列宽。
-   * 直接复用 VTable 内部实现——双击列边界时调用的就是这个方法，
+   * 直接复用 @visactor/vtable 内部实现——双击列边界时调用的就是这个方法，
    * 所以度量和裁剪逻辑跟手动双击完全一致。
    */
   const autoFitColumns = useCallback(() => {
@@ -883,10 +883,10 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     for (let col = firstDataCol; col < host.colCount; col += 1) {
       scenegraph.updateAutoColWidth(col);
       // 再调一次 setColWidth，把该列标记为“已手动调整”
-      // （VTable 重建单元格时会跳过这些列，否则宽度会被列定义覆盖回去）
+      // （@visactor/vtable 重建单元格时会跳过这些列，否则宽度会被列定义覆盖回去）
       table.setColWidth(col, table.getColWidth(col));
     }
-    // 列宽变了 → 冻结区边界也跟着变。VTable 的双击列边界逻辑
+    // 列宽变了 → 冻结区边界也跟着变。@visactor/vtable 的双击列边界逻辑
     // (event/self-event-listener/base-table/dbclick-auto-column-width) 在这之后会重算冻结分割线，
     // 这里必须补上同样的动作，否则 frozenShadowLine 会停在旧的 x 上：
     // 表现为冻结分割竖线和内容错位，刷新页面重建场景图才恢复正常。
@@ -903,12 +903,12 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
    */
   const resolveMenuItems = useCallback(
     (
-      source: VTableMenuConfig['contextMenuItems'],
+      source: GridTableMenuConfig['contextMenuItems'],
       table: ListTable,
       col: number,
       row: number,
       field?: string,
-    ): VTableMenuItem[] => {
+    ): GridTableMenuItem[] => {
       if (!source) return [];
       if (Array.isArray(source)) return source;
       const headerLevel = table.columnHeaderLevelCount;
@@ -931,18 +931,18 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
   );
 
   /**
-   * 构造 VTable 的 menu 配置。
+   * 构造 GridTable 的 menu 配置。
    *
-   * 一律以「函数形态」注册：VTable 是在每次弹菜单时才调用它，所以菜单项与 onClick
+   * 一律以「函数形态」注册：@visactor/vtable 是在每次弹菜单时才调用它，所以菜单项与 onClick
    * 始终读到最新配置，页面改菜单内容不需要重建表格实例。
    *
-   * 注意两处 VTable 内部行为：
+   * 注意两处 @visactor/vtable 内部行为：
    * 1. 空数组是 truthy，会弹出一个空的菜单框，所以这里把空数组统一转成 undefined（= 不弹菜单）；
-   * 2. renderMode / workOnlyCell 在 VTable 里只在建图时读取，改这两个值需重挂载组件。
+   * 2. renderMode / workOnlyCell 在 @visactor/vtable 里只在建图时读取，改这两个值需重挂载组件。
    */
   const buildMenuOptions = useCallback((): ListTableConstructorOptions['menu'] => {
-    const toContent = (items: VTableMenuItem[] | undefined) =>
-      (items && items.length > 0 ? items : undefined) as unknown as VTableMenuItem[];
+    const toContent = (items: GridTableMenuItem[] | undefined) =>
+      (items && items.length > 0 ? items : undefined) as unknown as GridTableMenuItem[];
     return {
       renderMode: menuRef.current?.renderMode ?? 'html',
       contextMenuWorkOnlyCell: menuRef.current?.workOnlyCell,
@@ -990,7 +990,7 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
       frozenColCount: frozenColCount + (rowNumber ? 1 : 0) + (hasExpandable ? 1 : 0),
       maxFrozenWidth,
       unfreezeAllOnExceedsMaxWidth,
-      // 行号列：VTable 原生能力，生成的是独立列（不占 columns），位置在所有 columns 之前
+      // 行号列：@visactor/vtable 原生能力，生成的是独立列（不占 columns），位置在所有 columns 之前
       ...(rowNumber
         ? {
             rowSeriesNumber: {
@@ -1082,7 +1082,7 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
       // 启用 Ctrl+C 复制选中单元格内容
       keyboardOptions: {
         copySelected: true,
-        // 关掉后 VTable 不再用 Ctrl/Shift 追加选中范围，等于单选
+        // 关掉后 @visactor/vtable 不再用 Ctrl/Shift 追加选中范围，等于单选
         ctrlMultiSelect: multiSelect,
         shiftMultiSelect: multiSelect,
         // Ctrl+A 全选（单选模式下不开启：keydown 处理只看这个开关，不看 ctrlMultiSelect，
@@ -1111,7 +1111,7 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
       col: number;
       row: number;
       field?: unknown;
-    }): VTableCellInfo => {
+    }): GridTableCellInfo => {
       const record = table.getCellOriginRecord(args.col, args.row) as
         | Record<string, unknown>
         | undefined;
@@ -1146,7 +1146,7 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
       if (!(event.ctrlKey || event.metaKey) || event.shiftKey) return;
       if (row < table.columnHeaderLevelCount) return;
 
-      // Ctrl 模式下 VTable 已经把点中的这一格追加成最后一个 range，基准要把它排除掉；
+      // Ctrl 模式下 @visactor/vtable 已经把点中的这一格追加成最后一个 range，基准要把它排除掉；
       // 若最后那个 range 不是它（比如这次点击被 disableSelect 拦下），就以现有 ranges 为准，
       // 免得误删一个正经的选中范围。
       const ranges = (table.stateManager?.select?.ranges ?? []) as Array<{
@@ -1171,7 +1171,7 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     /**
      * 点击单元格。
      *
-     * 不按修饰键时只透传事件（选中高亮交给 VTable 原生 select，整行底色由 paintSelectedRows 铺）。
+     * 不按修饰键时只透传事件（选中高亮交给 @visactor/vtable 原生 select，整行底色由 paintSelectedRows 铺）。
      * Ctrl 点击若确认没有拖动过，就执行整行 toggle；拖动过的交给原生的范围选择，不抢。
      */
     table.on('click_cell', (args) => {
@@ -1192,7 +1192,7 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
 
     /**
      * 右键菜单 / 表头下拉菜单的点击。
-     * VTable 只给「行列号 + menuKey」，这里补上页面真正需要的字段名、记录、单元格值，
+     * @visactor/vtable 只给「行列号 + menuKey」，这里补上页面真正需要的字段名、记录、单元格值，
      * 页面就不用再去查记录、也不用管表头占了几行。
      * 画布空白处的右键（col/row 为 -1）也会走到这里，此时 record / 值为 undefined。
      */
@@ -1284,7 +1284,7 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
         record: rowRecord,
         dataValue: table.getCellOriginValue?.(args.col, args.row),
       });
-      // 没文案就别调：VTable 自己的溢出文本提示还在用同一套 tooltip，
+      // 没文案就别调：@visactor/vtable 自己的溢出文本提示还在用同一套 tooltip，
       // 这里空手调一次 showTooltip 会把它的提示顶掉
       if (!content) return;
       table.showTooltip(args.col, args.row, {
@@ -1321,17 +1321,17 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
         rowIndex: index,
         record: rowsRef.current[index],
         value: args.changedValue,
-        // currentValue 是 VTable 在改写 record **之前**取的单元格值，即编辑前的内容。
+        // currentValue 是 @visactor/vtable 在改写 record **之前**取的单元格值，即编辑前的内容。
         // （原生还有 rawValue = 未格式化的原值，需要时再加）
         previousValue: args.currentValue,
       });
     });
     // 排序由本组件处理：先把统计行摘掉再排，排完追加回最后一行。
-    // 返回 false 阻止 VTable 自己排序（否则统计行会被一起排走）。
+    // 返回 false 阻止 @visactor/vtable 自己排序（否则统计行会被一起排走）。
     table.on('sort_click', (args) => {
       const field = args.field === undefined ? '' : String(args.field);
       const order = args.order === undefined ? '' : String(args.order);
-      const next: VTableSortState | null =
+      const next: GridTableSortState | null =
         !field || order === 'normal'
           ? null
           : { field, order: order === 'desc' ? 'desc' : 'asc' };
@@ -1452,7 +1452,7 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
     return table.exportToCsv();
   }, []);
 
-  // 把方法挂到 ref 上：<VTable ref={tableRef} />，之后用 tableRef.current?.repaint()
+  // 把方法挂到 ref 上：<GridTable ref={tableRef} />，之后用 tableRef.current?.repaint()
   /**
    * 按数据行下标取该行数据（0 起、不含表头）。
    *
@@ -1463,7 +1463,7 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
    * 这样页面各处就不必再手算「表头占了几行」；回调给的 rowIndex 可直接传进来。
    */
   const getRowByIndex = useCallback(
-    (index: number): VTableRowInfo | undefined => {
+    (index: number): GridTableRowInfo | undefined => {
       const table = tableRef.current;
       if (!table || !Number.isFinite(index)) return undefined;
       const rowIndex = Math.floor(index);
@@ -1477,7 +1477,7 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
         rowIndex,
         rowKey: String(record[rowKey] ?? ''),
         record,
-        // 统计行的判定按 VTable 坐标（含表头），这里换算过去
+        // 统计行的判定按 GridTable 坐标（含表头），这里换算过去
         isSummaryRow: isSummaryRow(rowIndex + table.columnHeaderLevelCount, table),
         isGroupRow: isGroupRow(record),
       };
@@ -1503,7 +1503,7 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
       collapseRow: rowExpander.collapse,
       collapseAllRows: rowExpander.collapseAll,
       isRowExpanded: rowExpander.isExpanded,
-    }) satisfies VTableApi,
+    }) satisfies GridTableApi,
     [
       autoFitColumns,
       repaint,
@@ -1551,7 +1551,7 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
       <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
       {/* 加载遮罩：不透明盖住整张表，避免空表格被误读成「确实没有数据」 */}
       {loading ? (
-        <div className="vtable-loading">
+        <div className="grid-table-loading">
           <Spin size="large" />
           <span>{loadingTip}</span>
         </div>
@@ -1560,4 +1560,4 @@ export const VTable = React.forwardRef<VTableApi, VTableProps>(({
   );
 });
 
-VTable.displayName = 'VTable';
+GridTable.displayName = 'GridTable';

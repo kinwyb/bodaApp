@@ -5,7 +5,7 @@
  * 原生 group 的标题条有吸顶行为，我们的分组是自研的树形结构（见 ./group.ts），
  * 拿不到那套 GroupTitleBar，所以这里自己补一层。
  *
- * 为什么不用 VTable 自带的 `enableTreeStickCell`：那个开关背后是
+ * 为什么不用 @visactor/vtable 自带的 `enableTreeStickCell`：那个开关背后是
  * `es/plugins/list-tree-stick-cell.js`，它把组行 cell 复制到表头节点的 shadowRoot 里绘制。
  * 在本项目的依赖组合下（vtable 1.26.8 + vrender-core 1.1.11）打开它直接抛
  * `TypeError: undefined is not an object (evaluating 'shadowGroup.removeAllChild')` ——
@@ -34,7 +34,7 @@ interface CellDef {
   fieldFormat?: (record: Row, col?: number, row?: number, table?: ListTable) => unknown;
 }
 
-/** 与 VTable.tsx 里组行的 cellStyle 保持一致：灰底 + 加粗 */
+/** 与 GridTable.tsx 里组行的 cellStyle 保持一致：灰底 + 加粗 */
 const GROUP_BG = '#fafafa';
 const GROUP_BORDER = '#e8e8e8';
 const GROUP_TEXT = 'rgba(0, 0, 0, 0.88)';
@@ -143,7 +143,7 @@ export function createStickyGroupController(options: StickyGroupOptions): Sticky
     if (layer && host === nextHost) return layer;
     layer?.remove();
     host = nextHost;
-    // 覆盖层按容器的坐标系定位，容器本身得是定位父级（VTable 默认没设 position）
+    // 覆盖层按容器的坐标系定位，容器本身得是定位父级（GridTable 默认没设 position）
     if (getComputedStyle(nextHost).position === 'static') {
       nextHost.style.position = 'relative';
     }
@@ -344,7 +344,7 @@ export function createStickyGroupController(options: StickyGroupOptions): Sticky
     });
   };
 
-  /** 一次滚动里 VTable 会连发多个事件，合并到下一帧统一画 */
+  /** 一次滚动里 @visactor/vtable 会连发多个事件，合并到下一帧统一画 */
   const schedule = () => {
     if (frame || released) return;
     frame = requestAnimationFrame(render);

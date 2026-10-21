@@ -6,10 +6,10 @@ import {ReloadOutlined, SearchOutlined} from "@ant-design/icons";
 import {
     FilterTable,
     type MergeGroupConfig,
-    type VTableApi,
-    type VTableCellStyle,
-    type VTableCellStyleInfo
-} from "@/components/vtable";
+    type GridTableApi,
+    type GridTableCellStyle,
+    type GridTableCellStyleInfo
+} from "@/components/grid-table";
 import {type Dayjs} from "dayjs";
 import type {YupaiOrderChangeAction, YupaiOrderChangeDetail} from "@/api/modules/yupai.ts";
 import {yupaiService} from "@/services/yupai.ts";
@@ -56,7 +56,7 @@ const YupaiOrderChangePage: React.FC<ViewPageProps> = ({view, trail}) => {
         startDate?: string,
         endDate?: string
     }>({startDate: formatDate(startDate), endDate: formatDate(endDate)});
-    const tableRef = useRef<VTableApi | null>(null);
+    const tableRef = useRef<GridTableApi | null>(null);
 
     const commands = useTableExportCommand(tableRef, '预订单变更记录');
 
@@ -77,9 +77,9 @@ const YupaiOrderChangePage: React.FC<ViewPageProps> = ({view, trail}) => {
 
     const columns = useMemo(() => buildYupaiOrderChangeListColumns(), []);
 
-    const cellStyle = useCallback((info: VTableCellStyleInfo) => {
+    const cellStyle = useCallback((info: GridTableCellStyleInfo) => {
         if (info.isSummaryRow || !info.record || info.field != 'ActionName') return undefined;
-        let styles: VTableCellStyle = {}
+        let styles: GridTableCellStyle = {}
         const actionOptions = actionMap[info.record.ActionCode as YupaiOrderChangeAction];
         styles.backgroundColor = actionOptions.color;
         return styles
@@ -142,10 +142,10 @@ const YupaiOrderChangePage: React.FC<ViewPageProps> = ({view, trail}) => {
             </Form>
 
             {/*
-              不要在外面再包一层 .vtable-host：FilterTable 自身根节点是 .filter-table（flex:1 1 0），
+              不要在外面再包一层 .grid-table-host：FilterTable 自身根节点是 .filter-table（flex:1 1 0），
               必须作为 .page-container（flex 列）的直接子项才能拿到剩余高度。
-              外面套一个 .vtable-host（它只是 flex item，不是 flex 容器），.filter-table 的高度就变成 auto，
-              里面那层 .vtable-host（flex-basis:0）会塌成 0 高 —— 画布高度 0，表现为整块空白。
+              外面套一个 .grid-table-host（它只是 flex item，不是 flex 容器），.filter-table 的高度就变成 auto，
+              里面那层 .grid-table-host（flex-basis:0）会塌成 0 高 —— 画布高度 0，表现为整块空白。
             */}
             <FilterTable ref={tableRef} columns={columns} records={dataSource} loading={loading}
                          rowKey={'YupaiOrderChangeID'}

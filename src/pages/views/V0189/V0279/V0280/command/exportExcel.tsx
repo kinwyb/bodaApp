@@ -2,7 +2,7 @@ import {ExportOutlined} from '@ant-design/icons';
 import dayjs from 'dayjs';
 import type {YupaiOrderCommandFactory} from './types';
 
-/** 导出当前页到 Excel：走 VTable 内部的 TableExportPlugin，文件名不用带 .xlsx（插件会补） */
+/** 导出当前页到 Excel：走 GridTable 内部的 TableExportPlugin，文件名不用带 .xlsx（插件会补） */
 export const exportCommand: YupaiOrderCommandFactory = ({message, tableRef}) => ({
     key: 'export',
     label: '导出',

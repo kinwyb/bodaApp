@@ -2,7 +2,7 @@ import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {App, Button, Input, Modal, Spin} from 'antd';
 import {CheckOutlined} from '@ant-design/icons';
 import type {ColumnsDefine} from '@visactor/vtable';
-import {VTable, type VTableApi, type VTableCellInfo} from './vtable';
+import {GridTable, type GridTableApi, type GridTableCellInfo} from './grid-table';
 import {isBlank, toStringOrEmpty} from "@/utils";
 
 /** 快速选择的一行数据：字段由调用方通过 columns 自定义 */
@@ -59,7 +59,7 @@ export interface QuickSelectModalProps<T extends QuickSelectRow = QuickSelectRow
  * 输入框过滤下面的数据，点「选择」或双击行回传当前行。可用于选部门、选员工等任意场景。
  *
  * 作为基础控件，它不关心业务字段与数据来源：
- * - 表格字段通过 columns 自定义（沿用 VTable 列定义）；
+ * - 表格字段通过 columns 自定义（沿用 GridTable 列定义）；
  * - 数据加载通过 loadData(keyword) 自定义，支持服务端过滤或配合 searchFields 本地过滤；
  * - 不做汇总、不做分页，选中单行即回调。
  *
@@ -92,7 +92,7 @@ export function QuickSelectModal<T extends QuickSelectRow = QuickSelectRow>({
                                                                                 debounceMs = 300,
                                                                             }: QuickSelectModalProps<T>): React.ReactElement {
     const {message} = App.useApp();
-    const tableRef = useRef<VTableApi | null>(null);
+    const tableRef = useRef<GridTableApi | null>(null);
     const [keyword, setKeyword] = useState('');
     const [records, setRecords] = useState<T[]>([]);
     const [loading, setLoading] = useState(false);
@@ -185,11 +185,11 @@ export function QuickSelectModal<T extends QuickSelectRow = QuickSelectRow>({
         setSelectedRecord(null);
     }, [records, keyword]);
 
-    const handleCellClick = useCallback((info: VTableCellInfo) => {
+    const handleCellClick = useCallback((info: GridTableCellInfo) => {
         setSelectedRecord((info.record as T | undefined) ?? null);
     }, []);
 
-    /** 取当前选中行：优先点选记录，退化到 VTable 原生选中态 */
+    /** 取当前选中行：优先点选记录，退化到 @visactor/vtable 原生选中态 */
     const getCurrentRecord = useCallback((): T | null => {
         if (selectedRecord) return selectedRecord;
         const selection = tableRef.current?.getSelection();
@@ -206,7 +206,7 @@ export function QuickSelectModal<T extends QuickSelectRow = QuickSelectRow>({
         onSelectRef.current(record);
     }, [getCurrentRecord, message]);
 
-    const handleDblClick = useCallback((info: VTableCellInfo) => {
+    const handleDblClick = useCallback((info: GridTableCellInfo) => {
         const record = info.record as T | undefined;
         if (!record) return;
         onSelectRef.current(record);
@@ -245,8 +245,8 @@ export function QuickSelectModal<T extends QuickSelectRow = QuickSelectRow>({
                 </Button>
             </div>
 
-            <div className="vtable-host quick-select-table">
-                <VTable
+            <div className="grid-table-host quick-select-table">
+                <GridTable
                     ref={tableRef}
                     columns={columns}
                     records={displayRecords as Array<Record<string, unknown>>}

@@ -2,7 +2,7 @@
  * 选择与激活行。
  *
  * 这个模块管三件事，它们共享同一份「选中范围」事实来源：
- * 1. **选中行整行铺底色** —— 走 customCellStyle 插件，而不是 VTable 原生选中高亮；
+ * 1. **选中行整行铺底色** —— 走 customCellStyle 插件，而不是 @visactor/vtable 原生选中高亮；
  * 2. **Ctrl 点选的整行 toggle** —— 原生只会把点中的那一格追加进范围，全选后想 Ctrl 点掉几行做不到；
  * 3. **当前激活行** —— `onSelectedChange` 回调与 `getActiveRow()` 共用同一份判定。
  *
@@ -57,7 +57,7 @@ export function collectRowIndexes(
 }
 
 /** 选中单元格信息：单元格所在的行列、列字段与所在行的记录 */
-export interface VTableCellSelection {
+export interface GridTableCellSelection {
   /** 列号（含勾选列 / 序号列） */
   col: number;
   /** 行号（含表头行） */
@@ -73,19 +73,19 @@ export interface VTableCellSelection {
 }
 
 /** 表格当前选中态：行、单元格、以及最后点选的那一格 */
-export interface VTableSelection {
+export interface GridTableSelection {
   /** 选中的行数据（按行去重、行号升序） */
   rows: Array<Record<string, unknown>>;
   /** 选中的单元格：点选一格是一条，框选则是范围内所有格 */
-  cells: VTableCellSelection[];
+  cells: GridTableCellSelection[];
   /** 最后点选的单元格，用它可以知道「选中的是哪一列」 */
-  activeCell: VTableCellSelection | null;
+  activeCell: GridTableCellSelection | null;
 }
 
 /**
  * 当前激活行的信息，即 `onSelectedChange` 的回调参数。
  *
- * 「激活行」取 VTable 的 `select.cellPos` —— 那是**最后激活的那个单元格**（单击、Shift 扩展、
+ * 「激活行」取 @visactor/vtable 的 `select.cellPos` —— 那是**最后激活的那个单元格**（单击、Shift 扩展、
  * 拖拽框选、键盘方向键都会在流程里写它，见 `es/state/select/update-position.js`），
  * 按行取就是「当前激活的这一行」。
  *
@@ -93,14 +93,14 @@ export interface VTableSelection {
  * 但它已经不是选中行了，这时会回传「没有激活行」——
  * 免得页面拿着一行已经被取消勾选的数据当选中行用。
  */
-export interface VTableSelectedRowChangeInfo {
+export interface GridTableSelectedRowChangeInfo {
   /**
    * 当前激活行的数据 —— 就是页面传进 records 里的那条记录本身（引号相等，可直接引用 / 修改）。
    * 「没有激活行」时为 undefined：选中被清空（点画布空白处、clearSelection、换数据）、
    * 只点中表头、激活的那行被 Ctrl 取消勾选。
    */
   record?: Record<string, unknown>;
-  /** VTable 行号（含表头行）；没有激活行时为 -1 */
+  /** GridTable 行号（含表头行）；没有激活行时为 -1 */
   row: number;
   /** 数据行下标（不含表头，0 起，跟随显示顺序）；没有激活行时为 -1 */
   rowIndex: number;
@@ -113,7 +113,7 @@ export interface VTableSelectedRowChangeInfo {
 }
 
 /** 没有激活行时的空信息（每次回传都是副本，页面改到不会污染下一次回调） */
-const EMPTY_SELECTED_ROW: VTableSelectedRowChangeInfo = {
+const EMPTY_SELECTED_ROW: GridTableSelectedRowChangeInfo = {
   record: undefined,
   row: -1,
   rowIndex: -1,
@@ -135,7 +135,7 @@ export interface SelectionControllerDeps {
   /** 取「表格行号 -> 行主键」的映射 */
   getRowKeys: () => string[];
   /**
-   * 统计行判定（按 VTable 行号，含表头）。
+   * 统计行判定（按 GridTable 行号，含表头）。
    * 只传行号：树形分组展开后「表头 + records.length」不等于界面行数，
    * 组件那层要靠 table.rowCount 判，所以这里不把 headerLevel 透传下去。
    */
@@ -143,7 +143,7 @@ export interface SelectionControllerDeps {
   /** 选中行数变化（转发给外部的 onActiveSelectionChange） */
   notifySelectionCount: (rowCount: number) => void;
   /** 当前激活行变化（转发给外部的 onSelectedChange） */
-  notifyActiveRow: (info: VTableSelectedRowChangeInfo) => void;
+  notifyActiveRow: (info: GridTableSelectedRowChangeInfo) => void;
 }
 
 export interface SelectionController {
@@ -153,12 +153,12 @@ export interface SelectionController {
   clearPaintedRows: () => void;
   /** 执行一次 Ctrl 点击的整行 toggle（已选中的取消、未选中的加入） */
   applyCtrlToggle: (row: number, baseRows: number[]) => void;
-  /** 解析「当前激活行」，判定规则见 VTableSelectedRowChangeInfo */
-  resolveSelectedRow: () => VTableSelectedRowChangeInfo;
+  /** 解析「当前激活行」，判定规则见 GridTableSelectedRowChangeInfo */
+  resolveSelectedRow: () => GridTableSelectedRowChangeInfo;
   /** 把「当前激活行」推给页面；force 用于「换了整批数据但行号主键没变」的场景 */
   emitSelectedRow: (force?: boolean) => void;
   /** 取当前选中态（行 + 单元格 + 最后点选的那一格） */
-  getSelection: () => VTableSelection;
+  getSelection: () => GridTableSelection;
   /** 清空选中：原生选中范围与铺过的整行底色一起清 */
   clearSelection: () => void;
   /** 数据整体换了一批：清空激活行的去重状态（让下一次 emit 必定回调） */
@@ -184,9 +184,9 @@ export function createSelectionController(deps: SelectionControllerDeps): Select
   let lastActiveRow: { row: number; rowKey: string } | null = null;
 
   /**
-   * 给「当前选中的行」整行铺底色 —— 走 customCellStyle，而不是 VTable 原生的选中高亮。
+   * 给「当前选中的行」整行铺底色 —— 走 customCellStyle，而不是 @visactor/vtable 原生的选中高亮。
    *
-   * 为什么不用原生的：多个选中范围（Ctrl 多选产生的就是多个 range）时，VTable 只给 range 覆盖到的
+   * 为什么不用原生的：多个选中范围（Ctrl 多选产生的就是多个 range）时，@visactor/vtable 只给 range 覆盖到的
    * 格子画 cellBgColor，而 Ctrl 点出来的 range 恰好是单格，所以整行铺不开
    * （见 es/state/select/is-cell-select-highlight.js 里 getCellSelectColor 的分支判断）。
    *
@@ -256,9 +256,9 @@ export function createSelectionController(deps: SelectionControllerDeps): Select
   };
 
   /**
-   * 解析「当前激活行」—— onSelectedChange 的推送与 VTableApi.getActiveRow 的按需取值共用这一份判定。
+   * 解析「当前激活行」—— onSelectedChange 的推送与 GridTableApi.getActiveRow 的按需取值共用这一份判定。
    *
-   * 激活行取 VTable 的 `select.cellPos`（最后激活的单元格，鼠标点选与键盘移动都会写它），
+   * 激活行取 @visactor/vtable 的 `select.cellPos`（最后激活的单元格，鼠标点选与键盘移动都会写它），
    * 按行取就是「当前激活的这一行」。
    * 三个会让它「不算激活行」的例外，都返回「没有激活行」（record 为 undefined）：
    * - **点表头**：cellPos 落在表头行，那只是整列选中，不是选中了一行数据；
@@ -267,7 +267,7 @@ export function createSelectionController(deps: SelectionControllerDeps): Select
    * - **Ctrl+A 全选**（`select.isSelectAll`）：cellPos 停在上次点过的那一格上
    *   （全选走 `updateSelectPos(-1,-1,isSelectAll=true)`，根本不更新 cellPos），不能拿它冒充激活行。
    */
-  const resolveSelectedRow = (): VTableSelectedRowChangeInfo => {
+  const resolveSelectedRow = (): GridTableSelectedRowChangeInfo => {
     const table = deps.getTable();
     if (!table) return { ...EMPTY_SELECTED_ROW };
     const select = table.stateManager?.select;
@@ -313,11 +313,11 @@ export function createSelectionController(deps: SelectionControllerDeps): Select
   /**
    * 执行一次 Ctrl 点击的整行 toggle（已选中的取消、未选中的加入）。
    *
-   * 必须自己接管 —— VTable 原生在 Ctrl 点击时只会「把点中的那一格追加进选中范围」，
+   * 必须自己接管 —— @visactor/vtable 原生在 Ctrl 点击时只会「把点中的那一格追加进选中范围」，
    * 所以全选之后想用 Ctrl 点掉某几行根本做不到。
    *
    * baseRows 是「点击前」的选中行号集合，由 mousedown 时算好传进来：
-   * Ctrl 模式下 VTable 会把点中的格子追加进 ranges，到了 click 阶段已经分不清
+   * Ctrl 模式下 @visactor/vtable 会把点中的格子追加进 ranges，到了 click 阶段已经分不清
    * 「这一行本来就在选中里」还是「刚刚被追加进来的」，所以基准只能在 mousedown 取。
    */
   const applyCtrlToggle = (row: number, baseRows: number[]) => {
@@ -355,7 +355,7 @@ export function createSelectionController(deps: SelectionControllerDeps): Select
     /**
      * 按新 ranges 重建选中边框。不能自己 forEach 调 updateCellSelectBorder：
      * 它每次进来都会清空「选择中」的边框集合，多段时会互相抹掉，最后只剩最后一段有线。
-     * recreateAllSelectRangeComponents 是 VTable 自己的做法 ——
+     * recreateAllSelectRangeComponents 是 @visactor/vtable 自己的做法 ——
      * 清空全部 → 逐段 updateCellSelectBorder → 立刻固化到「已选中」集合，
      * 这样每段都不会被下一段清掉。
      */
@@ -371,21 +371,21 @@ export function createSelectionController(deps: SelectionControllerDeps): Select
   };
 
   /**
-   * 取当前选中态：走 VTable 原生选中态（getSelectedCellInfos）。
+   * 取当前选中态：走 @visactor/vtable 原生选中态（getSelectedCellInfos）。
    * 选中高亮可以是整行，但选中范围是实际点选的那一格，所以既能拿整行数据，
    * 也能拿到具体行列 / 字段（activeCell 即「选中的是哪一列」）。
    *
    * 注意 rows 直接来自选中范围，框选到底部时会把统计行也带进来 —— 业务侧按自己的数据源过滤。
    */
-  const getSelection = (): VTableSelection => {
-    const empty: VTableSelection = { rows: [], cells: [], activeCell: null };
+  const getSelection = (): GridTableSelection => {
+    const empty: GridTableSelection = { rows: [], cells: [], activeCell: null };
     const table = deps.getTable();
     if (!table) return empty;
     const infos = table.getSelectedCellInfos();
     if (!infos || infos.length === 0) return empty;
 
     const byRow = new Map<number, Record<string, unknown>>();
-    const cells: VTableCellSelection[] = [];
+    const cells: GridTableCellSelection[] = [];
     infos.forEach((group) => {
       group.forEach((cell) => {
         const record = (cell.originData ?? table.getCellOriginRecord(cell.col, cell.row)) as

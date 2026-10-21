@@ -15,7 +15,7 @@ import zhCN from 'antd/locale/zh_CN';
 import dayjs, { type Dayjs } from 'dayjs';
 import { DATE_FORMAT, toDayjs, toNumberOrNull } from '@/utils';
 
-// ─── VTable IEditor 接口（与 @visactor/vtable-editors 保持兼容） ──────────────
+// ─── @visactor/vtable IEditor 接口（与 @visactor/vtable-editors 保持兼容） ──────────────
 
 export interface EditContext<V = any> {
   container: HTMLElement;
@@ -33,7 +33,7 @@ export interface EditContext<V = any> {
  * validateValue 的返回值：`true` = 放行（值提交进表格并退出编辑），
  * `false` = 拦下并**留在编辑态**（值不写进表格，用户改对才能出去）。
  *
- * 没有用 VTable 那套 `'validate-not-exit'` 字符串枚举：它以 enum 声明，是标称类型，
+ * 没有用 @visactor/vtable 那套 `'validate-not-exit'` 字符串枚举：它以 enum 声明，是标称类型，
  * 字符串字面量赋不进去（`register.editor` 会报 TS2345）。而运行时 `false` 与它走的是
  * 同一个分支 —— 见 `es/edit/edit-manager.js` 的 `dealWithValidateValue`：
  * `false` 落到最后那个兜底分支、`'validate-not-exit'` 走它自己的分支，两者都是
@@ -84,7 +84,7 @@ export interface IEditor<V = any> {
   onEnd: () => void;
   getValue: () => V;
   /**
-   * 退出编辑前的校验。VTable 的 edit-manager 在 completeEdit（失焦 / 回车 / 点到别处）时调它，
+   * 退出编辑前的校验。@visactor/vtable 的 edit-manager 在 completeEdit（失焦 / 回车 / 点到别处）时调它，
    * 拿到的就是 getValue() 的值 —— 即「值提交进表格之前」的最后一道闸。
    *
    * 可以返回 Promise（异步校验）：edit-manager 的 completeEdit 里有 `isPromise` 分支，
@@ -122,7 +122,7 @@ export interface IEditor<V = any> {
  * 存下访问器、onEnd 里清掉，别长期持有。
  */
 export interface EditorRowAccessor {
-  /** 当前编辑行的原始记录（就是表格数据源里那一个对象，VTable 编辑时也改它） */
+  /** 当前编辑行的原始记录（就是表格数据源里那一个对象，@visactor/vtable 编辑时也改它） */
   readonly record: Record<string, unknown> | undefined;
   /** 数据行下标（不含表头）；拿不到时为 null，此时写入不生效 */
   readonly recordIndex: number | null;
@@ -350,7 +350,7 @@ function isPromiseLike<T>(value: T | Promise<T>): value is Promise<T> {
 }
 
 /**
- * 编辑器通用的校验执行：把结果落到错误态上，并给出 VTable 要的返回值。
+ * 编辑器通用的校验执行：把结果落到错误态上，并给出 @visactor/vtable 要的返回值。
  *
  * 不通过时返回 `false` —— 值不写进表格、编辑态也不退出，
  * 用户改对之前点哪都没用（想放弃就按 ESC，见 bindEscapeToCancel）。
@@ -358,7 +358,7 @@ function isPromiseLike<T>(value: T | Promise<T>): value is Promise<T> {
  * `row` 是当前编辑行的访问器，会一起交给业务的 validator ——
  * 这样规则除了拿到 `value`，还能读本行其他字段。
  *
- * 业务返回 Promise 时**原样把它交给 VTable**：edit-manager 的 completeEdit 有 `isPromise`
+ * 业务返回 Promise 时**原样把它交给 @visactor/vtable**：edit-manager 的 completeEdit 有 `isPromise`
  * 分支，会等它 resolve 再 `dealWithValidateValue`，等待期间 `isValidatingValue` 为真、
  * 重复的 completeEdit 直接被挡掉（省得我们自己做防重入）。我们只负责两件事：
  * - 等待期间挂上 `pending`（界面上显示「校验中…」）；
@@ -459,7 +459,7 @@ function createWrapper(
 /**
  * 当前编辑单元格对应的**数据行下标**（不含表头）。
  *
- * 编辑器 context 里的 col/row 是 VTable 坐标（含表头行），不能直接当 recordIndex 用；
+ * 编辑器 context 里的 col/row 是 @visactor/vtable 坐标（含表头行），不能直接当 recordIndex 用；
  * 交给表格自己换算，合并单元格时它是数组，取第一个。
  * 拿不到（坐标异常 / 表格不支持）返回 null，调用方据此放弃写回。
  */
@@ -504,7 +504,7 @@ function resolveRecord(
 export abstract class BaseAntdEditor<V = unknown> implements IEditor<V> {
   /** 注册时给定的扩展能力（校验 + 生命周期钩子），全局共享 */
   protected readonly options: EditorOptions<V>;
-  /** 受控值：控件 onChange 后写它，VTable 提交时由 getValue 读走 */
+  /** 受控值：控件 onChange 后写它，@visactor/vtable 提交时由 getValue 读走 */
   protected readonly valueRef: { current: unknown } = { current: undefined };
   /** Select 类控件 onChange 的第二个参数（选中的 option），只有 acceptsOption 为真时收集 */
   protected readonly optionRef: { current: unknown } = { current: undefined };
@@ -727,7 +727,7 @@ export abstract class BaseAntdEditor<V = unknown> implements IEditor<V> {
    *
    * 走 `table.changeCellValueByRecord` 而不是直接改 record 对象：它会照常派发
    * `change_cell_value`，页面 onCellValueChange 因此能拿到并同步自己的 records
-   * （见 VTable.tsx 的 change_cell_value 处理）—— 直接改对象的话，数组引用没变，
+   * （见 GridTable.tsx 的 change_cell_value 处理）—— 直接改对象的话，数组引用没变，
    * 页面不会重渲染，改完只有表格自己知道。
    *
    * 逐列写时不刷新（autoRefresh: false），全部写完统一 refreshAfterSourceChange 一次：

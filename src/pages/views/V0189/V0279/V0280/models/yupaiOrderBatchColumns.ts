@@ -1,6 +1,6 @@
 import type {ColumnsDefine} from '@visactor/vtable';
-import {buildColumns, type AppColumnDef} from '@/components/vtable/columnBuilder';
-import {registerAntdDatePickerEditor, registerAntdNumberEditor} from '@/components/vtable/editors/register';
+import {buildColumns, type AppColumnDef} from '@/components/grid-table/columnBuilder';
+import {registerAntdDatePickerEditor, registerAntdNumberEditor} from '@/components/grid-table/editors/register';
 import {DATE_FORMAT, formatDate, toDayjs, toNumberOrNull, toStringOrEmpty} from '@/utils';
 
 /**
@@ -24,7 +24,7 @@ export interface YupaiOrderBatchRow {
     /** 出货比例（百分数 0~100，空为 null） */
     BatchPercent: number | null;
     /**
-     * 索引签名：`VTable` 的 records 是 `Record<string, unknown>[]`，
+     * 索引签名：`GridTable` 的 records 是 `Record<string, unknown>[]`，
      * 行模型不带它就不满足约束（详情行模型同理）。
      */
     [key: string]: unknown;
@@ -33,7 +33,7 @@ export interface YupaiOrderBatchRow {
 /**
  * 未落库行的临时主键。
  *
- * 必须唯一：VTable 拿它当 rowKey（重复会串行），页面也靠它定位「改的是哪一行」。
+ * 必须唯一：GridTable 拿它当 rowKey（重复会串行），页面也靠它定位「改的是哪一行」。
  * 用模块级自增而不是行号 —— 删行 / 插行后行号全变，主键不变。
  */
 let batchRowSeq = 0;
@@ -92,7 +92,7 @@ function toBatchPercent(rate: unknown): number | null {
  * - 一条数据都没有时给一行空白，保证打开就能填。
  *
  * 实现上先摘掉末尾已有的空白行、需要时**原样放回同一个对象**（而不是新建）：
- * 换新主键会让 VTable 认为整行变了 —— 编辑中间某行时，末尾那行的 rowKey 一抖动，
+ * 换新主键会让 GridTable 认为整行变了 —— 编辑中间某行时，末尾那行的 rowKey 一抖动，
  * 整个表格重建，正在编辑的单元格会被打断。
  */
 export function rebuildBatchTail(rows: YupaiOrderBatchRow[]): YupaiOrderBatchRow[] {
@@ -154,7 +154,7 @@ export function normalizeBatchDate(value: string, byDate: boolean): string {
 
 // ─── 编辑器：字段 → 控件（每个字段/模式各占一个具名实例） ─────────────────────
 //
-// VTable 的编辑器注册表是全局的，**同名幂等、先注册者生效**：
+// @visactor/vtable 的编辑器注册表是全局的，**同名幂等、先注册者生效**：
 // 「按月」与「按日期」是两种控件配置，必须各注册一个名字，不能共用一个。
 const BATCH_MONTH_EDITOR = 'preorder-batch-month';
 const BATCH_DATE_EDITOR = 'preorder-batch-date';

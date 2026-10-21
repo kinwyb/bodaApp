@@ -24,11 +24,11 @@ export interface ColumnTagItem {
  */
 export type ColumnTagItemLike = string | ColumnTagItem;
 
-/** 单元格显示值：函数形式自定义，或 `{ get, set }`（VTable 的 FieldFormat） */
+/** 单元格显示值：函数形式自定义，或 `{ get, set }`（@visactor/vtable 的 FieldFormat） */
 export type AppColumnFieldFormat = NonNullable<TextColumnDefine['fieldFormat']>;
 
 /**
- * 单元格样式：既可传对象，也可传按行取值的函数（VTable 的 ColumnStyle）。
+ * 单元格样式：既可传对象，也可传按行取值的函数（@visactor/vtable 的 ColumnStyle）。
  * 额外带上复选框样式（`checkboxStyle`），这样 boolean 列也能直接配。
  */
 export type AppColumnStyle =
@@ -58,7 +58,7 @@ export interface AppColumnDef {
    */
   style?: AppColumnStyle;
   /**
-   * 合并单元格（只作用于表头以下，纵向）：VTable 原生语义。
+   * 合并单元格（只作用于表头以下，纵向）：@visactor/vtable 原生语义。
    * - `true`：本列显示值相同就合并
    * - 回调：完全自定义判断
    *
@@ -70,7 +70,7 @@ export interface AppColumnDef {
    * 默认汇总方式（`sum` / `count` / `distinct` / `avg` / `max` / `min` / `first`）。
    *
    * 配了它就有两个效果，页面都不用自己写计算代码：
-   * 1. **底部统计行**：没传 `<VTable summary>` 时，自动按这些列拼一行；
+   * 1. **底部统计行**：没传 `<GridTable summary>` 时，自动按这些列拼一行；
    * 2. **树形分组的组行**：`group.aggregates` 没传时，自动继承这些列。
    *
    * 显式配置优先：传了 `summary` 就用页面的那行，传了 `group.aggregates` 就只算那些字段。
@@ -83,7 +83,7 @@ export interface AppColumnDef {
    * 面板里仍然可以改层级 / 取消。多列都标了 `true` 时，**按列顺序**由外到内分层。
    */
   group?: boolean;
-  /** 透传给 VTable 的其它列配置（会覆盖上面的默认值，包括 fieldFormat / style / mergeCell） */
+  /** 透传给 @visactor/vtable 的其它列配置（会覆盖上面的默认值，包括 fieldFormat / style / mergeCell） */
   columnProps?: Record<string, unknown>;
 }
 
@@ -119,7 +119,7 @@ function mergeStyle(base: AppColumnStyle | undefined, override: AppColumnStyle):
   return (args) => ({ ...resolveBase(args), ...resolveOverride(args) });
 }
 
-/** 把带数据类型的列定义转成 VTable 的列配置 */
+/** 把带数据类型的列定义转成 GridTable 的列配置 */
 export function buildColumns(defs: AppColumnDef[]): ColumnsDefine {
   return defs.map((def) => {
     const base: Record<string, unknown> = {
@@ -210,7 +210,7 @@ export function buildColumns(defs: AppColumnDef[]): ColumnsDefine {
       ...(style ? { style } : {}),
       // false 也是有效值（明确不合并），所以只跳过 undefined
       ...(def.mergeCell !== undefined ? { mergeCell: def.mergeCell } : {}),
-      // 默认汇总方式 / 默认分组：VTable 不认识这两个字段，单纯挂在列定义上供组件读取，不会渲染出来
+      // 默认汇总方式 / 默认分组：@visactor/vtable 不认识这两个字段，单纯挂在列定义上供组件读取，不会渲染出来
       ...(def.aggregate ? { aggregate: def.aggregate } : {}),
       ...(def.group ? { group: true } : {}),
       // 兜底口子放最后：写在 columnProps 里的同名配置整体覆盖（不与默认值合并）

@@ -11,22 +11,22 @@ import {ArrowDownOutlined, ArrowUpOutlined, GroupOutlined} from '@ant-design/ico
 import type {ColumnsDefine} from '@visactor/vtable';
 import {SearchComponent} from '@visactor/vtable-search';
 import {type FilterField, type FilterModel, TableFilter} from './TableFilter';
-import {VTable} from './VTable';
+import {GridTable} from './GridTable';
 import {collectGroupableColumns} from './columnBuilder';
 // 类型从模块入口取（type-only，不产生运行时依赖，所以不会与 index → FilterTable 形成循环）
 import type {
     EditCellTrigger,
     TableExportPluginOptions,
-    VTableApi,
-    VTableCellInfo,
-    VTableCellStyleHook,
-    VTableCellTooltipHook,
-    VTableCellValueChangeInfo,
-    VTableExpandableOptions,
-    VTableMenuConfig,
-    VTableSelectedRowChangeInfo,
+    GridTableApi,
+    GridTableCellInfo,
+    GridTableCellStyleHook,
+    GridTableCellTooltipHook,
+    GridTableCellValueChangeInfo,
+    GridTableExpandableOptions,
+    GridTableMenuConfig,
+    GridTableSelectedRowChangeInfo,
     MergeGroupConfig,
-    VTableGroupOptions,
+    GridTableGroupOptions,
 } from './index';
 import {toNumberOrZero} from "@/utils";
 
@@ -36,7 +36,7 @@ export interface FilterTableProps {
     /** 筛选字段定义；不传则不渲染筛选条 */
     filterFields?: FilterField[];
 
-    /** VTable 列定义 */
+    /** GridTable 列定义 */
     columns: ColumnsDefine;
     /** 原始数据 */
     records: Array<Record<string, unknown>>;
@@ -52,7 +52,7 @@ export interface FilterTableProps {
     unfreezeAllOnExceedsMaxWidth?: boolean;
     /**
      * 统计行：静态对象或根据过滤后数据计算的函数。
-     * 主键不用自己填，VTable 会自动补成 SUMMARY_ROW_KEY。
+     * 主键不用自己填，GridTable 会自动补成 SUMMARY_ROW_KEY。
      */
     summary?: Record<string, unknown> | ((records: Array<Record<string, unknown>>) => Record<string, unknown>);
     /**
@@ -80,9 +80,9 @@ export interface FilterTableProps {
     /** 是否允许多选，默认 true。false：只能单选，点新的会替换掉旧的（Ctrl/Shift 多选一并关掉） */
     multiSelect?: boolean;
     /** 单元格样式回调 */
-    cellStyle?: VTableCellStyleHook;
+    cellStyle?: GridTableCellStyleHook;
     /** 单元格悬停提示回调（返回文案即显示 tooltip，与 cellStyle 配套） */
-    cellTooltip?: VTableCellTooltipHook;
+    cellTooltip?: GridTableCellTooltipHook;
     /** 列宽总和不足容器宽度时，是否自动拉宽各列来填满容器；默认 false（右侧留白） */
     autoFillWidth?: boolean;
     /** 可编辑列 */
@@ -90,7 +90,7 @@ export interface FilterTableProps {
     /** 进入编辑的触发方式，默认双击 */
     editCellTrigger?: EditCellTrigger;
     /** 单元格编辑完成回调（含行索引与新值），用于把编辑结果同步回页面 */
-    onCellValueChange?: (info: VTableCellValueChangeInfo) => void;
+    onCellValueChange?: (info: GridTableCellValueChangeInfo) => void;
     /** 行高 */
     rowHeight?: number;
     /** 表头行高 */
@@ -98,15 +98,15 @@ export interface FilterTableProps {
     /** 空数据提示 */
     emptyTip?: string;
     /** 右键菜单 / 表头菜单配置 */
-    menu?: VTableMenuConfig;
-    /** 是否加载中，透传给 VTable 的加载遮罩 */
+    menu?: GridTableMenuConfig;
+    /** 是否加载中，透传给 GridTable 的加载遮罩 */
     loading?: boolean;
-    /** 加载遮罩文案，默认「数据加载中…」；不传则用 VTable 的默认值 */
+    /** 加载遮罩文案，默认「数据加载中…」；不传则用 GridTable 的默认值 */
     loadingTip?: string;
-    /** 导出配置，透传给 VTable 的 TableExportPlugin（不传也能导出） */
+    /** 导出配置，透传给 GridTable 的 TableExportPlugin（不传也能导出） */
     exportOptions?: TableExportPluginOptions;
-    /** 按行展开配置，透传给 VTable（按钮是否有效按行数据判断） */
-    expandable?: VTableExpandableOptions;
+    /** 按行展开配置，透传给 GridTable（按钮是否有效按行数据判断） */
+    expandable?: GridTableExpandableOptions;
 
     /** 分页总数（后端返回） */
     total?: number;
@@ -137,22 +137,22 @@ export interface FilterTableProps {
     onActiveSelectionChange?: (info: { rowCount: number }) => void;
     /**
      * 当前激活行变化，回传整行数据（鼠标点选/框选、键盘上下行移动都会触发）。
-     * 语义与例外见 VTable 的 onSelectedChange（Ctrl+A 与选中清空回传「没有激活行」，点表头不回调）。
+     * 语义与例外见 GridTable 的 onSelectedChange（Ctrl+A 与选中清空回传「没有激活行」，点表头不回调）。
      */
-    onSelectedChange?: (info: VTableSelectedRowChangeInfo) => void;
+    onSelectedChange?: (info: GridTableSelectedRowChangeInfo) => void;
     /** 单元格点击 */
-    onCellClick?: (info: VTableCellInfo) => void;
+    onCellClick?: (info: GridTableCellInfo) => void;
     /** 单元格双击 */
-    onCellDblClick?: (info: VTableCellInfo) => void;
+    onCellDblClick?: (info: GridTableCellInfo) => void;
 }
 
 /**
- * 复合表格组件：CommandBar + TableFilter + Search + VTable + Pagination。
+ * 复合表格组件：CommandBar + TableFilter + Search + GridTable + Pagination。
  *
- * 搜索使用 VTable 官方 SearchComponent，只高亮匹配单元格，不过滤数据行。
- * 通过 ref 可访问 VTable 实例方法（autoFitColumns / repaint / getSelection）。
+ * 搜索使用 @visactor/vtable 官方 SearchComponent，只高亮匹配单元格，不过滤数据行。
+ * 通过 ref 可访问 GridTable 实例方法（autoFitColumns / repaint / getSelection）。
  */
-export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
+export const FilterTable = React.forwardRef<GridTableApi, FilterTableProps>(
     (
         {
             filterFields,
@@ -201,7 +201,7 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
         },
         ref,
     ) => {
-        const tableRef = useRef<VTableApi | null>(null);
+        const tableRef = useRef<GridTableApi | null>(null);
         const searchRef = useRef<SearchComponent | null>(null);
         const [filters, setFilters] = useState<FilterModel>({});
         /**
@@ -343,7 +343,7 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
          * - **不传 `aggregates`**：自动继承列上的 `AppColumnDef.aggregate`，
          *   页面只要在列定义里声明一次，组行与底部统计行的口径就自动一致。
          */
-        const groupConfig = useMemo<VTableGroupOptions | undefined>(() => {
+        const groupConfig = useMemo<GridTableGroupOptions | undefined>(() => {
             if (groupFields.length === 0) return undefined;
             return {
                 fields: groupFields,
@@ -391,7 +391,7 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
             [onPageChange],
         );
 
-        // 向外暴露 VTable 实例方法
+        // 向外暴露 GridTable 实例方法
         useImperativeHandle(
             ref,
             () =>
@@ -402,8 +402,8 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
                         tableRef.current?.getSelection() ?? {rows: [], cells: [], activeCell: null},
                     // 行号 = 数据行下标（0 起、不含表头，跟随显示顺序）；越界返回 undefined，这里不兜底
                     getRowByIndex: (index: number) => tableRef.current?.getRowByIndex(index),
-                    // 表格还没建好时给「没有激活行」——形状与 VTable 内部的 EMPTY_SELECTED_ROW 一致
-                    // （少字段会被 satisfies VTableApi 当场拦住，不会悄悄漂移）
+                    // 表格还没建好时给「没有激活行」——形状与 GridTable 内部的 EMPTY_SELECTED_ROW 一致
+                    // （少字段会被 satisfies GridTableApi 当场拦住，不会悄悄漂移）
                     getActiveRow: () =>
                         tableRef.current?.getActiveRow() ?? {
                             record: undefined,
@@ -414,21 +414,21 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
                             isGroupRow: false,
                         },
                     getTable: () => tableRef.current?.getTable() ?? null,
-                    // 导出是 VTable 内部 TableExportPlugin 的能力，这里一并转发出去。
+                    // 导出是 GridTable 内部 TableExportPlugin 的能力，这里一并转发出去。
                     // 表格还没建好时 tableRef 为 null，返回一个空 Promise，让签名始终是 Promise
-                    // （原先用 `as VTableApi` 把「可能返回 undefined」这一层给断言掉了）
+                    // （原先用 `as GridTableApi` 把「可能返回 undefined」这一层给断言掉了）
                     exportExcel: (fileName?: string) =>
                         tableRef.current?.exportExcel(fileName) ?? Promise.resolve(undefined),
                     exportCsv: (fileName?: string) =>
                         tableRef.current?.exportCsv(fileName) ?? Promise.resolve(undefined),
                     clearSelection: () => tableRef.current?.clearSelection(),
-                    // 行展开：透传到 VTable（没配 expandable 时这些方法是空转）
+                    // 行展开：透传到 GridTable（没配 expandable 时这些方法是空转）
                     expandRow: (rowKey: string) => tableRef.current?.expandRow(rowKey),
                     collapseRow: (rowKey: string) => tableRef.current?.collapseRow(rowKey),
                     collapseAllRows: () => tableRef.current?.collapseAllRows(),
                     isRowExpanded: (rowKey: string) =>
                         tableRef.current?.isRowExpanded(rowKey) ?? false,
-                }) satisfies VTableApi,
+                }) satisfies GridTableApi,
             [],
         );
 
@@ -566,8 +566,8 @@ export const FilterTable = React.forwardRef<VTableApi, FilterTableProps>(
                     </div>
                 </div>
 
-                <div className="vtable-host">
-                    <VTable
+                <div className="grid-table-host">
+                    <GridTable
                         ref={tableRef}
                         columns={columns}
                         records={filteredRecords}

@@ -1,6 +1,6 @@
-import {type AppColumnDef, buildColumns} from "@/components/vtable/columnBuilder.ts";
+import {type AppColumnDef, buildColumns} from "@/components/grid-table/columnBuilder.ts";
 import type {ColumnsDefine} from "@visactor/vtable";
-import type {FilterField} from "@/components/vtable";
+import type {FilterField} from "@/components/grid-table";
 
 /** 可筛选的列：类型决定筛选控件（enum 多选 / date、number 区间 / text 包含） */
 export const yupaiOrderAllGroupFilterFields: FilterField[] = [

@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import type { ColumnsDefine } from '@visactor/vtable';
 import type { EmployeeRecord } from '@/api';
 import { QuickSelectModal } from '../QuickSelectModal';
-import { buildColumns, type AppColumnDef } from '../vtable/columnBuilder';
+import { buildColumns, type AppColumnDef } from '../grid-table/columnBuilder';
 
 export type { EmployeeRecord } from '@/api';
 

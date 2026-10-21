@@ -4,16 +4,16 @@ import {DeleteOutlined} from '@ant-design/icons';
 import dayjs, {type Dayjs} from 'dayjs';
 import {ApiError, employeeApi, yupaiApi, YupaiMachineSizeHeader, type YupaiOrder, type YupaiOrderDto} from '@/api';
 import {
-    VTable,
-    type VTableApi,
-    type VTableCellStyleHook,
-    type VTableCellTooltipHook,
-    type VTableCellValueChangeInfo,
-    type VTableMenuConfig
-} from '@/components/vtable';
+    GridTable,
+    type GridTableApi,
+    type GridTableCellStyleHook,
+    type GridTableCellTooltipHook,
+    type GridTableCellValueChangeInfo,
+    type GridTableMenuConfig
+} from '@/components/grid-table';
 import {EmployeeQuickSelect} from '@/components/quick-select';
 import type {FormMode} from '../command';
-import {alignMenuIcons, toMenuIcon} from '@/components/vtable/menuIcon';
+import {alignMenuIcons, toMenuIcon} from '@/components/grid-table/menuIcon';
 import {
     buildPreorderDetailColumns,
     createDetailRow,
@@ -39,7 +39,7 @@ import {SUPER_ADMIN_USER_ID} from "@/services";
 /**
  * 右键菜单图标：直接用 antd 图标。
  *
- * VTable 的菜单图标要的是字符串（完整 `<svg>` 字符串，它会把内容 innerHTML 进一个 span），
+ * GridTable 的菜单图标要的是字符串（完整 `<svg>` 字符串，它会把内容 innerHTML 进一个 span），
  * 而 antd 图标是 React 组件 —— `toMenuIcon` 就是这一层转换，模块级调用一次即可。
  * 图标自带 1em 尺寸与 currentColor，所以大小跟着菜单字号、颜色跟着文字（高亮时一起变）。
  */
@@ -139,7 +139,7 @@ const buildValues = (record?: YupaiOrder | null): yupaiOrderFormValues => {
 /**
  * 未落库的空白 / 新增行的临时主键。
  *
- * 必须唯一：VTable 用它当 rowKey（重复会导致行错位），页面也靠它定位「编辑的是哪一行」。
+ * 必须唯一：GridTable 用它当 rowKey（重复会导致行错位），页面也靠它定位「编辑的是哪一行」。
  * 用模块级自增而不是行号，弹窗反复开关也不会撞。
  */
 let draftRowSeq = 0;
@@ -245,7 +245,7 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
         const [minWCDate, setMinWCDate] = useState<Dayjs | undefined>(now());
 
         /** 详情表格实例：校验结果变化后要靠它重绘（cellStyle 是 canvas 渲染时读取的） */
-        const tableRef = useRef<VTableApi>(null);
+        const tableRef = useRef<GridTableApi>(null);
 
         const isView = mode === 'view';
         const isEdit = mode === 'edit';
@@ -444,7 +444,7 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
          * 菜单里传递行主键而不是行号，理由见 addDetailRow。
          * 菜单项过一遍 alignMenuIcons：只有「删除行」配了图标，其余项补空白占位才不会文字错位。
          */
-        const detailMenu = useMemo<VTableMenuConfig>(
+        const detailMenu = useMemo<GridTableMenuConfig>(
             () => ({
                 contextMenuItems: ({rowIndex, record}) => {
                     // 复制出来的是新单，明细行可增删（同新增）；只有编辑/查看才禁掉
@@ -478,19 +478,19 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
         /**
          * 编辑提交：把新值同步回页面这份 detailRows（保存时读的就是它）。
          *
-         * 定位用**行主键**而不是 rowIndex —— VTable 回传的 rowIndex 是「当前 records 数组里的位置」，
-         * 而组件接管排序后这个数组已经排过序（见 VTable.tsx 的 rows/ setRecords），页面这份
+         * 定位用**行主键**而不是 rowIndex —— GridTable 回传的 rowIndex 是「当前 records 数组里的位置」，
+         * 而组件接管排序后这个数组已经排过序（见 GridTable.tsx 的 rows/ setRecords），页面这份
          * detailRows 却还是原始顺序，按索引改会写错行。回调里带的 record 就是那一行的原始记录，
          * 取它的主键来定位，排序、增删行之后都准确。
          *
          * 顺带跑一次全表校验：跨行/跨字段规则只有在这里才拿得到完整数据。
          *
          * 需要「编辑前后对比」时，用回调参数里的 previousValue（被编辑那一格的旧值）——
-         * 此刻 detailRows 里那一行已经被 VTable 就地改成新值了，回头读它拿不到旧数据；
+         * 此刻 detailRows 里那一行已经被 GridTable 就地改成新值了，回头读它拿不到旧数据；
          * 要整行的旧状态，`{...record, [field]: previousValue}` 拼一下即可。
          */
         const handleDetailChange = useCallback(
-            ({field, rowIndex, record, value, previousValue}: VTableCellValueChangeInfo) => {
+            ({field, rowIndex, record, value, previousValue}: GridTableCellValueChangeInfo) => {
                 // 定位行一律用行主键 `_id`（与表格的 rowKey、服务层校验的键保持一致）
                 const rowKey = String(record?._id ?? '');
                 const isMCSizeField = field.startsWith('MCSize');
@@ -527,7 +527,7 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
 
 
         /** 校验不通过的单元格标红（cellStyle 由 canvas 渲染时读取，见下面的重绘 effect） */
-        const detailCellStyle: VTableCellStyleHook = useCallback(
+        const detailCellStyle: GridTableCellStyleHook = useCallback(
             ({rowKey, field, isSummaryRow}) => {
                 if (!rowKey || isSummaryRow) return undefined;
                 return cellErrors[cellErrorKey(rowKey, field)]
@@ -541,7 +541,7 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
          * 悬停提示：光有红底用户不知道错在哪，鼠标移上去把服务层给的提示文案显示出来。
          * 与 detailCellStyle 用同一份 cellErrors、同一套行主键判断，所以「红的格子」必然「有提示」。
          */
-        const detailCellTooltip: VTableCellTooltipHook = useCallback(
+        const detailCellTooltip: GridTableCellTooltipHook = useCallback(
             ({rowKey, field, isSummaryRow}) => {
                 if (!rowKey || isSummaryRow) return undefined;
                 return cellErrors[cellErrorKey(rowKey, field)];
@@ -1099,7 +1099,7 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                         </div>
 
                         <div className="preorder-detail-grid">
-                            <VTable
+                            <GridTable
                                 ref={tableRef}
                                 columns={detailColumns}
                                 records={detailRows as unknown as Array<Record<string, unknown>>}

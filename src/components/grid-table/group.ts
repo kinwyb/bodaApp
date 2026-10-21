@@ -3,14 +3,14 @@ import { isBlank, toNumberOrZero } from '@/utils';
 /**
  * 树形分组（组行 + 明细行），支持多层。
  *
- * 为什么不用 VTable 原生的 `groupBy`：原生分组的组行是**整行合并的空壳对象**
+ * 为什么不用 @visactor/vtable 原生的 `groupBy`：原生分组的组行是**整行合并的空壳对象**
  * （`{ vtableMerge: true, vtableMergeName, children }`，见源码 `data/CachedDataSource.js`
  * 的 `dealWithGroup`），组行上没有任何业务字段，其它列取不到值 —— 想在组行显示
  * 「款式数量合计 / 工时合计」这类分列汇总就做不到（`groupTitleFieldFormat` 只能返回
  * 一整段文本，还得塞在合并格子里）。
  *
  * 所以这里走**标准树形表格**：把扁平 records 加工成 `父行(带汇总字段) + children` 的树，
- * 配合 `tree: true` 的列，VTable 会自动画展开箭头、缩进子行。组行就是一普通行，
+ * 配合 `tree: true` 的列，@visactor/vtable 会自动画展开箭头、缩进子行。组行就是一普通行，
  * 每列的汇总值都是真实字段值，样式/对齐/格式化全部走列定义那一套。
  *
  * 与 `mergeGroup`（合并单元格）是两条路：那个只做视觉合并、不能收起；这个是真正的层级。
@@ -62,12 +62,12 @@ export interface GroupAggregate {
   aggregate?: (records: readonly GroupSourceRecord[], field: string) => unknown;
 }
 
-export interface VTableGroupOptions {
+export interface GridTableGroupOptions {
   /**
    * 单字段分组，等价于 `fields: [field]`。与 `fields` 二选一（`fields` 优先）。
    *
    * **必须有一列绑定该字段**，组件会把那一列设成树形展开列
-   * （VTable 要求至少一列 `tree: true` 才会走层级模式），展开箭头就画在它的文字左侧。
+   * （@visactor/vtable 要求至少一列 `tree: true` 才会走层级模式），展开箭头就画在它的文字左侧。
    */
   field?: string;
   /**
@@ -110,7 +110,7 @@ export interface VTableGroupOptions {
   ) => string;
   /**
    * 默认展开层级：1 = 只显示最外层组行（默认）、2 = 展开到第二层、……
-   * 传 `Number.MAX_SAFE_INTEGER` 或很大的值即全部展开。对应 VTable 的 `hierarchyExpandLevel`。
+   * 传 `Number.MAX_SAFE_INTEGER` 或很大的值即全部展开。对应 @visactor/vtable 的 `hierarchyExpandLevel`。
    */
   expandLevel?: number;
   /**
@@ -133,7 +133,7 @@ export interface VTableGroupOptions {
 export type GroupSourceRecord = Record<string, unknown>;
 
 /** 取实际生效的分组字段（`fields` 优先，其次 `field`） */
-export function resolveGroupFields(options: VTableGroupOptions | undefined): string[] {
+export function resolveGroupFields(options: GridTableGroupOptions | undefined): string[] {
   if (!options) return [];
   if (options.fields && options.fields.length > 0) return options.fields.slice();
   return options.field ? [options.field] : [];
@@ -149,7 +149,7 @@ export function resolveGroupFields(options: VTableGroupOptions | undefined): str
  */
 export function buildGroupRows(
   records: readonly GroupSourceRecord[],
-  options: VTableGroupOptions,
+  options: GridTableGroupOptions,
   rowKey = 'id',
 ): GroupSourceRecord[] {
   const fields = resolveGroupFields(options);
@@ -162,7 +162,7 @@ function buildLevel(
   fields: readonly string[],
   level: number,
   parentPath: readonly string[],
-  options: VTableGroupOptions,
+  options: GridTableGroupOptions,
   rowKey: string,
 ): GroupSourceRecord[] {
   const field = fields[level];
@@ -223,7 +223,7 @@ function defaultTitle(value: unknown): string {
 
 function sortBuckets(
   groups: Array<{ value: unknown; rows: GroupSourceRecord[] }>,
-  sort: VTableGroupOptions['sort'],
+  sort: GridTableGroupOptions['sort'],
 ): Array<{ value: unknown; rows: GroupSourceRecord[] }> {
   if (!sort) return groups;
   const direction = sort === 'desc' ? -1 : 1;
@@ -237,7 +237,7 @@ function sortBuckets(
   });
 }
 
-function normalizeAggregates(input: VTableGroupOptions['aggregates']): GroupAggregate[] {
+function normalizeAggregates(input: GridTableGroupOptions['aggregates']): GroupAggregate[] {
   if (!input || input.length === 0) return [];
   return input.map((item) =>
     typeof item === 'string' ? { field: item, type: 'sum' } : { type: 'sum', ...item },
@@ -323,7 +323,7 @@ export function isGroupRow(record: unknown): boolean {
  */
 export function buildAggregateRow(
   records: readonly GroupSourceRecord[],
-  aggregates: VTableGroupOptions['aggregates'],
+  aggregates: GridTableGroupOptions['aggregates'],
 ): GroupSourceRecord {
   const row: GroupSourceRecord = {};
   for (const item of normalizeAggregates(aggregates)) {

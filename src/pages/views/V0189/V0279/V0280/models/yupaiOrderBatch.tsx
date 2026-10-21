@@ -1,6 +1,6 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {App, Button, Checkbox, InputNumber, Modal} from 'antd';
-import {VTable, type VTableApi, type VTableCellValueChangeInfo,} from '@/components/vtable';
+import {GridTable, type GridTableApi, type GridTableCellValueChangeInfo,} from '@/components/grid-table';
 import {ApiError, yupaiApi, type YupaiOrder} from '@/api';
 import {formatDate, isDebugEnv, toNumberOrNull, toNumberOrZero, toStringOrEmpty} from '@/utils';
 import {
@@ -35,7 +35,7 @@ export interface YupaiOrderBatchModalProps {
  * 几个刻意为之的点：
  * - **空白行跟着校验走**：只有上一行单行通过（日期 + 比例都填对）且合计还没到 100 时
  *   才在下面留一行空白；合计满了就不再给新行（见 yupaiOrderBatchColumns 的 rebuildBatchTail）；
- * - **行的定位一律用主键 `_id`**：VTable 回传的 rowIndex 是「当前 records 里的位置」，
+ * - **行的定位一律用主键 `_id`**：GridTable 回传的 rowIndex 是「当前 records 里的位置」，
  *   排序/增删后与页面这份 rows 对不上（本项目详情表格踩过）；
  * - **日期只有一份存储形态**：按月选也存该月 1 日（见 yupaiOrderBatchColumns 的说明），
  *   保存时不用按模式分叉。
@@ -45,7 +45,7 @@ const YupaiOrderBatchModal: React.FC<YupaiOrderBatchModalProps> = ({open, order,
     const [rows, setRows] = useState<YupaiOrderBatchRow[]>([]);
     /** 按日期（true）还是按月（false）；默认值见 shouldDefaultByDate */
     const [byDate, setByDate] = useState(false);
-    const tableRef = useRef<VTableApi | null>(null);
+    const tableRef = useRef<GridTableApi | null>(null);
 
     /**
      * 打开时按这一单重新铺数据。
@@ -71,13 +71,13 @@ const YupaiOrderBatchModal: React.FC<YupaiOrderBatchModalProps> = ({open, order,
     /**
      * 编辑提交：把新值同步回页面这份 rows（保存时读的是它）。
      *
-     * VTable 会**就地改写**它拿到的 record 对象，所以这里必须出新对象，
+     * GridTable 会**就地改写**它拿到的 record 对象，所以这里必须出新对象，
      * 否则 rows 的引用没变、React 不会重渲染，界面上看到的是「改了但没生效」。
      *
      * 末尾空白行交给 rebuildBatchTail：上一行通过校验且合计 < 100 才留，
      * 否则收起（例如把比例改成让合计到 100，空白行随之消失）。
      */
-    const handleCellChange = useCallback(({field, rowIndex, record, value}: VTableCellValueChangeInfo) => {
+    const handleCellChange = useCallback(({field, rowIndex, record, value}: GridTableCellValueChangeInfo) => {
         const rowKey = String(record?._id ?? '');
         setRows((prev) => {
             const next = prev.map((row, index) => {
@@ -250,7 +250,7 @@ const YupaiOrderBatchModal: React.FC<YupaiOrderBatchModalProps> = ({open, order,
                     overflow: 'hidden',
                 }}
             >
-                <VTable
+                <GridTable
                     ref={tableRef}
                     columns={columns}
                     records={rows}

@@ -5,7 +5,7 @@ import type { ColumnsDefine } from '@visactor/vtable';
 import type { Dayjs } from 'dayjs';
 import { ApiError, viewApi, type ViewRow, type ViewRowQuery, type ViewRowStatus } from '@/api';
 import { usePermission } from '@/store/permission-context';
-import { VTable } from '@/components/vtable';
+import { GridTable } from '@/components/grid-table';
 import { PageBreadcrumb } from '@/components/PageBreadcrumb';
 import type { ViewPageProps } from './types';
 
@@ -184,8 +184,8 @@ const ViewPage: React.FC<ViewPageProps> = ({ view, trail }) => {
         </Form.Item>
       </Form>
 
-      <div className="vtable-host">
-        <VTable
+      <div className="grid-table-host">
+        <GridTable
           columns={columns}
           records={dataSource as unknown as Array<Record<string, unknown>>}
           rowKey="id"

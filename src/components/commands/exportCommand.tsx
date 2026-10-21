@@ -3,7 +3,7 @@ import {App} from 'antd';
 import {ExportOutlined} from '@ant-design/icons';
 import dayjs from 'dayjs';
 import type {CommandItem} from '@/components/CommandBar';
-import type {VTableApi} from '@/components/vtable';
+import type {GridTableApi} from '@/components/grid-table';
 import type {CommandBaseContext, CommandContext, CommandFactory} from './types';
 import {toStringOrEmpty} from '@/utils';
 
@@ -44,7 +44,7 @@ function buildExportItem({message, tableRef}: ExportCommandContext, filePrefix?:
  * 「在 hook 回调里调 hook」，会打乱外层 hook 顺序（详见 createTableExportCommand 的注释）。
  */
 export function useTableExportCommand(
-    tableRef: RefObject<VTableApi | null>,
+    tableRef: RefObject<GridTableApi | null>,
     filePrefix?: string,
 ): CommandItem[] {
     const {message, modal} = App.useApp();

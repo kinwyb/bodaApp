@@ -1,11 +1,11 @@
 import {Modal} from "antd";
-import {VTable, type VTableCellStyle, type VTableCellStyleHook} from "@/components/vtable";
+import {GridTable, type GridTableCellStyle, type GridTableCellStyleHook} from "@/components/grid-table";
 import React, {useCallback, useEffect, useMemo, useState} from "react";
 import {COLUMNS} from "../columns.ts";
 import type {YupaiOrder} from "@/api";
 import {yupaiService} from "@/services/yupai.ts";
 import type {ColumnsDefine} from "@visactor/vtable";
-import {type AppColumnDef, buildColumns} from "@/components/vtable/columnBuilder";
+import {type AppColumnDef, buildColumns} from "@/components/grid-table/columnBuilder";
 import {toNumberOrZero} from "@/utils";
 
 export interface yupaiOrderLogModalProps {
@@ -53,11 +53,11 @@ export const YupaiOrderLogModal: React.FC<yupaiOrderLogModalProps> = ({
         void loadData();
     }, [open, loadData])
 
-    const cellStyle: VTableCellStyleHook = useCallback(
+    const cellStyle: GridTableCellStyleHook = useCallback(
         ({rowKey, record, isSummaryRow, rowIndex}) => {
             // 统计行 / 空白补足行不参与业务标记
             if (!rowKey || isSummaryRow || !record) return undefined;
-            const style: VTableCellStyle = {};
+            const style: GridTableCellStyle = {};
             if (record && rowIndex === 0) {
                 style.textColor = '#389e0d';
             } else {
@@ -99,7 +99,7 @@ export const YupaiOrderLogModal: React.FC<yupaiOrderLogModalProps> = ({
                 borderRadius: "4px",
                 overflow: "hidden"
             }}>
-            <VTable columns={columns} records={dataSource} multiSelect={false} cellStyle={cellStyle} rowKey={"ID"}/>
+            <GridTable columns={columns} records={dataSource} multiSelect={false} cellStyle={cellStyle} rowKey={"ID"}/>
         </div>
     </Modal>)
 }

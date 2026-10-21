@@ -3,14 +3,14 @@ import {App} from 'antd';
 import {ApiError, yupaiApi, YupaiMachineSizeHeader, type YupaiOrder, type YupaiOrderQuery} from '@/api';
 import {CommandBar} from '@/components/CommandBar';
 import type {
-    VTableApi,
-    VTableCellStyle,
-    VTableCellStyleHook,
-    VTableExpandableOptions,
-    VTableMenuConfig,
-    VTableSelectedRowChangeInfo,
-} from '@/components/vtable';
-import {FilterTable} from '@/components/vtable';
+    GridTableApi,
+    GridTableCellStyle,
+    GridTableCellStyleHook,
+    GridTableExpandableOptions,
+    GridTableMenuConfig,
+    GridTableSelectedRowChangeInfo,
+} from '@/components/grid-table';
+import {FilterTable} from '@/components/grid-table';
 import {PageBreadcrumb} from '@/components/PageBreadcrumb';
 import type {ViewPageProps} from '@/pages/types';
 import {yupaiService} from '@/services/yupai.ts';
@@ -51,7 +51,7 @@ const yupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
     const [formOpen, setFormOpen] = useState(false);
     const [formMode, setFormMode] = useState<FormMode>('add');
     const [editingRecord, setEditingRecord] = useState<YupaiOrder | null>(null);
-    const tableRef = useRef<VTableApi | null>(null);
+    const tableRef = useRef<GridTableApi | null>(null);
     const [logOpen, setLogOpen] = useState(false);
     /** 日志弹窗看的是哪一单：打开时记下来，弹窗按它取数据（不是「当前激活行」——两者不该绑定） */
     const [logOrderId, setLogOrderId] = useState('');
@@ -105,11 +105,11 @@ const yupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
         })();
     }, []);
 
-    const cellStyle: VTableCellStyleHook = useCallback(
+    const cellStyle: GridTableCellStyleHook = useCallback(
         ({rowKey, field, record, isSummaryRow}) => {
             // 统计行 / 空白补足行不参与业务标记
             if (!rowKey || isSummaryRow) return undefined;
-            const style: VTableCellStyle = {};
+            const style: GridTableCellStyle = {};
             if (record && (record as YupaiOrder).Status === 0) {
                 style.textColor = '#389e0d';
             }
@@ -146,7 +146,7 @@ const yupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
      * 换页 / 换数据时表格会回写一次「没有激活行」，这里跟着清空，不会留着上一页的过期行。
      */
     const handleSelectedChange = useCallback(
-        (info: VTableSelectedRowChangeInfo) => {
+        (info: GridTableSelectedRowChangeInfo) => {
             const record = info.record as YupaiOrder | undefined;
             // 统计行、以及不属于当前页数据的行都不算（与 getActiveRows 同一条过滤）
             if (!record || info.isSummaryRow) {
@@ -241,7 +241,7 @@ const yupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
      * 依赖留空：`renderExpanded` 用的是这一行自己的 `record.Batchs`，不读页面上任何状态。
      * 挂上 `dataSource` 只会让每次列表刷新都重建配置、连带触发一次 updateOption。
      */
-    const expandable = useMemo<VTableExpandableOptions>(
+    const expandable = useMemo<GridTableExpandableOptions>(
         () => ({
             rowExpandable: ({record}) => !isBlank(record.Batchs),
             height: 260,
@@ -259,7 +259,7 @@ const yupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
     );
 
     /** 右键菜单：数据行给业务操作，统计行不弹，表头/空白处只给通用项 */
-    const tableMenu = useMemo<VTableMenuConfig>(
+    const tableMenu = useMemo<GridTableMenuConfig>(
         () => ({
             contextMenuItems: ({record, isSummaryRow}) => {
                 if (isSummaryRow) return [];

@@ -1,10 +1,10 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from "react";
 import type {BIList} from "@/api/modules/bi.ts";
 import type {ColumnsDefine} from "@visactor/vtable";
-import {VTable, type VTableApi} from "@/components/vtable";
+import {GridTable, type GridTableApi} from "@/components/grid-table";
 import {biService} from "@/services/bi.ts";
 import {DataTable} from "@/services/sql.ts";
-import {buildColumns} from "@/components/vtable/columnBuilder.ts";
+import {buildColumns} from "@/components/grid-table/columnBuilder.ts";
 import {toNumberOrZero} from "@/utils";
 import {Empty, Typography} from "antd";
 
@@ -22,7 +22,7 @@ export const BITable: React.FC<BITableProps> = ({node}) => {
      * （node 刚变到 effect 真正发起请求之间还隔着一帧，那一帧要靠它顶住 loading）
      */
     const [loadedNode, setLoadedNode] = useState<BIList>();
-    const tableRef = useRef<VTableApi | null>(null);
+    const tableRef = useRef<GridTableApi | null>(null);
     const [summaryColumns, setSummaryColumns] = useState<string[]>([]);
 
     const loadData = useCallback(async () => {
@@ -95,7 +95,7 @@ export const BITable: React.FC<BITableProps> = ({node}) => {
 
     return (
         <>
-            <VTable ref={tableRef} columns={columns} records={datas} loading={loading || pending}
+            <GridTable ref={tableRef} columns={columns} records={datas} loading={loading || pending}
                     summary={resolvedSummary}/>
         </>
     )

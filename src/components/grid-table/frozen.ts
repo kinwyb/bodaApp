@@ -1,7 +1,7 @@
 /**
  * 底部冻结行（统计行固定在表格底部）。
  *
- * VTable 1.26 的 bottomFrozenRowCount 不从构造参数读取，只认 internalProps，
+ * @visactor/vtable 1.26 的 bottomFrozenRowCount 不从构造参数读取，只认 internalProps，
  * 且只能在场景 clear 状态下写入。
  * 因此顺序必须是：clearCells → 赋值 → createSceneGraph。
  */
@@ -53,7 +53,7 @@ export function applyBottomFrozen(table: ListTable, count: number): void {
   }
 }
 
-/** VTable 的内部渲染是异步的，放到下一帧应用，避免被它自己重置 */
+/** @visactor/vtable 的内部渲染是异步的，放到下一帧应用，避免被它自己重置 */
 export function scheduleBottomFrozen(table: ListTable, count: number): void {
   requestAnimationFrame(() => applyBottomFrozen(table, count));
 }

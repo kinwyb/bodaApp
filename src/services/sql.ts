@@ -1,5 +1,5 @@
 import type {SimpleDataTable} from "@/api/modules/sql.ts";
-import type {AppColumnDef, ColumnDataType} from "@/components/vtable/columnBuilder.ts";
+import type {AppColumnDef, ColumnDataType} from "@/components/grid-table/columnBuilder.ts";
 
 /**
  * 数据表

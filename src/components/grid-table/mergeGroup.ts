@@ -3,9 +3,9 @@ import { isBlank } from '@/utils';
 /**
  * 分组合并（表级）配置。
  *
- * 与列级 `mergeCell`（boolean / 回调，VTable 原生）是两条路：
- * 这里的分组会预扫描数据、建出「每行属于哪一块」的索引，最终以 `customMergeCell` 交给 VTable。
- * 好处是一次 O(rows) 扫描、每格 O(1) 查询；代价是索引要自己跟着数据重建（由 VTable 组件负责）。
+ * 与列级 `mergeCell`（boolean / 回调，@visactor/vtable 原生）是两条路：
+ * 这里的分组会预扫描数据、建出「每行属于哪一块」的索引，最终以 `customMergeCell` 交给 @visactor/vtable。
+ * 好处是一次 O(rows) 扫描、每格 O(1) 查询；代价是索引要自己跟着数据重建（由 GridTable 组件负责）。
  */
 export interface MergeGroupConfig {
   /**
@@ -88,7 +88,7 @@ export function buildMergeGroupIndex(
     for (let row = 1; row <= records.length; row++) {
       const boundary = row === records.length || !sameGroup(records[row - 1], records[row], fields);
       if (!boundary) continue;
-      // 单行块不值得合并（VTable 对单格 range 也会走一遍合并逻辑）
+      // 单行块不值得合并（@visactor/vtable 对单格 range 也会走一遍合并逻辑）
       if (row - 1 > start) {
         const range: MergeGroupRange = { start, end: row - 1 };
         for (let r = start; r <= range.end; r++) slots[r] = range;

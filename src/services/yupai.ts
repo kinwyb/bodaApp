@@ -107,7 +107,7 @@ export function toYupaiOrderChangeDetail(dto: YupaiOrderChangeDetailDto): YupaiO
  *
  * 刻意写成 `type`（对象类型字面量）而不是 `interface`：表格组件的 `records` 是
  * `Array<Record<string, unknown>>`，而 **interface 不会隐式获得字符串索引签名**，
- * 直接传给 FilterTable / VTable 会报
+ * 直接传给 FilterTable / GridTable 会报
  * `Index signature for type 'string' is missing in type 'YupaiAllGroup'`（TS2322）。
  * 对象类型字面量则会隐式带索引签名（microsoft/TypeScript#15300），所以能直接传。
  * 同类 DTO（如 `YupaiOrderChangeDetail`）也都是 `type`。
@@ -353,7 +353,7 @@ export function isEmptyYupaiOrder(row: Record<string, unknown> | null): boolean 
  * 返回「行主键 → 字段 → 提示文案」，没有问题时返回空对象。
  *
  * 主键取详情行的 YupaiOrderID 而**不是行号**：详情表格支持点列头排序，
- * VTable 回传的行号是「当前 records 数组（已被排序）里的位置」，
+ * GridTable 回传的行号是「当前 records 数组（已被排序）里的位置」，
  * 而页面改的是未排序的那份数据 —— 用行号定位，排序后就会写错行。
  * 主键与行序无关，排序、增删行之后依然精确对应。
  *

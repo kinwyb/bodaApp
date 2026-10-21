@@ -1,6 +1,6 @@
 /** 表头排序：状态类型与本地比较规则（排序在组件内完成，统计行不参与） */
 
-export interface VTableSortState {
+export interface GridTableSortState {
   field: string;
   order: 'asc' | 'desc';
 }

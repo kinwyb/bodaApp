@@ -1,8 +1,8 @@
 import type { ReactElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import type { VTableMenuItem } from './menu';
+import type { GridTableMenuItem } from './menu';
 
-/** VTable 菜单图标（`MenuListItem.icon` 的形态） */
+/** GridTable 菜单图标（`MenuListItem.icon` 的形态） */
 export interface MenuIcon {
   width?: number;
   height?: number;
@@ -10,12 +10,12 @@ export interface MenuIcon {
 }
 
 /**
- * VTable 菜单图标：`MenuListItem.icon` 要的是**字符串**，而 antd 图标是 React 组件，
+ * GridTable 菜单图标：`MenuListItem.icon` 要的是**字符串**，而 antd 图标是 React 组件，
  * 中间差一次「渲染成 HTML 字符串」—— 就是这里做的事。
  *
  * ```tsx
  * import { DeleteOutlined } from '@ant-design/icons';
- * import { toMenuIcon } from '@/components/vtable/menuIcon';
+ * import { toMenuIcon } from '@/components/grid-table/menuIcon';
  *
  * const MENU_ICON_DELETE = toMenuIcon(<DeleteOutlined />);
  * // 菜单项：{ text: '删除行', menuKey: 'deleteRow', icon: MENU_ICON_DELETE }
@@ -27,9 +27,9 @@ export interface MenuIcon {
  * 与 `fill="currentColor"`（跟随文字色，鼠标高亮菜单项时会一起变）。
  * 想单独调大小就给图标传 style：`toMenuIcon(<DeleteOutlined style={{fontSize: 18}} />)`。
  *
- * ⚠️ 产出里会带一层 antd 自己的 `<span class="anticon">`（VTable 把它塞进菜单项的
+ * ⚠️ 产出里会带一层 antd 自己的 `<span class="anticon">`（@visactor/vtable 把它塞进菜单项的
  * 图标容器里，显示不受影响），所以 **`icon.width` / `icon.height` 不生效** ——
- * VTable 是把这两个值写到图标容器的第一个子元素上，而第一个子元素是那个 span、
+ * @visactor/vtable 是把这两个值写到图标容器的第一个子元素上，而第一个子元素是那个 span、
  * 不是 svg。要改尺寸请用上面的 style 写法。
  */
 export function toMenuIcon(icon: ReactElement): MenuIcon {
@@ -39,7 +39,7 @@ export function toMenuIcon(icon: ReactElement): MenuIcon {
 /**
  * 空白占位图标：尺寸与 antd 图标一致（1em），但没有内容，完全透明。
  *
- * 用途是**对齐**：VTable 把图标单独占一列，同一份菜单里若有的项有图标、有的没有，
+ * 用途是**对齐**：@visactor/vtable 把图标单独占一列，同一份菜单里若有的项有图标、有的没有，
  * 没图标的项文字就会顶到最左边，看起来错位。给这些项补上这个占位即可。
  * 一般不用手写，交给 `alignMenuIcons` 自动补。
  */
@@ -65,7 +65,7 @@ export const BLANK_MENU_ICON: MenuIcon = {
  *
  * 注意它只处理**一层**：有 `children` 的子菜单要另外传进去处理。
  */
-export function alignMenuIcons(items: VTableMenuItem[]): VTableMenuItem[] {
+export function alignMenuIcons(items: GridTableMenuItem[]): GridTableMenuItem[] {
   const hasIcon = items.some(
     (item) => typeof item === 'object' && Boolean(item.icon?.svg),
   );

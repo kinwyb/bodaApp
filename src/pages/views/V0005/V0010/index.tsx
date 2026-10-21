@@ -4,7 +4,7 @@ import { PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons'
 import type { ColumnsDefine } from '@visactor/vtable';
 import { ApiError, viewApi, type ViewRow, type ViewRowQuery, type ViewRowStatus } from '@/api';
 import { usePermission } from '@/store/permission-context';
-import { VTable } from '@/components/vtable';
+import { GridTable } from '@/components/grid-table';
 import { AuthButton } from '@/components/Permission';
 import type { ViewPageProps } from '@/pages/types';
 import { PageBreadcrumb } from '@/components/PageBreadcrumb';
@@ -176,8 +176,8 @@ const DepartmentPage: React.FC<ViewPageProps> = ({ view, trail }) => {
         )}
       </Form>
 
-      <div className="vtable-host">
-        <VTable
+      <div className="grid-table-host">
+        <GridTable
           columns={columns}
           records={dataSource as unknown as Array<Record<string, unknown>>}
           rowKey="id"

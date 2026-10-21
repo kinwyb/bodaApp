@@ -13,7 +13,7 @@ html, body, #root {
 /*
  * 关掉「左右滑动过头 → 浏览器前进/后退」的手势（触控板双指横滑、触摸屏边缘滑动）。
  *
- * 表格是 canvas 自绘的横向滚动，浏览器看不到 VTable 内部的滚动容器，
+ * 表格是 canvas 自绘的横向滚动，浏览器看不到 @visactor/vtable 内部的滚动容器，
  * 于是横向手势一路冒泡到根滚动条，滚到边界后被识别成历史导航，
  * 用户一不小心就被带回上一页、页面状态全丢。
  *
@@ -27,7 +27,7 @@ body {
 
 .main-sider-menu,
 .main-tabs > .ant-tabs-body-holder,
-.vtable-host,
+.grid-table-host,
 .quick-select-table,
 .preorder-detail-grid {
   overscroll-behavior-x: none;
@@ -225,7 +225,7 @@ body {
   flex: 0 0 auto;
 }
 
-.vtable-host {
+.grid-table-host {
   flex: 1;
   min-height: 0;
   overflow: hidden;
@@ -385,12 +385,12 @@ body {
 }
 
 /*
-  表格加载遮罩（VTable 组件的 loading prop）：必须不透明。
-  表格的 emptyTip（「暂无数据」的图标和文字）是 VTable 用 canvas 画在画布上的，不是独立 DOM，
+  表格加载遮罩（GridTable 组件的 loading prop）：必须不透明。
+  表格的 emptyTip（「暂无数据」的图标和文字）是 @visactor/vtable 用 canvas 画在画布上的，不是独立 DOM，
   z-index 压不下去 —— 半透明遮罩会让它透出来和这里的文案叠成一团，两个都看不清。
-  分隔线与定位在 VTable 组件里（那层 wrapper 自己就是 position: relative）。
+  分隔线与定位在 GridTable 组件里（那层 wrapper 自己就是 position: relative）。
 */
-.vtable-loading {
+.grid-table-loading {
   position: absolute;
   inset: 0;
   z-index: 2;
@@ -409,19 +409,19 @@ body {
   这里特异性比 antd 自己的 `.ant-spin-lg` 高，所以能盖过 size="large" 的值；
   万一将来变量改名失效，也还有 size="large" 的 32px 兜底，不会退回原来那个小圈。
 */
-.vtable-loading .ant-spin {
+.grid-table-loading .ant-spin {
   --ant-spin-dot-holder-size: 40px;
 }
 
 /*
-  行展开的覆盖层（VTable 组件的 expandable prop）：由组件动态创建，挂在表格容器里。
+  行展开的覆盖层（GridTable 组件的 expandable prop）：由组件动态创建，挂在表格容器里。
   宿主是 position:absolute; inset:0; pointer-events:none 的透明层（滚出视口的展开区由它裁掉），
   所以这里只负责「覆盖层本身」：绝对定位由 JS 按行矩形现算，overflow:auto 让内容超高时
   在展开区内部滚动（滚到底再把滚轮透给画布，逻辑在 expandable.ts 的 onWheel）。
   pointer-events:auto 把交互从「穿透层」手里收回来；z-index 用 1，压在画布上、
   仍在 loading 遮罩（z-index:2）之下。
 */
-.vtable-expand-overlay {
+.grid-table-expand-overlay {
   position: absolute;
   box-sizing: border-box;
   overflow: auto;
@@ -435,37 +435,37 @@ body {
 
 /*
  * 展开区里的 Tabs 要撑满高度（里面的表格才画得出来）。
- * antd 的 Tabs 默认按内容排高度，而放进展开区的 VTable 根节点是 height:100% ——
+ * antd 的 Tabs 默认按内容排高度，而放进展开区的 GridTable 根节点是 height:100% ——
  * 高度传不下去它就量不到可用高度、画不出 canvas，表现是「tab 在区域中间、里面一片空白」。
  *
  * ⚠️ 类名按 **antd 6** 的真实结构写：内容区是 `ant-tabs-body-holder` / `ant-tabs-body`
  *    （5.x 叫 content-holder / content，照抄旧文档会一条都不命中），而且 tabpane
  *    **没有自己的类名**，只能按 content 的直接子元素选。升级 antd 时回来核对这一段。
  */
-.vtable-expand-tabs {
+.grid-table-expand-tabs {
   height: 100%;
   display: flex;
   flex-direction: column;
 }
 
-.vtable-expand-tabs .ant-tabs-body-holder {
+.grid-table-expand-tabs .ant-tabs-body-holder {
   flex: 1;
   min-height: 0;
 }
 
-.vtable-expand-tabs .ant-tabs-body,
-.vtable-expand-tabs .ant-tabs-content,
-.vtable-expand-tabs .ant-tabs-content > * {
+.grid-table-expand-tabs .ant-tabs-body,
+.grid-table-expand-tabs .ant-tabs-content,
+.grid-table-expand-tabs .ant-tabs-content > * {
   height: 100%;
 }
 
 /* 标签头在展开区里太占地方：默认 tab 上下各 12px 内边距（nav 高 46px），
    下面还压着 16px 间距，一共吃掉 62px。压到 34px 左右，把空间让给表格。 */
-.vtable-expand-tabs .ant-tabs-nav {
+.grid-table-expand-tabs .ant-tabs-nav {
   margin: 0;
 }
 
-.vtable-expand-tabs .ant-tabs-tab {
+.grid-table-expand-tabs .ant-tabs-tab {
   padding: 6px 0;
 }
 

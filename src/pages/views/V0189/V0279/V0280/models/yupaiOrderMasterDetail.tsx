@@ -1,6 +1,6 @@
 import React, {useMemo} from 'react';
-import {VTable} from "@/components/vtable";
-import {buildColumns} from "@/components/vtable/columnBuilder.ts";
+import {GridTable} from "@/components/grid-table";
+import {buildColumns} from "@/components/grid-table/columnBuilder.ts";
 import {toNumberOrZero} from "@/utils";
 import {Tabs, type TabsProps} from "antd";
 
@@ -12,11 +12,11 @@ export interface YupaiOrderMasterDetailProps {
 /**
  * 展开区里的明细内容：一个 tab 里放表格。
  *
- * ⚠️ 高度必须一路传下去：VTable 的根节点是 `height: 100%`，只要祖先里有一环没有确定高度，
+ * ⚠️ 高度必须一路传下去：GridTable 的根节点是 `height: 100%`，只要祖先里有一环没有确定高度，
  * 它就量不到高度、画不出 canvas（表现为表格整个空白）。所以：
  * - 外层**不能**用 `display:flex + alignItems:center` —— 那会让 Tabs 在垂直方向居中、
  *   高度只按内容算（看起来就是「tab 悬在区域中间、里面什么都没有」）；
- * - Tabs 也不会自己撑满，得靠 `.vtable-expand-tabs` 那几条规则把 `height:100%` 与
+ * - Tabs 也不会自己撑满，得靠 `.grid-table-expand-tabs` 那几条规则把 `height:100%` 与
  *   `flex:1` 逐层下发到 tabpane（见 index.css）。
  */
 const YupaiOrderMasterDetail: React.FC<YupaiOrderMasterDetailProps> = ({records}) => {
@@ -40,13 +40,13 @@ const YupaiOrderMasterDetail: React.FC<YupaiOrderMasterDetailProps> = ({records}
         {
             key: '1',
             label: '分批信息',
-            children: <VTable columns={columns} records={records}/>,
+            children: <GridTable columns={columns} records={records}/>,
         }
     ];
 
     return (
         <div style={{height: '100%', padding: 10, boxSizing: 'border-box'}}>
-            <Tabs className="vtable-expand-tabs" defaultActiveKey="1" items={items}/>
+            <Tabs className="grid-table-expand-tabs" defaultActiveKey="1" items={items}/>
         </div>
     );
 };

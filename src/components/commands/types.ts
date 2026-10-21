@@ -1,7 +1,7 @@
 import {App} from 'antd';
 import type {RefObject} from 'react';
 import type {CommandItem} from '@/components/CommandBar';
-import type {VTableApi} from '@/components/vtable';
+import type {GridTableApi} from '@/components/grid-table';
 
 /** antd App.useApp() 的返回类型（message / modal / notification） */
 type AppApi = ReturnType<typeof App.useApp>;
@@ -23,10 +23,10 @@ export interface CommandBaseContext {
     /**
      * 表格实例：命令里要直接操作表格（清空选中、取选中行、重绘）时用。
      *
-     * 命令条目前都配着 VTable 页面，所以放在基础能力里；将来真出现「纯按钮页（没有表格）」，
+     * 命令条目前都配着 GridTable 页面，所以放在基础能力里；将来真出现「纯按钮页（没有表格）」，
      * 把它挪进页面的 TExtra 即可 —— 命令条本身不关心有没有表格。
      */
-    tableRef: RefObject<VTableApi | null>;
+    tableRef: RefObject<GridTableApi | null>;
 }
 
 /**

@@ -1,9 +1,9 @@
 import type {ColumnsDefine} from '@visactor/vtable';
-import {buildColumns, type AppColumnDef} from '@/components/vtable/columnBuilder';
+import {buildColumns, type AppColumnDef} from '@/components/grid-table/columnBuilder';
 import {
     registerAntdInputEditor,
     registerAntdNumberEditor, registerAntdSelectEditor,
-} from '@/components/vtable/editors/register';
+} from '@/components/grid-table/editors/register';
 import {yupaiApi, YupaiMachineSizeHeader} from '@/api/modules/yupai';
 import {DETAIL_FIELD_RULES, yupaiService} from '@/services/yupai';
 import {isBlank, toStringOrEmpty} from "@/utils";
@@ -105,7 +105,7 @@ export const setCurrentOrderCode = (orderCode: string): void => {
  * 实际编辑时是输入框；那个 Select 注册成了永远没人引用的死代码。
  * 校验和控件分两处判定，迟早会对不上。
  *
- * 名字里带字段名是必须的：VTable 的编辑器注册表是全局的、同名幂等且**先注册者生效**
+ * 名字里带字段名是必须的：@visactor/vtable 的编辑器注册表是全局的、同名幂等且**先注册者生效**
  * （见 register.ts 的 registerOnce），每个字段各占一个名字才不会发生看不见的覆盖。
  */
 function registerDetailEditor(column: AppColumnDef): string {
@@ -174,7 +174,7 @@ function registerDetailEditor(column: AppColumnDef): string {
     return name;
 }
 
-/** 详情表格可编辑字段 -> 编辑器名，交给 VTable 的 editableFields */
+/** 详情表格可编辑字段 -> 编辑器名，交给 GridTable 的 editableFields */
 export const DETAIL_EDITOR_FIELDS: Record<string, string> = Object.fromEntries(
     DETAIL_COLUMNS.map((column) => {
         if (column.dataType === 'number') {
@@ -197,7 +197,7 @@ export const DETAIL_EDITOR_FIELDS: Record<string, string> = Object.fromEntries(
 /**
  * 构建详情表格列定义
  *
- * 只声明「展示成什么」，编辑器由 VTable 通过 editableFields 统一注入，
+ * 只声明「展示成什么」，编辑器由 GridTable 通过 editableFields 统一注入，
  * 所以这里不区分只读/可编辑：只读就是不传 editableFields。
  */
 export function buildPreorderDetailColumns(): ColumnsDefine {
