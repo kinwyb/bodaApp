@@ -16,6 +16,7 @@ import {yupaiService} from "@/services/yupai.ts";
 import {ErrorMessage} from "@/api/request.ts";
 import {DATE_FORMAT, formatDate, now} from "@/utils";
 import {buildYupaiOrderChangeListColumns} from "@/pages/views/V0189/V0279/V0281/columns.ts";
+import {usePageTitle, useTabTitle} from "@/store/tab-title-context";
 
 interface SearchValues {
     orderCode?: string;
@@ -37,7 +38,7 @@ const mergeColumnGroup: MergeGroupConfig = {
 
 const actionOptions = Object.entries(actionMap).map(([value, {label}]) => ({value, label}));
 
-const YupaiOrderChangePage: React.FC<ViewPageProps> = ({trail}) => {
+const YupaiOrderChangePage: React.FC<ViewPageProps> = ({trail, params}) => {
 
     const startDate = now().add(-7, "day");
     const endDate = now();
@@ -46,12 +47,33 @@ const YupaiOrderChangePage: React.FC<ViewPageProps> = ({trail}) => {
     const [form] = Form.useForm<SearchValues>();
     const [dataSource, setDataSource] = useState<YupaiOrderChangeDetail[]>([]);
     const [loading, setLoading] = useState(false);
+    /**
+     * 初始订单号：页面是被「带着订单号」打开的（openView 传了 orderCode 参数）时用它。
+     * 页面自己搜索时以查询条件为准，所以初值只取 params。
+     */
+    const initialOrderCode = typeof params?.orderCode === 'string' ? params.orderCode : '';
+    /**
+     * 默认时间范围：**带订单号打开时不限时间**（要看的是这一单的全部变更，
+     * 套上「最近 7 天」会把更早的变更漏掉）；从左侧菜单进来才默认最近 7 天。
+     */
+    const defaultDateRange: [Dayjs, Dayjs] | undefined = initialOrderCode ? undefined : [startDate, endDate];
     const [query, setQuery] = useState<{
         orderCode?: string,
         startDate?: string,
         endDate?: string
-    }>({startDate: formatDate(startDate), endDate: formatDate(endDate)});
+    }>({
+        orderCode: initialOrderCode,
+        startDate: defaultDateRange ? formatDate(defaultDateRange[0]) : undefined,
+        endDate: defaultDateRange ? formatDate(defaultDateRange[1]) : undefined,
+    });
     const tableRef = useRef<GridTableApi | null>(null);
+
+    /**
+     * 页签标题跟着订单号走：看哪一单，页签上就显示哪一单。
+     * 订单号为空（菜单直接进来 / 清了搜索）时恢复成菜单名。
+     */
+    const {baseLabel} = useTabTitle();
+    usePageTitle(query.orderCode ? `${baseLabel} · ${query.orderCode}` : undefined);
 
     const loadData = useCallback(
         async () => {
@@ -83,7 +105,10 @@ const YupaiOrderChangePage: React.FC<ViewPageProps> = ({trail}) => {
     }, [loadData, query]);
 
     useEffect(() => {
-        form.setFieldValue("dateRange", [startDate, endDate]);
+        // 带着订单号打开时，搜索框要回填 —— 否则「框里是空的、列表却只有这一单」看着像 bug
+        if (initialOrderCode) form.setFieldValue("orderCode", initialOrderCode);
+        // 时间范围：带订单号打开时**不设默认值**（不限时间），菜单进来才给最近 7 天
+        form.setFieldValue("dateRange", defaultDateRange);
     }, []);
 
     return (
@@ -119,11 +144,16 @@ const YupaiOrderChangePage: React.FC<ViewPageProps> = ({trail}) => {
                         <Button
                             icon={<ReloadOutlined/>}
                             onClick={() => {
+                                // 重置 = 回到「打开这个页面时的状态」：
+                                // 菜单进来 → 订单号空、日期最近 7 天；
+                                // 带订单号打开 → 订单号保留、不限时间
                                 form.resetFields();
-                                form.setFieldValue("dateRange", [startDate, endDate]);
+                                form.setFieldValue("dateRange", defaultDateRange);
+                                if (initialOrderCode) form.setFieldValue("orderCode", initialOrderCode);
                                 setQuery({
-                                    startDate: formatDate(startDate),
-                                    endDate: formatDate(endDate),
+                                    orderCode: initialOrderCode || undefined,
+                                    startDate: defaultDateRange ? formatDate(defaultDateRange[0]) : undefined,
+                                    endDate: defaultDateRange ? formatDate(defaultDateRange[1]) : undefined,
                                 })
                             }}
                         >

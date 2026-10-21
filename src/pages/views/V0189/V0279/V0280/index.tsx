@@ -13,6 +13,7 @@ import type {
 import {FilterTable} from '@/components/grid-table';
 import {PageBreadcrumb} from '@/components/PageBreadcrumb';
 import type {ViewPageProps} from '@/pages/types';
+import {useTabs} from '@/store/tabs';
 import {yupaiService} from '@/services/yupai.ts';
 import {isBlank} from '@/utils';
 import {buildPreorderColumns} from './columns';
@@ -34,8 +35,9 @@ import {useYupaiOrderCommands} from './command';
 import {YupaiOrderLogModal} from "@/pages/views/V0189/V0279/V0280/models/yupaiOrderLog.tsx";
 
 /** V0189_V0279_V0280 计划管理 > 预订单 > 预订单管理 */
-const yupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
+const YupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
     const {message, modal} = App.useApp();
+    const {openView} = useTabs();
     const [dataSource, setDataSource] = useState<YupaiOrder[]>([]);
     const [loading, setLoading] = useState(false);
     const [total, setTotal] = useState(0);
@@ -266,6 +268,7 @@ const yupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
                 if (record) {
                     return [
                         {text: '查看详情', menuKey: 'detail'},
+                        {text: '在变更记录中查看', menuKey: 'changeList'},
                         {text: '复制本格内容', menuKey: 'copyCell'},
                         {type: 'split'},
                         {text: '列宽自适应', menuKey: 'autoWidth'},
@@ -281,6 +284,15 @@ const yupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
                     const target = record as YupaiOrder | undefined;
                     if (!target?.ID) return;
                     openForm('view', target);
+                    return;
+                }
+                if (menuKey === 'changeList') {
+                    const target = record as YupaiOrder | undefined;
+                    const orderCode = String(target?.OrderCode ?? '');
+                    if (!orderCode) return;
+                    // 带上订单号开新页签：不同订单号 → 不同页签，可以同时看几单
+                    // （页签标题由目标页按数据内容自己改，见 V0281 的 usePageTitle）
+                    openView('V0189_V0279_V0281', {orderCode});
                     return;
                 }
                 if (menuKey === 'copyCell') {
@@ -301,7 +313,7 @@ const yupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
                 }
             },
         }),
-        [openForm, message, reload],
+        [openForm, openView, message, reload],
     );
 
     const workPlaces = useMemo(
@@ -446,4 +458,4 @@ const yupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
     );
 };
 
-export default yupaiOrderPage;
+export default YupaiOrderPage;
