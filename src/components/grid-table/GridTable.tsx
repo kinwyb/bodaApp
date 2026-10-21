@@ -1560,6 +1560,12 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
     // 传入完整 options（去掉 records，避免重复 setRecords），否则 theme 等配置会被重置
     const next: ListTableConstructorOptions = { ...base, columns: finalColumns };
     delete next.records;
+    // updateOption 内部有一句 `internalProps.sortState = options.sortState`，随后
+    // refreshHeader + createSceneGraph 按这个状态重画表头排序图标。不带上当前排序状态，
+    // 表头图标就会被清回灰色双箭头 —— 默认排序（`sortable: 'asc' | 'desc'`）在数据加载后
+    // 消失、非得点一下才亮，就是这里把状态抹掉了。
+    // 带 state 不会触发排序：下面 delete 掉了 records，updateOption 走的是纯重绘分支。
+    next.sortState = table.sortState ?? undefined;
     // 分组相关的建表项也要跟着走：`base` 是建表时那份，那时可能根本没分组
     if (hasGroup) {
       next.hierarchyExpandLevel = group?.expandLevel;
