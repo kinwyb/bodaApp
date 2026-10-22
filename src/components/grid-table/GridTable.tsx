@@ -53,7 +53,13 @@ import {
   type AppColumnDef,
 } from './columnBuilder';
 import { THEME } from './theme';
-import type { StyleArgs, GridTableCellInfo, GridTableRowInfo } from './types';
+import type {
+  StyleArgs,
+  GridTableCellInfo,
+  GridTableRowInfo,
+  GridTableWidthMode,
+  GridTableHeightMode,
+} from './types';
 import { shallowEqualRecord } from './utils';
 
 // 本组件只负责「装配 + 事件绑定」，各功能域的实现分别在：
@@ -237,6 +243,24 @@ export interface GridTableProps {
   multiSelect?: boolean;
   /** 列宽总和不足容器宽度时，是否自动拉宽各列来填满容器；默认 false（右侧留白） */
   autoFillWidth?: boolean;
+  /**
+   * 列宽模式，默认 `standard`：按列定义里的 `width` 排布，总宽超出容器就横向滚动。
+   *
+   * - `adaptive`：总宽跟随容器宽度、各列按比例缩放（列宽总和偏大时也会被缩回来，
+   *   这一点与 `autoFillWidth` 只管「不足时补白」不同）；
+   * - `autoWidth`：按内容算列宽（可用列上的 `maxWidth` 收住最宽的几列）。
+   *
+   * `autoFillWidth` 只对 `standard` 有意义，两者同时传时以 `widthMode` 的排布为准。
+   */
+  widthMode?: GridTableWidthMode;
+  /**
+   * 行高模式，默认 `standard`：行高由 `rowHeight` / `headerRowHeight` 决定，超出容器纵向滚动。
+   *
+   * - `adaptive`：表格高度跟随容器，超出容器的行会被压缩（数据多时会挤在一起，
+   *   通常只用于「一屏刚好」的场景，如看板卡片里的固定高度表）；
+   * - `autoHeight`：按内容自适应行高（内容换行时才看得到效果）。
+   */
+  heightMode?: GridTableHeightMode;
   /** 页面自定义单元格样式（业务提醒用，如最近变更标绿） */
   cellStyle?: GridTableCellStyleHook;
   /**
@@ -330,6 +354,8 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
   highlightInRange = true,
   multiSelect = true,
   autoFillWidth = false,
+  widthMode = 'standard',
+  heightMode = 'standard',
   cellStyle,
   cellTooltip,
   editableFields,
@@ -1006,7 +1032,7 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
   }, [resolveMenuItems]);
 
   /**
-   * 表格当前已经用上的「列配置 + autoFillWidth」。
+   * 表格当前已经用上的「列配置 + 尺寸模式」。
    *
    * 不用「跳过首次执行」的布尔标记：StrictMode 下挂载期的 effect 会跑两遍
    * （mount → cleanup → mount），标记在第一遍就被消费掉，第二遍会真的多做一次
@@ -1014,7 +1040,12 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
    * （getHeader 返回 undefined）的来源。改成和「建表时那一份」比引用，
    * 没变就必定是白跑，比布尔标记更贴合意图。
    */
-  const syncedOptionRef = useRef<{ columns: ColumnsDefine; autoFillWidth: boolean } | null>(null);
+  const syncedOptionRef = useRef<{
+    columns: ColumnsDefine;
+    autoFillWidth: boolean;
+    widthMode: GridTableWidthMode;
+    heightMode: GridTableHeightMode;
+  } | null>(null);
 
   // 创建实例（仅一次），后续数据/列变化通过 API 增量更新
   useEffect(() => {
@@ -1112,8 +1143,8 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
       ...(group?.expandLevel ? { hierarchyExpandLevel: group.expandLevel } : {}),
       // 组行与明细行之间的缩进（像素），让层级一眼看出来
       ...(group ? { hierarchyIndent: group.indent ?? 12 } : {}),
-      widthMode: 'standard',
-      heightMode: 'standard',
+      widthMode,
+      heightMode,
       autoFillWidth,
       // 分组合并：函数引用恒定，内部现读索引（没配 mergeGroups 时立即返回 undefined）
       customMergeCell: customMergeCellRef.current ?? undefined,
@@ -1144,7 +1175,7 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
     // 首次建表就可能带着分组配置进来（列上标了 group: true 的页面），先把吸顶层挂上
     refreshStickyGroup();
     // 记下建表用的那份配置，下面的同步 effect 据此判断要不要 updateOption
-    syncedOptionRef.current = { columns: finalColumns, autoFillWidth };
+    syncedOptionRef.current = { columns: finalColumns, autoFillWidth, widthMode, heightMode };
 
     const toInfo = (args: {
       col: number;
@@ -1564,7 +1595,7 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
   );
 
   /**
-   * 列配置 / autoFillWidth 变化后同步给表格。
+   * 列配置 / 尺寸模式变化后同步给表格。
    * 表格就是拿建表时那份配置建的，配置没换过就不必 updateOption（那等于白重建一遍场景）。
    */
   useEffect(() => {
@@ -1572,12 +1603,21 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
     const base = optionsRef.current;
     if (!table || !base) return;
     const synced = syncedOptionRef.current;
-    if (synced && synced.columns === finalColumns && synced.autoFillWidth === autoFillWidth) {
+    if (
+      synced &&
+      synced.columns === finalColumns &&
+      synced.autoFillWidth === autoFillWidth &&
+      synced.widthMode === widthMode &&
+      synced.heightMode === heightMode
+    ) {
       return;
     }
-    syncedOptionRef.current = { columns: finalColumns, autoFillWidth };
+    syncedOptionRef.current = { columns: finalColumns, autoFillWidth, widthMode, heightMode };
     // 列不足容器时是否拉宽填满：可在运行时切换
     base.autoFillWidth = autoFillWidth;
+    // 列宽 / 行高模式同样可以在运行时切换（比如「全屏看单」时切成 adaptive 铺满）
+    base.widthMode = widthMode;
+    base.heightMode = heightMode;
     // 传入完整 options（去掉 records，避免重复 setRecords），否则 theme 等配置会被重置
     const next: ListTableConstructorOptions = { ...base, columns: finalColumns };
     delete next.records;
@@ -1598,7 +1638,17 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
     rowExpander.positionAll();
     // 列宽 / 列顺序 / 冻结列都可能在这次 updateOption 里变过，吸层的列位置要重新量
     refreshStickyGroup();
-  }, [finalColumns, autoFillWidth, rowExpander, refreshStickyGroup, hasGroup, group?.expandLevel, group?.indent]);
+  }, [
+    finalColumns,
+    autoFillWidth,
+    widthMode,
+    heightMode,
+    rowExpander,
+    refreshStickyGroup,
+    hasGroup,
+    group?.expandLevel,
+    group?.indent,
+  ]);
 
   // 行高变化时吸层的高度与定位要跟着改（分组开关本身由上面的 updateOption 覆盖）
   useEffect(() => {

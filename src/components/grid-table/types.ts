@@ -6,6 +6,25 @@
  * 编辑在 `editing.ts`、排序在 `sorting.ts`、导出配置在 `export.ts`。
  */
 
+/**
+ * 列宽模式（`widthMode`），与 `@visactor/vtable` 的取值一致。
+ *
+ * - `standard`（默认）：按列定义里的 `width` 排布，总宽超出容器就横向滚动；
+ * - `adaptive`：表格总宽跟随容器宽度，列宽按比例缩放（与 `autoFillWidth` 不同，
+ *   它连「列宽总和大于容器」的情况也会缩回来）；
+ * - `autoWidth`：按内容自动算列宽，可配合列上的 `maxWidth` / 全局 `limitMaxAutoWidth` 收敛。
+ */
+export type GridTableWidthMode = 'standard' | 'adaptive' | 'autoWidth';
+
+/**
+ * 行高模式（`heightMode`），与 `@visactor/vtable` 的取值一致。
+ *
+ * - `standard`（默认）：行高用 `rowHeight` / `headerRowHeight`，内容多就纵向滚动；
+ * - `adaptive`：表格高度跟随容器，超出容器的行会被压缩（内容多时会挤在一起）；
+ * - `autoHeight`：按内容自适应行高（开了 `autoWrapText` 之类才看得出差异）。
+ */
+export type GridTableHeightMode = 'standard' | 'adaptive' | 'autoHeight';
+
 /** 样式回调参数（@visactor/vtable 未从包根导出该类型，这里按官方定义声明） */
 export interface StyleArgs {
   col: number;

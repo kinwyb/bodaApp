@@ -27,6 +27,8 @@ import type {
     GridTableSelectedRowChangeInfo,
     MergeGroupConfig,
     GridTableGroupOptions,
+    GridTableWidthMode,
+    GridTableHeightMode,
 } from './index';
 import {formatDate, now, toNumberOrZero, toStringOrEmpty} from "@/utils";
 
@@ -91,6 +93,10 @@ export interface FilterTableProps {
     cellTooltip?: GridTableCellTooltipHook;
     /** 列宽总和不足容器宽度时，是否自动拉宽各列来填满容器；默认 false（右侧留白） */
     autoFillWidth?: boolean;
+    /** 列宽模式，默认 standard；adaptive 跟随容器缩放、autoWidth 按内容算（见 GridTable.widthMode） */
+    widthMode?: GridTableWidthMode;
+    /** 行高模式，默认 standard；adaptive 跟随容器、autoHeight 按内容算（见 GridTable.heightMode） */
+    heightMode?: GridTableHeightMode;
     /** 可编辑列 */
     editableFields?: Record<string, string>;
     /** 进入编辑的触发方式，默认双击 */
@@ -182,6 +188,8 @@ export const FilterTable = React.forwardRef<GridTableApi, FilterTableProps>(
             cellStyle,
             cellTooltip,
             autoFillWidth,
+            widthMode,
+            heightMode,
             editableFields,
             editCellTrigger,
             onCellValueChange,
@@ -626,6 +634,8 @@ export const FilterTable = React.forwardRef<GridTableApi, FilterTableProps>(
                         cellStyle={cellStyle}
                         cellTooltip={cellTooltip}
                         autoFillWidth={autoFillWidth}
+                        widthMode={widthMode}
+                        heightMode={heightMode}
                         editableFields={editableFields}
                         editCellTrigger={editCellTrigger}
                         onCellValueChange={onCellValueChange}
