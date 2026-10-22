@@ -29,6 +29,10 @@ export const THEME: themes.TableTheme = themes.DEFAULT.extends({
     fontSize: 12,
     fontWeight: 'bold',
     padding: [4, 8],
+    // 表头默认居中（vtable 自身默认是左对齐）：标题居中、单元格跟随 dataType 对齐，
+    // 视觉上比「标题靠左 + 数字靠右」更整齐。个别列要左/右对齐，用列上的 `headerAlign`
+    // 或 `columnProps.headerStyle.textAlign` 覆盖 —— 列级配置优先级高于主题。
+    textAlign: 'center',
     frameStyle: { borderColor: '#e8e8e8', borderLineWidth: 1 },
   },
   bodyStyle: {

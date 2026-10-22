@@ -55,10 +55,36 @@ export type AppColumnStyle =
   | TYPES.CheckboxStyleOption
   | ((args: TYPES.StylePropertyFunctionArg) => TYPES.ITextStyleOption | TYPES.CheckboxStyleOption);
 
+/**
+ * 表头（列标题）的对齐方式。单元格对齐用 `style.textAlign`，两者互不影响 ——
+ * 表格主题里表头默认**居中**（见 ./theme.ts），只有想让某一列标题靠左 / 靠右时才需要配
+ * `headerAlign`。
+ */
+export type ColumnHeaderAlign = 'left' | 'center' | 'right';
+
 /** 两种 AppColumnDef 共有的属性：标题组只用到这几个 */
-type AppColumnCommonDef = {
+export type AppColumnCommonDef = {
   title: string;
   width?: number;
+  /**
+   * 最小 / 最大列宽（@visactor/vtable 原生 `minWidth` / `maxWidth`）：
+   * 用户拖拽列边界、`widthMode: 'autoWidth'` 按内容算宽，都不会越过这个范围。
+   * 支持 px 数字，也支持 `'20%'` / `'120px'` 这类字符串。
+   *
+   * 对标题组无效（分组列的宽度由子列相加得到，要控宽写在子列上）。
+   */
+  minWidth?: number | string;
+  maxWidth?: number | string;
+  /**
+   * 表头对齐：`left` / `center` / `right`。不传就用主题默认（**居中**，见 ./theme.ts 的
+   * headerStyle.textAlign），所以只有要「靠左 / 靠右」时才需要写。
+   *
+   * 转换后写进 `headerStyle.textAlign`，只影响标题这一行（单元格对齐是 `style.textAlign`）。
+   * 注意 `columnProps` 永远最后整体展开：一旦在那里写了 `headerStyle`（比如只为改底色），
+   * 这里造的整份 `headerStyle` 会被替换掉，`headerAlign` 随之失效、退回主题默认（居中）——
+   * 两者都要就把 `textAlign` 一起写进 `columnProps.headerStyle`。
+   */
+  headerAlign?: ColumnHeaderAlign;
   /** 透传给 @visactor/vtable 的其它列配置（会覆盖上面的默认值，包括 fieldFormat / style / mergeCell） */
   columnProps?: Record<string, unknown>;
 };
@@ -133,8 +159,9 @@ export type AppColumnLeafDef = AppColumnCommonDef & {
  * ]}
  * ```
  *
- * 宽度由子列宽度相加得到，要控宽就写在子列上；
- * 表头样式等原生配置走 `columnProps`（如 `{ headerStyle: { bgColor: '#fafafa' } }`）。
+ * 宽度由子列宽度相加得到，要控宽就写在子列上（这里的 `width` / `minWidth` / `maxWidth`
+ * 对分组列不生效）；表头能配的是 `headerAlign`，其余原生配置走 `columnProps`
+ * （如 `{ headerStyle: { bgColor: '#fafafa' } }`）。
  */
 export type AppColumnGroupDef = AppColumnCommonDef & {
   children: AppColumnDef[];
@@ -160,7 +187,8 @@ const BUILT_COLUMNS = Symbol('appColumnsBuilt');
 
 /**
  * AppColumnDef 的「键词汇表」：AppColumnDef 自己的字段，
- * 加上 buildColumns 会**原样带过去**的原生键（field / title / width / fieldFormat / style / mergeCell）。
+ * 加上 buildColumns 会**原样带过去**的原生键（field / title / width / minWidth / maxWidth /
+ * headerAlign / fieldFormat / style / mergeCell）。
  *
  * 判定列定义类型时拿它当白名单：出现表外的键（type / cellType / editor / columns / sort …）
  * 就说明那是 @visactor/vtable 的原生 ColumnsDefine，不能按 AppColumnDef 处理 ——
@@ -184,6 +212,9 @@ const APP_COLUMN_KEYS: ReadonlySet<string> = new Set([
   'field',
   'title',
   'width',
+  'minWidth',
+  'maxWidth',
+  'headerAlign',
   'fieldFormat',
   'style',
   'mergeCell',
@@ -239,6 +270,8 @@ export function buildColumns(defs: AppColumnDef[]): ColumnsDefine {
       return {
         title: def.title,
         columns: buildColumns(def.children),
+        // 分组表头同样支持对齐（分组列没有独立的 minWidth / maxWidth，宽度由子列相加）
+        ...(def.headerAlign ? { headerStyle: { textAlign: def.headerAlign } } : {}),
         // 兜底口子：可透传 headerStyle / hideColumnsSubHeader 等原生分组列配置
         ...(def.columnProps ?? {}),
       } as ColumnsDefine[number];
@@ -249,6 +282,11 @@ export function buildColumns(defs: AppColumnDef[]): ColumnsDefine {
       field,
       title: def.title,
       ...(def.width ? { width: def.width } : {}),
+      // 0 也是有效值（明确要求最小 0），所以只跳过 undefined
+      ...(def.minWidth !== undefined ? { minWidth: def.minWidth } : {}),
+      ...(def.maxWidth !== undefined ? { maxWidth: def.maxWidth } : {}),
+      // 表头对齐只写进 headerStyle：style 是**单元格**的样式，写那里不会影响标题行
+      ...(def.headerAlign ? { headerStyle: { textAlign: def.headerAlign } } : {}),
       ...(def.sortable ? { sort: true } : {}),
     };
 

@@ -68,12 +68,14 @@ export type {
 export type { FilterTableProps } from './FilterTable';
 export type { FilterCondition, FilterField, FilterModel, TableFilterProps } from './TableFilter';
 export type {
+  AppColumnCommonDef,
   AppColumnDef,
   AppColumnFieldFormat,
   AppColumnGroupDef,
   AppColumnLeafDef,
   AppColumnStyle,
   ColumnDataType,
+  ColumnHeaderAlign,
   ColumnSource,
   ColumnTagItem,
   ColumnTagItemLike,
