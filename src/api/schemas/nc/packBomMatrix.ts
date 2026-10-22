@@ -8,6 +8,7 @@
 // 全部字段 nullish + 对象 loose：Swagger 2.0 不标 nullable，但后端实际会返回
 // null / 缺字段 / 多余字段，严格 schema 会大面积误报。
 import {z} from 'zod';
+import {toDayjs} from "@/utils";
 
 export const PackBomMatrixSchema = z.object({
     CMeasure: z.string().nullish(), // 主单位
@@ -92,5 +93,9 @@ export const PackBomMatrixDetailSchema = z.object({
     VFree9: z.string().nullish(), // 色纱色
     VFree9Name: z.string().nullish(), // 色纱色
     VRowNo: z.string().nullish(), // 行号
-}).loose();
+}).loose().transform(({Cbeginperiod, Cendperiod, ...rest}) => ({
+    BeginDate: toDayjs(Cbeginperiod),
+    EndDate: toDayjs(Cendperiod),
+    ...rest,
+}));
 export type PackBomMatrixDetail = z.output<typeof PackBomMatrixDetailSchema>;

@@ -1,9 +1,12 @@
 import React, {useEffect, useState} from "react";
 import type {PackBomMatrix} from "@/api/schemas/nc/packBomMatrix.ts";
 import {Tabs, type TabsProps} from "antd";
-import ItemView from "@/components/nc/bomMatrix/itemView.tsx";
+import BomMatrixItemView from "./itemView.tsx";
+import type {ViewPageProps} from "@/pages/types.ts";
+import BomMatrixSizeView from "./sizeView.tsx";
+import BomMatrixColorView from "@/components/nc/bomMatrix/colorView.tsx";
 
-export type BomMatrixViewProps = {
+export type BomMatrixViewProps = ViewPageProps & {
     bomMatrix: PackBomMatrix;
 }
 
@@ -12,22 +15,21 @@ export const BomMatrixView: React.FC<BomMatrixViewProps> = ({bomMatrix}) => {
     const [items, setItems] = useState<TabsProps['items']>([]);
 
     useEffect(() => {
-        console.log("view", bomMatrix);
         setItems([
             {
                 label: '子项物料',
                 key: 'items',
-                children: <ItemView items={bomMatrix.Detail ?? []}/>,
+                children: <BomMatrixItemView items={bomMatrix.Detail ?? []}/>,
             },
             {
-                label: 'Tab 2',
-                key: '2',
-                children: 'Content of editable tab 2',
+                label: '配色',
+                key: 'colors',
+                children: <BomMatrixColorView bomMatrix={bomMatrix}/>,
             },
             {
-                label: 'Tab 3',
-                key: '3',
-                children: 'Content of editable tab 3',
+                label: '配码',
+                key: 'sizes',
+                children: <BomMatrixSizeView bomMatrix={bomMatrix}/>,
             }]);
     }, [bomMatrix]);
 

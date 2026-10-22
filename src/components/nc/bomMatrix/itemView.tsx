@@ -1,6 +1,7 @@
 import React, {useEffect, useMemo, useState} from "react";
 import type {PackBomMatrixDetail} from "@/api/schemas/nc/packBomMatrix.ts";
 import {type AppColumnDef, GridTable} from "@/components/grid-table";
+import {BackFlushTypeLabel, ItemSourceLabel} from "@/components/nc/bomMatrix/common.ts";
 
 /** bom矩阵子物料树形 */
 export interface BomMatrixItemProps {
@@ -14,7 +15,7 @@ const BomMatrixItemView: React.FC<BomMatrixItemProps> = ({items}) => {
     const columns = useMemo((): AppColumnDef[] => {
         return [
             {field: "VRowNo", title: '行号'},
-            {field: "ProjectMaterial", title: '项目专用'},
+            {field: "ProjectMaterial", title: '项目专用', dataType: 'boolean'},
             {field: "MaterialCode", title: '物料编码'},
             {field: "MaterialName", title: '物料名称'},
             {field: "MaterialVersion", title: '物料版本'},
@@ -28,16 +29,20 @@ const BomMatrixItemView: React.FC<BomMatrixItemProps> = ({items}) => {
             {field: "Ndissipationum", title: '损耗系数'},
             {field: "VFree4Name", title: '批号'},
             {field: "CMeasure", title: '主单位'},
-            {field: "Nitemnum", title: '子项数量'},
-            {field: "Ibasenum", title: '底数'},
+            {field: "Nitemnum", title: '子项数量', dataType: 'int'},
+            {field: "Ibasenum", title: '底数', dataType: 'int'},
             {field: "VChangerate", title: '换算率'},
             {field: "Cassmeasure", title: '单位'},
-            {field: "Fitemsource", title: '备料来源'},
-            {field: "Bdeliver", title: '发料'},
-            {field: "Fbackflushtype", title: '倒冲方式'},
-            {field: "BeginDate", title: '生效日期'},
-            {field: "EndDate", title: '失效日期'},
-            {field: "Bupint", title: '向上取整'},
+            {field: "Fitemsource", title: '备料来源', fieldFormat: (record) => ItemSourceLabel(record.Fitemsource)},
+            {field: "Bdeliver", title: '发料', dataType: "boolean"},
+            {
+                field: "Fbackflushtype",
+                title: '倒冲方式',
+                fieldFormat: (record) => BackFlushTypeLabel(record.Fbackflushtype)
+            },
+            {field: "BeginDate", title: '生效日期', dataType: 'date'},
+            {field: "EndDate", title: '失效日期', dataType: 'date'},
+            {field: "Bupint", title: '向上取整', dataType: "boolean"},
         ];
     }, [])
 
@@ -47,7 +52,7 @@ const BomMatrixItemView: React.FC<BomMatrixItemProps> = ({items}) => {
 
     return (
         <GridTable columns={columns} records={datas} rowKey={'PackBomMatrixDetailID'} rowNumber={false}
-                   multiSelect={false}/>
+                   multiSelect={false} widthMode={'autoWidth'}/>
     );
 }
 
