@@ -62,7 +62,6 @@ function bomMatrixToSizeData(matrix: PackBomMatrix): bomMatrixSizeData[] {
                     row['S' + size] = matchSize.VFree7Name;
                     row['S' + size + '_val'] = matchSize.VFree7;
                     row['N' + size] = matchSize.Nitemnum;
-                    console.log(row);
                 }
             })
             return row;
@@ -93,7 +92,7 @@ const BomMatrixSizeView: React.FC<BomMatrixSizeViewProps> = ({bomMatrix}) => {
                 return;
             }
             sunhaoGroup.children.push({
-                field: 'Sunhao' + size, title: size, dataType: 'int', fieldFormat: (record) => {
+                field: 'Sunhao' + size, title: size, dataType: 'int', minWidth: 50, fieldFormat: (record) => {
                     const val = toNumberOrZero(record['Sunhao' + size]);
                     if (val === 0) {
                         return '';
@@ -101,8 +100,8 @@ const BomMatrixSizeView: React.FC<BomMatrixSizeViewProps> = ({bomMatrix}) => {
                     return toStringOrEmpty(val)
                 }
             })
-            sizeGroup.children.push({field: 'S' + size, title: size})
-            numGroup.children.push({field: 'N' + size, title: size, dataType: 'int'})
+            sizeGroup.children.push({field: 'S' + size, title: size, minWidth: 50})
+            numGroup.children.push({field: 'N' + size, title: size, dataType: 'int', minWidth: 50})
         })
         const materialGroup: AppColumnGroupDef = {
             title: '物料',

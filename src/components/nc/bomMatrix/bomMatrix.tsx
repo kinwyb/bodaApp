@@ -8,9 +8,10 @@ import BomMatrixColorView from "@/components/nc/bomMatrix/colorView.tsx";
 
 export type BomMatrixViewProps = ViewPageProps & {
     bomMatrix: PackBomMatrix;
+    tabs?: TabsProps['items'];
 }
 
-export const BomMatrixView: React.FC<BomMatrixViewProps> = ({bomMatrix}) => {
+export const BomMatrixView: React.FC<BomMatrixViewProps> = ({bomMatrix, tabs}) => {
 
     const [items, setItems] = useState<TabsProps['items']>([]);
 
@@ -30,7 +31,7 @@ export const BomMatrixView: React.FC<BomMatrixViewProps> = ({bomMatrix}) => {
                 label: '配码',
                 key: 'sizes',
                 children: <BomMatrixSizeView bomMatrix={bomMatrix}/>,
-            }]);
+            }, ...(tabs ?? [])]);
     }, [bomMatrix]);
 
     return (
