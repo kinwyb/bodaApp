@@ -13,7 +13,7 @@ const Dashboard: React.FC = () => {
                     <Card
                         hoverable
                         style={{cursor: 'pointer'}}
-                        onClick={() => openView('V0018_V0112')}
+                        onClick={() => openView('V0277_V0354')}
                     >
                         <Statistic
                             title="总订单数"
