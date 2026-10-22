@@ -2,13 +2,16 @@ import React, {useEffect, useMemo, useState} from "react";
 import type {PackBomMatrixDetail} from "@/api/schemas/nc/packBomMatrix.ts";
 import {type AppColumnDef, GridTable} from "@/components/grid-table";
 import {BackFlushTypeLabel, ItemSourceLabel} from "@/components/nc/bomMatrix/common.ts";
+import NCMaterial, {MATERIAL_EDITOR} from "@/components/nc/materialModal.tsx";
+import type {EditorRowAccessor} from "@/components/grid-table/editors/antd-editors";
 
 /** bom矩阵子物料树形 */
 export interface BomMatrixItemProps {
     items: PackBomMatrixDetail[]
+    isEditable: boolean
 }
 
-const BomMatrixItemView: React.FC<BomMatrixItemProps> = ({items}) => {
+const BomMatrixItemView: React.FC<BomMatrixItemProps> = ({items, isEditable}) => {
 
     const [datas, setDatas] = useState<PackBomMatrixDetail[]>([]);
 
@@ -16,7 +19,7 @@ const BomMatrixItemView: React.FC<BomMatrixItemProps> = ({items}) => {
         return [
             {field: "VRowNo", title: '行号'},
             {field: "ProjectMaterial", title: '项目专用', dataType: 'boolean'},
-            {field: "MaterialCode", title: '物料编码'},
+            {field: "MaterialCode", title: '物料编码', minWidth: 150},
             {field: "MaterialName", title: '物料名称'},
             {field: "MaterialVersion", title: '物料版本'},
             {field: "MaterialSpec", title: '物料规格'},
@@ -46,13 +49,35 @@ const BomMatrixItemView: React.FC<BomMatrixItemProps> = ({items}) => {
         ];
     }, [])
 
+    const editableFields = useMemo(() => {
+        if (!isEditable) {
+            console.log("禁止编辑")
+            return undefined;
+        }
+        console.log("itemview 编辑")
+        return {
+            'ProjectMaterial': 'auto',
+            'MaterialCode': MATERIAL_EDITOR,
+        }
+    }, [isEditable])
+
+
     useEffect(() => {
         setDatas(items);
     }, [items]);
 
     return (
-        <GridTable columns={columns} records={datas} rowKey={'PackBomMatrixDetailID'} rowNumber={false}
-                   multiSelect={false} widthMode={'autoWidth'}/>
+        <>
+            <GridTable columns={columns} editableFields={editableFields} records={datas}
+                       rowKey={'PackBomMatrixDetailID'}
+                       rowNumber={false}
+                       multiSelect={false} widthMode={'autoWidth'}/>
+            <NCMaterial open={false}
+                        isEditor={true}
+                        onSelect={function (record: Record<string, unknown>, activeRow: EditorRowAccessor | null): void {
+                            console.log(record, activeRow);
+                        }}/>
+        </>
     );
 }
 
