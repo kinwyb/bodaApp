@@ -25,6 +25,7 @@ import {
   type GridTableSelection,
 } from './selection';
 import type { EditCellTrigger, GridTableCellValueChangeInfo } from './editing';
+import { resolveAutoEditor } from './editors/register';
 import type { GridTableExportCsvOptions, GridTableExportExcelOptions } from './export';
 import { prepareBottomFrozen, scheduleBottomFrozen } from './frozen';
 import {
@@ -268,8 +269,17 @@ export interface GridTableProps {
    * 与 cellStyle 配套，用来解释「为什么这一格是红的」这类信息。
    */
   cellTooltip?: GridTableCellTooltipHook;
-  /** 可编辑列：字段 -> 已注册的编辑器名（用 register.editor 注册），不传则整表只读 */
-  editableFields?: Record<string, string>;
+  /**
+   * 可编辑列：`字段 -> 编辑器名`。不传则整表只读（只读列不写进来即可）。
+   *
+   * 值除了「已注册的编辑器名」（见 `editors/register.ts`），还可以写 **`true` / `'auto'`**：
+   * 按列的 `dataType` 自动挑一个默认编辑器，连注册都省了 —— `int` / `double` 数字框、
+   * `date` / `datetime` 日期选择器、其余输入框。
+   *
+   * `dataType: 'boolean'` 的列是例外：它本身就是一个**原生勾选框**（不是文本），所以不走编辑态 ——
+   * 只要把字段写进本属性（值随意），该列就变成可点，**单击直接切换并写回 1 / 0**。
+   */
+  editableFields?: Record<string, string | true>;
   /** 进入编辑的触发方式，默认双击 */
   editCellTrigger?: EditCellTrigger;
   /** 单元格编辑完成回调（含行索引与新值），用于把编辑结果同步回页面 */
@@ -579,9 +589,22 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
         if (grouped.columns) {
           return { ...col, columns: decorate(grouped.columns) } as (typeof cols)[number];
         }
-        const cell = col as { style?: unknown; field?: string };
+        const cell = col as { style?: unknown; field?: string; dataType?: unknown; cellType?: unknown };
         const previous = cell.style;
-        const editor = cell.field ? editableFields?.[cell.field] : undefined;
+        const configured = cell.field ? editableFields?.[cell.field] : undefined;
+        /**
+         * checkbox 单元格（`dataType: 'boolean'` 生成的那种）本身就是控件，不走编辑态：
+         * 配了 editableFields 就把它放开成可点，**单击直接切换并写回 1 / 0**
+         * （由建表时的 checkbox_state_change 监听完成），不再注入编辑器 ——
+         * 双击再弹一个勾选框浮层是多余的，而且浮层与格子里原本那个框还会错位。
+         */
+        const clickToggle = configured !== undefined && cell.cellType === 'checkbox';
+        // true / 'auto' = 按列类型用默认编辑器
+        const editor = clickToggle
+          ? undefined
+          : configured === true || configured === 'auto'
+            ? resolveAutoEditor(cell)
+            : configured;
         // 树形分组的入口：@visactor/vtable 要求至少一列 `tree: true` 才会走层级模式，
         // 展开箭头就画在这一列文字的左侧。它必须是绑定分组字段的那一列。
         const isGroupColumn = Boolean(groupField) && cell.field === groupField;
@@ -590,6 +613,8 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
           ...(isGroupColumn ? { tree: true } : {}),
           // 配置了编辑器的列允许就地编辑，未配置的列保持只读
           ...(editor ? { editor } : {}),
+          // checkbox 列：放开只读（buildColumns 里写死 disable: () => true）
+          ...(clickToggle ? { disable: () => false } : {}),
           style: (args: StyleArgs) => {
             const base =
               typeof previous === 'function'
@@ -1394,6 +1419,36 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
         // currentValue 是 @visactor/vtable 在改写 record **之前**取的单元格值，即编辑前的内容。
         // （原生还有 rawValue = 未格式化的原值，需要时再加）
         previousValue: args.currentValue,
+      });
+    });
+    /**
+     * checkbox 列单击切换。
+     *
+     * @visactor/vtable 的勾选框点击只切显示、并派发这个事件，**不会写数据源**，
+     * 所以这里补上写回（1 / 0，与 `dataType: 'boolean'` 的读取口径一致）。
+     *
+     * 只读列不受影响：它们的 `disable` 仍为 true，点击不触发切换（也就没有这个事件）。
+     * 表头那次是「全选」，交给 vtable 自己处理，不动数据。
+     *
+     * ⚠️ 写回**必须异步**：这个事件是在 VRender 勾选框的 pointerup 处理器里**同步**派发的，
+     * 处理完之后它还要执行 `this.stage.renderNextFrame()`。在这里同步调
+     * `changeCellValueByRecord` 会立刻重建场景图、把正在处理本次点击的勾选框销毁，
+     * 紧接着那句 renderNextFrame 就报
+     * `Cannot read properties of null (reading 'renderNextFrame')`。
+     * 丢到微任务里（早于下一帧）既能避开它，也不会让用户看到一帧旧状态。
+     */
+    table.on('checkbox_state_change', (args) => {
+      const { col, row, checked } = args;
+      if (table.isHeader(col, row)) return;
+      const field = args.field === undefined ? '' : String(args.field);
+      if (!field) return;
+      const index = table.getRecordIndexByCell(col, row);
+      const recordIndex = Array.isArray(index) ? index[0] : index;
+      if (typeof recordIndex !== 'number' || recordIndex < 0) return;
+      queueMicrotask(() => {
+        // 微任务落地时表格可能已经销毁（换页 / 关弹窗）
+        if (tableRef.current !== table) return;
+        table.changeCellValueByRecord(recordIndex, field, checked ? 1 : 0);
       });
     });
     // 排序由本组件处理：先把统计行摘掉再排，排完追加回最后一行。

@@ -382,6 +382,10 @@ export function buildColumns(defs: AppColumnDef[]): ColumnsDefine {
       // 默认汇总方式 / 默认分组 / 默认排序方向 / 过滤类型：@visactor/vtable 不认识这几个字段，
       // 单纯挂在列定义上供组件读取（GridTable 初始排序、FilterTable 筛选面板），不会渲染出来
       ...(def.aggregate ? { aggregate: def.aggregate } : {}),
+      // dataType 也要留一份：好让 GridTable 在 editableFields 写 true / 'auto' 时
+      // 按类型挑默认编辑器（见 editors/register.ts 的 resolveAutoEditor）。
+      // vtable 不认这个键，不会影响渲染。
+      ...(def.dataType ? { dataType: def.dataType } : {}),
       ...(def.group ? { group: true } : {}),
       ...(typeof def.sortable === 'string' ? { defaultSort: def.sortable } : {}),
       ...(def.filterType ? { filterType: def.filterType } : {}),

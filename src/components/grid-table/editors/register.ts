@@ -218,3 +218,44 @@ export function registerAntdEditors(): void {
     registerAntdSelectEditor();
     registerAntdDatePickerEditor();
 }
+
+/**
+ * 按列的类型挑一个**默认编辑器** —— 给 `editableFields` 里写 `true` / `'auto'` 的列用。
+ *
+ * 有了它，简单的可编辑列不用再「注册一个具名编辑器 + 记住名字」两步：
+ *
+ *   <GridTable editableFields={{ Qty: true, YPDate: 'auto', Memo: true }} />
+ *
+ * 映射规则（看的是 `AppColumnDef.dataType`，`buildColumns` 会把它留在列上）：
+ * - `int` / `double` → `ANTD_NUMBER_EDITOR`
+ * - `date` / `datetime` → `ANTD_DATE_EDITOR`
+ * - 其它（`text`、原生列）→ `ANTD_INPUT_EDITOR`
+ * - `boolean` / checkbox 列 → **没有编辑器**（返回 undefined）：它本身就是
+ *   @visactor/vtable 的原生勾选框，GridTable 给配了 editableFields 的列放开 `disable`
+ *   并监听 `checkbox_state_change`，**单击直接切换 1 / 0**，不需要进编辑态。
+ *
+ * `tag` 列也走 Input：自动方拿不到枚举候选值，空下拉比输入框更难用。
+ *
+ * 会顺手调用 `registerAntdEditors()`（幂等）—— 自动模式下不必再手动注册一遍公共名。
+ * ⚠️ 公共名是「先注册者生效」：别再用 `ANTD_INPUT_EDITOR` 这类名字注册带校验的实例，
+ * 否则自动模式会拿到那个实例（校验、props 都跟着串到别的列上）。
+ */
+export function resolveAutoEditor(column: {
+    dataType?: unknown;
+    cellType?: unknown;
+}): string | undefined {
+    // 惰性注册：只有真用了自动模式才注册这四个公共编辑器（boolean 列不会走到注册之外的路径）
+    registerAntdEditors();
+    // 勾选框是原生单元格控件：单击即切换（见 GridTable 的 clickToggle / checkbox_state_change）
+    if (column.dataType === 'boolean' || column.cellType === 'checkbox') return undefined;
+    switch (column.dataType) {
+        case 'int':
+        case 'double':
+            return ANTD_NUMBER_EDITOR;
+        case 'date':
+        case 'datetime':
+            return ANTD_DATE_EDITOR;
+        default:
+            return ANTD_INPUT_EDITOR;
+    }
+}

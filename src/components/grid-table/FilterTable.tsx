@@ -97,8 +97,13 @@ export interface FilterTableProps {
     widthMode?: GridTableWidthMode;
     /** 行高模式，默认 standard；adaptive 跟随容器、autoHeight 按内容算（见 GridTable.heightMode） */
     heightMode?: GridTableHeightMode;
-    /** 可编辑列 */
-    editableFields?: Record<string, string>;
+    /**
+     * 可编辑列：`字段 -> 编辑器名`，或写 `true` / `'auto'` 按列 dataType 自动挑默认编辑器
+     * （int/double → 数字框、date/datetime → 日期、其余 → 输入框）。
+     * boolean 列不走编辑器：它是原生勾选框，写进本属性即可单击切换（写回 1 / 0）。
+     * 不传 = 整表只读。详见 GridTable.editableFields。
+     */
+    editableFields?: Record<string, string | true>;
     /** 进入编辑的触发方式，默认双击 */
     editCellTrigger?: EditCellTrigger;
     /** 单元格编辑完成回调（含行索引与新值），用于把编辑结果同步回页面 */
