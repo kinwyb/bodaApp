@@ -1,5 +1,5 @@
 import type {ColumnsDefine} from '@visactor/vtable';
-import {buildColumns, type AppColumnDef} from '@/components/grid-table/columnBuilder';
+import {buildColumns, type AppColumnLeafDef} from '@/components/grid-table/columnBuilder';
 import {
     registerAntdInputEditor,
     registerAntdNumberEditor, registerAntdSelectEditor,
@@ -53,7 +53,7 @@ const hdWorkNames = [
 /** 后道主工序的候选值：工序名本身就是值和文案 */
 const HD_WORK_OPTIONS = hdWorkNames.map((name) => ({value: name, label: name}));
 
-const DETAIL_COLUMNS: AppColumnDef[] = [
+const DETAIL_COLUMNS: AppColumnLeafDef[] = [
     {field: 'StyleCode', title: '款号', width: 96},
     {field: 'Number', title: '款式数量', width: 76, dataType: 'int'},
     {field: 'ProduceName', title: '款式描述', width: 130},
@@ -105,7 +105,7 @@ export const setCurrentOrderCode = (orderCode: string): void => {
  * 名字里带字段名是必须的：@visactor/vtable 的编辑器注册表是全局的、同名幂等且**先注册者生效**
  * （见 register.ts 的 registerOnce），每个字段各占一个名字才不会发生看不见的覆盖。
  */
-function registerDetailEditor(column: AppColumnDef): string {
+function registerDetailEditor(column: AppColumnLeafDef): string {
     const {field, dataType} = column;
     const name = `preorder-detail-${field}`;
     // 规则取自 services 的 DETAIL_FIELD_RULES，与保存前的整表校验是同一份，

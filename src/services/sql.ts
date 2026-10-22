@@ -1,16 +1,17 @@
 import type {SimpleDataTable} from "@/api/modules/sql.ts";
-import type {AppColumnDef, ColumnDataType} from "@/components/grid-table/columnBuilder.ts";
+import type {AppColumnLeafDef, ColumnDataType} from "@/components/grid-table/columnBuilder.ts";
 
 /**
  * 数据表
  */
 export class DataTable {
 
-    columns: AppColumnDef[];
+    /** SQL 结果列 → 叶子列（标题组在这里没有意义，全是数据列） */
+    columns: AppColumnLeafDef[];
     datas: Record<string, unknown>[];
 
     constructor(simpleData: SimpleDataTable) {
-        this.columns = simpleData.columns.map((column): AppColumnDef => {
+        this.columns = simpleData.columns.map((column): AppColumnLeafDef => {
             let dataType: ColumnDataType = 'text'
             switch (column.dataType) {
                 case "DATETIME":

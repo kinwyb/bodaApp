@@ -65,6 +65,8 @@ export type { FilterCondition, FilterField, FilterModel, TableFilterProps } from
 export type {
   AppColumnDef,
   AppColumnFieldFormat,
+  AppColumnGroupDef,
+  AppColumnLeafDef,
   AppColumnStyle,
   ColumnDataType,
   ColumnSource,

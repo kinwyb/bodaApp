@@ -3,8 +3,7 @@ import {App, Button, Input, Modal, Spin} from 'antd';
 import {CheckOutlined} from '@ant-design/icons';
 import type {ColumnsDefine} from '@visactor/vtable';
 import {GridTable, type GridTableApi, type GridTableCellInfo} from './grid-table';
-import {type AppColumnDef} from './grid-table/columnBuilder';
-import {isBlank, toStringOrEmpty} from "@/utils";
+import {type AppColumnDef, collectGroupableColumns} from './grid-table/columnBuilder';
 
 /** 快速选择的一行数据：字段由调用方通过 columns 自定义 */
 export type QuickSelectRow = Record<string, unknown>;
@@ -116,12 +115,9 @@ export function QuickSelectModal<T extends QuickSelectRow = QuickSelectRow>({
         if (searchFields && searchFields.length > 0) {
             return searchFields;
         }
-        // 没给 searchFields 时按列上的字段过滤：两种列定义写法都带 field；
-        // 原生分组表头没有 field（会被下面的 isBlank 滤掉）
-        const list = columns as Array<{ field?: unknown }>;
-        return list
-            .map((col) => toStringOrEmpty(col.field))
-            .filter((v) => !isBlank(v));
+        // 没给 searchFields 时按列上的字段过滤：两种列定义写法都带 field，
+        // 分组表头的子列也会被展开（标题组本身没有 field，会被滤掉）
+        return collectGroupableColumns(columns).map((col) => col.field);
     }, [searchFields, columns]);
 
 

@@ -55,10 +55,20 @@ export type AppColumnStyle =
   | TYPES.CheckboxStyleOption
   | ((args: TYPES.StylePropertyFunctionArg) => TYPES.ITextStyleOption | TYPES.CheckboxStyleOption);
 
-export interface AppColumnDef {
-  field: string;
+/** 两种 AppColumnDef 共有的属性：标题组只用到这几个 */
+type AppColumnCommonDef = {
   title: string;
   width?: number;
+  /** 透传给 @visactor/vtable 的其它列配置（会覆盖上面的默认值，包括 fieldFormat / style / mergeCell） */
+  columnProps?: Record<string, unknown>;
+};
+
+/**
+ * 叶子列：绑定一个数据字段，是真正产生单元格的那一类。
+ * 对应 @visactor/vtable 的普通列（`ColumnDefine`）。
+ */
+export type AppColumnLeafDef = AppColumnCommonDef & {
+  field: string;
   /** 数据类型，默认 text */
   dataType?: ColumnDataType;
   /** double：小数位，默认 2（int 始终 0 位小数，忽略此项） */
@@ -110,9 +120,34 @@ export interface AppColumnDef {
    * 面板里仍然可以改层级 / 取消。多列都标了 `true` 时，**按列顺序**由外到内分层。
    */
   group?: boolean;
-  /** 透传给 @visactor/vtable 的其它列配置（会覆盖上面的默认值，包括 fieldFormat / style / mergeCell） */
-  columnProps?: Record<string, unknown>;
-}
+};
+
+/**
+ * 标题组：把若干列圈成一个表头分组（多级表头），**本身不是数据列**，不产生单元格。
+ * 对应 @visactor/vtable 的 `GroupColumnDefine`（`{ title, columns }`）。
+ *
+ * ```ts
+ * { title: '操作', children: [
+ *     { field: 'edit', title: '编辑' },
+ *     { field: 'delete', title: '删除' },
+ * ]}
+ * ```
+ *
+ * 宽度由子列宽度相加得到，要控宽就写在子列上；
+ * 表头样式等原生配置走 `columnProps`（如 `{ headerStyle: { bgColor: '#fafafa' } }`）。
+ */
+export type AppColumnGroupDef = AppColumnCommonDef & {
+  children: AppColumnDef[];
+};
+
+/**
+ * 列定义：叶子列或标题组。
+ *
+ * 拆成联合体（而不是把 `field` 做成可选）的好处：
+ * - 叶子列的 `field` 仍然**必填**，页面里 `column.field` 当 key / 查规则表的写法不用到处判空；
+ * - 标题组只能写 `children`，看不到 `dataType` / `sortable` 这些只有数据列才有意义的属性，避免误配。
+ */
+export type AppColumnDef = AppColumnLeafDef | AppColumnGroupDef;
 
 /**
  * 「这列已经由 buildColumns 转换过」的标记。
@@ -143,6 +178,8 @@ const APP_COLUMN_KEYS: ReadonlySet<string> = new Set([
   'aggregate',
   'group',
   'columnProps',
+  // 标题组的子列（转换后变成原生 columns，见 buildColumns）
+  'children',
   // buildColumns 会原样带过去的原生键
   'field',
   'title',
@@ -196,8 +233,20 @@ function mergeStyle(base: AppColumnStyle | undefined, override: AppColumnStyle):
 /** 把带数据类型的列定义转成 GridTable 的列配置 */
 export function buildColumns(defs: AppColumnDef[]): ColumnsDefine {
   const columns = defs.map((def) => {
+    // 标题组：转成 @visactor/vtable 原生的分组列 —— 只有 title + columns，
+    // 本身不是数据列（不产生单元格），宽度由子列宽度相加得到
+    if ('children' in def) {
+      return {
+        title: def.title,
+        columns: buildColumns(def.children),
+        // 兜底口子：可透传 headerStyle / hideColumnsSubHeader 等原生分组列配置
+        ...(def.columnProps ?? {}),
+      } as ColumnsDefine[number];
+    }
+
+    const field = def.field;
     const base: Record<string, unknown> = {
-      field: def.field,
+      field,
       title: def.title,
       ...(def.width ? { width: def.width } : {}),
       ...(def.sortable ? { sort: true } : {}),
@@ -211,7 +260,7 @@ export function buildColumns(defs: AppColumnDef[]): ColumnsDefine {
       case 'int':
         typeStyle = { textAlign: 'right' };
         typeFieldFormat = (record: Record<string, unknown>) => {
-          const value = Number(record[def.field]);
+          const value = Number(record[field]);
           return Number.isFinite(value) ? value.toFixed(0) : '';
         };
         break;
@@ -220,18 +269,18 @@ export function buildColumns(defs: AppColumnDef[]): ColumnsDefine {
         typeStyle = { textAlign: 'right' };
         const precision = def.precision ?? 2;
         typeFieldFormat = (record: Record<string, unknown>) => {
-          const value = Number(record[def.field]);
+          const value = Number(record[field]);
           return Number.isFinite(value) ? value.toFixed(precision) : '';
         };
         break;
       }
 
       case 'date':
-        typeFieldFormat = (record: Record<string, unknown>) => formatDate(record[def.field]);
+        typeFieldFormat = (record: Record<string, unknown>) => formatDate(record[field]);
         break;
 
       case 'datetime':
-        typeFieldFormat = (record: Record<string, unknown>) => formatDateTime(record[def.field]);
+        typeFieldFormat = (record: Record<string, unknown>) => formatDateTime(record[field]);
         break;
 
       case 'boolean': {
@@ -253,7 +302,7 @@ export function buildColumns(defs: AppColumnDef[]): ColumnsDefine {
         });
         // 必须返回布尔值，否则复选框旁边会跟出原始值（0 / 1）
         typeFieldFormat = (record: Record<string, unknown>) => {
-          const checked = Number(record[def.field]) === 1;
+          const checked = Number(record[field]) === 1;
           return labels ? { checked, disable: true, text: checked ? labels[0] : labels[1] } : checked;
         };
         break;
@@ -268,7 +317,7 @@ export function buildColumns(defs: AppColumnDef[]): ColumnsDefine {
           return typeof raw === 'string' ? { label: raw } : raw;
         };
         typeFieldFormat = (record: Record<string, unknown>) => {
-          const value = String(record[def.field] ?? '');
+          const value = String(record[field] ?? '');
           return itemOf(value)?.label ?? value;
         };
         // 没配颜色的项不返回 color，文字沿用默认色（与底色一致，跟随主题）
@@ -317,16 +366,22 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * 单列判定：是「带 field + title 的普通对象」，且键全在 AppColumnDef 词汇表内。
+ * 单列判定：是「AppColumnDef 形状」的普通对象，且键全在词汇表内。
  *
- * 两个条件缺一不可：
- * - 键全在表内 → 排除 @visactor/vtable 原生列（原生列常有 type / cellType / editor / columns / sort 等表外键）；
- * - field + title 都是字符串 → 排除分组表头（只有 title 没有 field）。
+ * 两种合法形状：
+ * - **叶子列**：`title` 是字符串，`field` 是非空字符串；
+ * - **标题组**：`title` 是字符串，`children` 是非空数组（每项也必须是合法列）。
  */
 function isAppColumnDef(col: unknown): col is AppColumnDef {
   if (!isPlainObject(col)) return false;
   if (!Object.keys(col).every((key) => APP_COLUMN_KEYS.has(key))) return false;
-  return typeof col.field === 'string' && col.field !== '' && typeof col.title === 'string';
+  if (typeof col.title !== 'string') return false;
+  if ('children' in col) {
+    return (
+      Array.isArray(col.children) && col.children.length > 0 && col.children.every(isAppColumnDef)
+    );
+  }
+  return typeof col.field === 'string' && col.field !== '';
 }
 
 /**
@@ -358,21 +413,36 @@ export function normalizeColumns(columns: ColumnsDefine | AppColumnDef[]): Colum
 }
 
 /**
+ * 取一个节点下的子列：转换后的原生分组列用 `columns`，
+ * 未转换的 `AppColumnDef` 标题组用 `children`。两个键都不会出现在同一列上。
+ */
+function childColumnsOf(cell: {
+  columns?: unknown;
+  children?: unknown;
+}): ColumnSource | undefined {
+  if (Array.isArray(cell.columns)) return cell.columns as ColumnsDefine;
+  if (Array.isArray(cell.children)) return cell.children as AppColumnDef[];
+  return undefined;
+}
+
+/**
  * 从列定义里收集「配了 `aggregate` 的列」，返回顺序与 columns 一致。
  *
- * 分组表头（列里再嵌套 columns）会递归进去；字符串形式的列（只给字段名）跳过。
+ * 分组表头（原生 `columns` 或 AppColumnDef 的 `children`）会递归进去；
+ * 字符串形式的列（只给字段名）跳过。
  * 同一个字段配了多次只取第一次 —— 汇总结果写在同名字段上，重复配置没有意义。
  */
 export function collectColumnAggregates(columns: ColumnsDefine): GroupAggregate[] {
   const result: GroupAggregate[] = [];
   const seen = new Set<string>();
 
-  const walk = (cols: ColumnsDefine) => {
+  const walk = (cols: ColumnSource) => {
     for (const col of cols) {
       if (typeof col === 'string') continue;
-      const cell = col as { columns?: ColumnsDefine; field?: unknown; aggregate?: unknown };
-      if (cell.columns) {
-        walk(cell.columns);
+      const cell = col as { columns?: ColumnsDefine; children?: AppColumnDef[]; field?: unknown; aggregate?: unknown };
+      const nested = childColumnsOf(cell);
+      if (nested) {
+        walk(nested);
         continue;
       }
       if (typeof cell.field !== 'string' || !cell.aggregate) continue;
@@ -414,12 +484,14 @@ export function collectGroupableColumns(columns: ColumnSource): GroupableColumn[
       }
       const cell = col as {
         columns?: ColumnsDefine;
+        children?: AppColumnDef[];
         field?: unknown;
         title?: unknown;
         group?: unknown;
       };
-      if (cell.columns) {
-        walk(cell.columns);
+      const nested = childColumnsOf(cell);
+      if (nested) {
+        walk(nested);
         continue;
       }
       if (typeof cell.field !== 'string' || seen.has(cell.field)) continue;
@@ -460,12 +532,14 @@ export function collectFilterFields(columns: ColumnSource): FilterableColumn[] {
       if (typeof col === 'string') continue;
       const cell = col as {
         columns?: ColumnsDefine;
+        children?: AppColumnDef[];
         field?: unknown;
         title?: unknown;
         filterType?: unknown;
       };
-      if (cell.columns) {
-        walk(cell.columns);
+      const nested = childColumnsOf(cell);
+      if (nested) {
+        walk(nested);
         continue;
       }
       if (typeof cell.field !== 'string' || seen.has(cell.field)) continue;
@@ -488,17 +562,19 @@ export function collectFilterFields(columns: ColumnSource): FilterableColumn[] {
  * 从列定义里收集「初始排序」：取列顺序最前一个 `sortable: 'asc' | 'desc'` 的列，
  * 供 GridTable 建表时设定 sortState 并同步表头排序图标。没有配方向的列返回 null。
  */
-export function collectDefaultSort(columns: ColumnsDefine): GridTableSortState | null {
+export function collectDefaultSort(columns: ColumnSource): GridTableSortState | null {
   for (const col of columns) {
     if (typeof col === 'string') continue;
     const cell = col as {
       columns?: ColumnsDefine;
+      children?: AppColumnDef[];
       field?: unknown;
       defaultSort?: unknown;
     };
-    if (cell.columns) {
-      const nested = collectDefaultSort(cell.columns);
-      if (nested) return nested;
+    const nested = childColumnsOf(cell);
+    if (nested) {
+      const found = collectDefaultSort(nested);
+      if (found) return found;
       continue;
     }
     if (typeof cell.field !== 'string') continue;
