@@ -29,9 +29,10 @@ const biPage: React.FC<ViewPageProps> = ({trail}) => {
                     flex: 1,
                     minHeight: 0,
                     height: 'auto',
-                    boxShadow: '0 0 10px rgba(0, 0, 0, 0.1)',
-                    borderRadius: "10px",
-                    overflow: 'hidden'
+                    // 10px 圆角配 `0 0 10px` 的阴影，四个角的圆弧会被阴影填平，
+                    // 看起来像圆角外多了四块灰色直角背景 —— 要阴影就往单侧加（0 2px 8px）。
+                    borderRadius: '10px',
+                    overflow: 'hidden',
                 }}>
                     <Splitter.Panel defaultSize="20%" min="15%" max="40%">
                         <BITree open={(node) => {

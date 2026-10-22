@@ -385,6 +385,22 @@ body {
 }
 
 /*
+  Splitter 面板内的纵向 flex 容器：给面板里的 flex 子项（.quick-select-toolbar /
+  .grid-table-host / 占满高度的 Tree）提供**确定高度**。
+  .ant-splitter-panel 自身是块级元素（display:block，只靠 flex item 的 stretch 拿到高度），
+  不是 flex 容器 —— 直接把上面这些放进去，它们的 flex 属性全部失效，高度退化成 auto；
+  而 GridTable 根节点是 height:100%，参照高度不确定就塌成 0，
+  表现就是「表格没有高度 / 整块空白」。
+  用法：挂到 Splitter.Panel 的 className 上即可，不必再包一层 div。
+*/
+.splitter-pane-body {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+/*
   表格加载遮罩（GridTable 组件的 loading prop）：必须不透明。
   表格的 emptyTip（「暂无数据」的图标和文字）是 @visactor/vtable 用 canvas 画在画布上的，不是独立 DOM，
   z-index 压不下去 —— 半透明遮罩会让它透出来和这里的文案叠成一团，两个都看不清。

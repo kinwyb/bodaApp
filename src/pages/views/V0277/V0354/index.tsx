@@ -5,7 +5,7 @@ import {packBomMatrixApi} from "@/api/modules/nc/bomMatrix.ts";
 import {BomMatrixView} from "@/components/nc/bomMatrix";
 import type {PackBomMatrix} from "@/api/schemas/nc/packBomMatrix.ts";
 import {Button} from "antd";
-import NCMaterial from "@/components/nc/materialModal.tsx";
+import NCMaterialModal from "@/components/nc/materialModal.tsx";
 
 const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({trail}) => {
 
@@ -26,7 +26,11 @@ const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({trail}) => {
                 setOpenModal(true);
             }}>点击</Button>
             <BomMatrixView bomMatrix={bomMatrix}/>
-            <NCMaterial open={openModal} onCancel={() => setOpenModal(false)}/>
+            <NCMaterialModal open={openModal} onCancel={() => setOpenModal(false)} filter={['3', '4']}
+                             onSelect={(material, activeRow) => {
+                                 console.log("物料", material.code, material.name);
+                                 console.log(activeRow);
+                             }}/>
         </div>
     );
 }
