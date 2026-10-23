@@ -10,7 +10,6 @@ import {CheckOutlined} from "@ant-design/icons";
 import {type AppColumnDef, GridTable, type GridTableApi} from "@/components/grid-table";
 import {ErrorMessage} from "@/api/request.ts";
 
-
 /**
  * 物料编辑器
  */
@@ -64,7 +63,7 @@ const registerMaterialEditor = (
     );
 };
 
-type NCMaterialProps = {
+type NCMaterialViewProps = {
     /** 选择回调：双击行时，回传选中的整行记录 */
     onSelect?: (material: NCMaterial) => void;
     filter?: string[];
@@ -85,7 +84,7 @@ const TREE_STYLE: React.CSSProperties = {
     overflow: 'auto',
 };
 
-const NCMaterial: React.FC<NCMaterialProps> = ({filter, onSelect}) => {
+const NCMaterialView: React.FC<NCMaterialViewProps> = ({filter, onSelect}) => {
 
     const tableRef = useRef<GridTableApi | null>(null);
     const [keyword, setKeyword] = useState('');
@@ -343,7 +342,7 @@ const NCMaterialModal: React.FC<NCMaterialModalProps> = ({open, onCancel, isEdit
                 onCancel?.();
             }}
         >
-            {isOpen && <NCMaterial onSelect={selectedAction} filter={filter}/>}
+            {isOpen && <NCMaterialView onSelect={selectedAction} filter={filter}/>}
         </Modal>
     );
 }

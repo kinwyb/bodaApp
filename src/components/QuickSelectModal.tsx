@@ -8,12 +8,7 @@ import {type AppColumnDef, collectGroupableColumns} from './grid-table/columnBui
 /** 快速选择的一行数据：字段由调用方通过 columns 自定义 */
 export type QuickSelectRow = Record<string, unknown>;
 
-export interface QuickSelectModalProps<T extends QuickSelectRow = QuickSelectRow> {
-    /** 是否显示弹窗，由调用方控制 */
-    open: boolean;
-    /** 弹窗标题，如「快速选择-业务员」 */
-    title?: string;
-
+export interface QuickSelectViewProps<T extends QuickSelectRow = QuickSelectRow> {
     /**
      * 表格列定义：显示哪些字段、列宽、渲染类型完全由调用方决定。
      * 支持 @visactor/vtable 原生的 `ColumnsDefine`，也支持本项目的 `AppColumnDef[]`
@@ -22,7 +17,6 @@ export interface QuickSelectModalProps<T extends QuickSelectRow = QuickSelectRow
     columns: ColumnsDefine | AppColumnDef[];
     /** 行主键字段名，默认 id */
     rowKey?: string;
-
     /**
      * 数据加载：完全自定义。
      * 打开弹窗时会以空关键字调用一次；输入框变化时会带上当前关键字重新调用（内部已防抖）。
@@ -34,22 +28,14 @@ export interface QuickSelectModalProps<T extends QuickSelectRow = QuickSelectRow
      * 输入框改为在本地按这些字段做「包含」匹配；不传则由 loadData 按关键字过滤。
      */
     searchFields?: string[];
-
     /** 选择回调：点击「选择」按钮或双击行时，回传选中的整行记录 */
     onSelect: (record: T) => void;
-    /** 关闭回调（点右上角关闭、遮罩等） */
-    onCancel: () => void;
-
     /** 关键字标签文案；不传则只显示输入框，不渲染标签 */
     searchLabel?: string;
     /** 输入框占位符 */
     searchPlaceholder?: string;
     /** 选择按钮文案，默认「选择」 */
     selectText?: string;
-    /** 弹窗宽度，默认 760 */
-    width?: number;
-    /** 内容区高度（含工具条），表格自动填满剩余空间，默认 460 */
-    height?: number;
     /** 空数据提示 */
     emptyTip?: string;
     /** 列宽总和不足容器宽度时，是否自动拉宽各列来填满容器；默认 false（右侧留白） */
@@ -77,24 +63,19 @@ export interface QuickSelectModalProps<T extends QuickSelectRow = QuickSelectRow
  *   onCancel={() => setOpen(false)}
  * />
  */
-export function QuickSelectModal<T extends QuickSelectRow = QuickSelectRow>({
-                                                                                open,
-                                                                                title,
-                                                                                columns,
-                                                                                rowKey = 'id',
-                                                                                loadData,
-                                                                                searchFields,
-                                                                                onSelect,
-                                                                                onCancel,
-                                                                                searchLabel,
-                                                                                searchPlaceholder = '输入关键字过滤',
-                                                                                selectText = '选择',
-                                                                                width = 760,
-                                                                                height = 460,
-                                                                                emptyTip = '暂无数据',
-                                                                                autoFillWidth = true,
-                                                                                debounceMs = 300,
-                                                                            }: QuickSelectModalProps<T>): React.ReactElement {
+export function QuickSelectView<T extends QuickSelectRow = QuickSelectRow>({
+                                                                               columns,
+                                                                               rowKey = 'id',
+                                                                               loadData,
+                                                                               searchFields,
+                                                                               onSelect,
+                                                                               searchLabel,
+                                                                               searchPlaceholder = '输入关键字过滤',
+                                                                               selectText = '选择',
+                                                                               emptyTip = '暂无数据',
+                                                                               autoFillWidth = true,
+                                                                               debounceMs = 300,
+                                                                           }: QuickSelectViewProps<T>): React.ReactElement {
     const {message} = App.useApp();
     const tableRef = useRef<GridTableApi | null>(null);
     const [keyword, setKeyword] = useState('');
@@ -150,19 +131,13 @@ export function QuickSelectModal<T extends QuickSelectRow = QuickSelectRow>({
         [message],
     );
 
-    // 关闭时重置，保证下次打开从空关键字、空数据开始；同时作废未完成的请求
+    // 数据加载：本地过滤模式只加载一次，否则按关键字防抖重载
     useEffect(() => {
-        if (open) return;
         setKeyword('');
         setRecords([]);
         setSelectedRecord(null);
         loadedRef.current = false;
         requestIdRef.current += 1;
-    }, [open]);
-
-    // 数据加载：本地过滤模式只加载一次，否则按关键字防抖重载
-    useEffect(() => {
-        if (!open) return undefined;
         if (localFilter) {
             if (loadedRef.current) return undefined;
             loadedRef.current = true;
@@ -171,17 +146,17 @@ export function QuickSelectModal<T extends QuickSelectRow = QuickSelectRow>({
         }
         const timer = setTimeout(() => void runLoad(keyword), keyword ? debounceMs : 0);
         return () => clearTimeout(timer);
-    }, [open, keyword, localFilter, debounceMs, runLoad]);
+    }, [keyword, localFilter, debounceMs, runLoad]);
 
     /** 实际展示的数据：本地过滤模式下按 searchFields 做包含匹配，否则用 loadData 返回的原数据 */
     const filterText = keyword.trim().toLowerCase();
     const displayRecords =
         localFilter && filterText
             ? records.filter((row) =>
-                  (finalSearchFields ?? []).some((field) =>
-                      String(row[field] ?? '').toLowerCase().includes(filterText),
-                  ),
-              )
+                (finalSearchFields ?? []).some((field) =>
+                    String(row[field] ?? '').toLowerCase().includes(filterText),
+                ),
+            )
             : records;
 
     // 重新加载 / 关键字变化后清空已选行，避免「选择」拿到旧行
@@ -217,24 +192,7 @@ export function QuickSelectModal<T extends QuickSelectRow = QuickSelectRow>({
     }, []);
 
     return (
-        <Modal
-            open={open}
-            title={title}
-            width={width}
-            footer={null}
-            mask={{closable: false}}
-            destroyOnHidden
-            onCancel={onCancel}
-            styles={{
-                header: {textAlign: 'center'},
-                body: {
-                    height,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    overflow: 'hidden',
-                },
-            }}
-        >
+        <>
             <div className="quick-select-toolbar">
                 {searchLabel ? <span className="quick-select-label">{searchLabel}</span> : null}
                 <Input
@@ -267,6 +225,86 @@ export function QuickSelectModal<T extends QuickSelectRow = QuickSelectRow>({
                     </div>
                 ) : null}
             </div>
+        </>
+    );
+}
+
+
+export type QuickSelectModalProps<T extends QuickSelectRow = QuickSelectRow> = QuickSelectViewProps<T> & {
+    /** 是否显示弹窗，由调用方控制 */
+    open: boolean;
+    /** 弹窗标题，如「快速选择-业务员」 */
+    title?: string;
+    /** 关闭回调（点右上角关闭、遮罩等） */
+    onCancel: () => void;
+    /** 弹窗宽度，默认 760 */
+    width?: number;
+    /** 内容区高度（含工具条），表格自动填满剩余空间，默认 460 */
+    height?: number;
+}
+
+/**
+ * 通用快速选择弹窗：整个界面就是「上面一个筛选输入 + 下面一个表格」，
+ * 输入框过滤下面的数据，点「选择」或双击行回传当前行。可用于选部门、选员工等任意场景。
+ *
+ * 作为基础控件，它不关心业务字段与数据来源：
+ * - 表格字段通过 columns 自定义（沿用 GridTable 列定义）；
+ * - 数据加载通过 loadData(keyword) 自定义，支持服务端过滤或配合 searchFields 本地过滤；
+ * - 不做汇总、不做分页，选中单行即回调。
+ *
+ * <QuickSelectModal
+ *   open={open}
+ *   title="快速选择-部门"
+ *   columns={columns}
+ *   rowKey="id"
+ *   loadData={(keyword) => employeeApi.list(keyword)}
+ *   onSelect={(record) => { setValue(record); setOpen(false); }}
+ *   onCancel={() => setOpen(false)}
+ * />
+ */
+export function QuickSelectModal<T extends QuickSelectRow = QuickSelectRow>({
+                                                                                open,
+                                                                                title,
+                                                                                columns,
+                                                                                rowKey = 'id',
+                                                                                loadData,
+                                                                                searchFields,
+                                                                                onSelect,
+                                                                                onCancel,
+                                                                                searchLabel,
+                                                                                searchPlaceholder = '输入关键字过滤',
+                                                                                selectText = '选择',
+                                                                                width = 760,
+                                                                                height = 460,
+                                                                                emptyTip = '暂无数据',
+                                                                                autoFillWidth = true,
+                                                                                debounceMs = 300,
+                                                                            }: QuickSelectModalProps<T>): React.ReactElement {
+    return (
+        <Modal
+            open={open}
+            title={title}
+            width={width}
+            footer={null}
+            mask={{closable: false}}
+            destroyOnHidden
+            onCancel={onCancel}
+            styles={{
+                header: {textAlign: 'center'},
+                body: {
+                    height,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    overflow: 'hidden',
+                },
+            }}
+        >
+            {open && <QuickSelectView columns={columns} loadData={loadData} onSelect={onSelect} rowKey={rowKey}
+                                      searchLabel={searchLabel}
+                                      searchFields={searchFields} searchPlaceholder={searchPlaceholder}
+                                      selectText={selectText} autoFillWidth={autoFillWidth}
+                                      debounceMs={debounceMs} emptyTip={emptyTip}
+            />}
         </Modal>
     );
 }
