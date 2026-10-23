@@ -1,12 +1,12 @@
 import React, {useEffect, useState} from "react";
-import type {PackBomMatrix} from "@/api/schemas/nc/packBomMatrix.ts";
+import type {BomMatrix} from "@/api/schemas/nc/bomMatrix.ts";
 import {Button, Tabs, type TabsProps} from "antd";
 import BomMatrixItemView from "./itemView.tsx";
 import BomMatrixSizeView from "./sizeView.tsx";
 import BomMatrixColorView from "@/components/nc/bomMatrix/colorView.tsx";
 
 export type BomMatrixViewProps = {
-    bomMatrix: PackBomMatrix;
+    bomMatrix: BomMatrix;
     tabs?: TabsProps['items'];
     isEditMode?: boolean;
 }

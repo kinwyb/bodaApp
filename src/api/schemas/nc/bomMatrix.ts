@@ -10,17 +10,17 @@
 import {z} from 'zod';
 import {toDayjs} from "@/utils";
 
-export const PackBomMatrixSchema = z.object({
+export const BomMatrixSchema = z.object({
     CMeasure: z.string().nullish(), // 主单位
     CMeasureid: z.string().nullish(), // 主单位ID
     Cassmeasure: z.string().nullish(), // 单位
     Cassmeasureid: z.string().nullish(), // 单位ID
-    ColorMatch: z.record(z.string(), z.record(z.string(), z.lazy(() => PackBomMatrixColorMatchSchema))).nullish(), // 颜色匹配[颜色][子项物料VID]颜色匹配
+    ColorMatch: z.record(z.string(), z.record(z.string(), z.lazy(() => BomMatrixColorMatchSchema))).nullish(), // 颜色匹配[颜色][子项物料VID]颜色匹配
     ColorSort: z.array(z.string().nullish()).nullish(), // 缝制颜色排序
     CreateTime: z.string().nullish(), // 创建时间
     CreateUser: z.string().nullish(), // 创建人
     CreateUserNo: z.string().nullish(), // 创建人工号
-    Detail: z.array(z.lazy(() => PackBomMatrixDetailSchema)).nullish(), // 包装物料明细
+    Detail: z.array(z.lazy(() => BomMatrixDetailSchema)).nullish(), // 包装物料明细
     MatrixVersion: z.number().int().nullish(), // 矩阵版本
     PackBomMatrixID: z.string().nullish(), // 包装bom矩阵ID
     PackMaterialCode: z.string().nullish(), // 包装物料编码
@@ -31,30 +31,30 @@ export const PackBomMatrixSchema = z.object({
     ProjectCode: z.string().nullish(), // 项目编码
     ProjectID: z.string().nullish(), // 项目ID
     SewMaterialVID: z.string().nullish(), // 缝制物料ID
-    SizeMatch: z.record(z.string(), z.record(z.string(), z.lazy(() => PackBomMatrixSizeMatchSchema))).nullish(), // 尺码匹配[尺码][子项物料VID]物料匹配
+    SizeMatch: z.record(z.string(), z.record(z.string(), z.lazy(() => BomMatrixSizeMatchSchema))).nullish(), // 尺码匹配[尺码][子项物料VID]物料匹配
     SizeSort: z.array(z.string().nullish()).nullish(), // 缝制尺码排序
     UpdateTime: z.string().nullish(), // 更新时间
     UpdateUser: z.string().nullish(), // 更新人
     UpdateUserNo: z.string().nullish(), // 更新人工号
     VChangerate: z.string().nullish(), // 换算率
 }).loose();
-export type PackBomMatrix = z.output<typeof PackBomMatrixSchema>;
+export type BomMatrix = z.output<typeof BomMatrixSchema>;
 
-export const PackBomMatrixColorMatchSchema = z.object({
+export const BomMatrixColorMatchSchema = z.object({
     VFree6: z.string().nullish(),
     VFree6Name: z.string().nullish(),
 }).loose();
-export type PackBomMatrixColorMatch = z.output<typeof PackBomMatrixColorMatchSchema>;
+export type BomMatrixColorMatch = z.output<typeof BomMatrixColorMatchSchema>;
 
-export const PackBomMatrixSizeMatchSchema = z.object({
+export const BomMatrixSizeMatchSchema = z.object({
     Nbfixshrinknum: z.string().nullish(),
     VFree7: z.string().nullish(),
     VFree7Name: z.string().nullish(),
     Nitemnum: z.string().nullish(),
 }).loose();
-export type PackBomMatrixSizeMatch = z.output<typeof PackBomMatrixSizeMatchSchema>;
+export type BomMatrixSizeMatch = z.output<typeof BomMatrixSizeMatchSchema>;
 
-export const PackBomMatrixDetailSchema = z.object({
+export const BomMatrixDetailSchema = z.object({
     Bdeliver: z.boolean().nullish(), // 发料
     Bupint: z.boolean().nullish(), // 向上取整
     CMeasure: z.string().nullish(), // 主单位
@@ -98,4 +98,4 @@ export const PackBomMatrixDetailSchema = z.object({
     EndDate: toDayjs(Cendperiod),
     ...rest,
 }));
-export type PackBomMatrixDetail = z.output<typeof PackBomMatrixDetailSchema>;
+export type BomMatrixDetail = z.output<typeof BomMatrixDetailSchema>;

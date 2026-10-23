@@ -31,11 +31,11 @@ npm run gen:api -- --spec ./apidocs.json --path /nc/bom/packBomMatrix --out ...
 **`--path` 会自动做的事**：
 
 1. 从 `responses.200.schema` 拿到响应根类型（是数组就取 `items`）；
-2. 递归收集它引用到的所有 `$ref`，形成**依赖闭包**（不用手工列）；
+2. 递归收集它引用到的所有 `$ref`，形成 **依赖闭包**（不用手工列）；
 3. 只生成这个闭包，不会把 680 个 definition 全铺出来。
 
 例：`--path /nc/bom/packBomMatrix` → 根是 `ncBean.PackBomMatrix`，
-自动带出 `PackBomMatrixDetail`、`PackBomMatrix.ColorMatch`、`PackBomMatrix.SizeMatch`，
+自动带出 `BomMatrixDetail`、`PackBomMatrix.ColorMatch`、`PackBomMatrix.SizeMatch`，
 共 4 个 schema。
 
 ## 二、生成的代码长什么样
@@ -43,27 +43,27 @@ npm run gen:api -- --spec ./apidocs.json --path /nc/bom/packBomMatrix --out ...
 ```ts
 // 全部字段 nullish、对象 loose
 export const PackBomMatrixSchema = z.object({
-  PackBomMatrixID: z.string().nullish(),          // 包装bom矩阵ID
-  Detail: z.array(z.lazy(() => PackBomMatrixDetailSchema)).nullish(), // 包装物料明细
-  ColorMatch: z.record(z.string(), z.lazy(() => PackBomMatrixColorMatchSchema)).nullish(),
+    PackBomMatrixID: z.string().nullish(),          // 包装bom矩阵ID
+    Detail: z.array(z.lazy(() => PackBomMatrixDetailSchema)).nullish(), // 包装物料明细
+    ColorMatch: z.record(z.string(), z.lazy(() => PackBomMatrixColorMatchSchema)).nullish(),
 }).loose();
 export type PackBomMatrix = z.output<typeof PackBomMatrixSchema>;
 ```
 
-`Xxx` 类型由 `z.output` 推出，**不用手写 interface**。
+`Xxx` 类型由 `z.output` 推出， **不用手写 interface**。
 
 ### 命名规则：去掉包名前缀
 
-| definition | 生成的标识符 |
-|---|---|
-| `ncBean.PackBomMatrix` | `PackBomMatrix` |
-| `ncBean.PackBomMatrixDetail` | `PackBomMatrixDetail` |
-| `ncBean.PackBomMatrix.ColorMatch` | `PackBomMatrixColorMatch` |
-| `planBean.YupaiOrder` | `YupaiOrder` |
+| definition                        | 生成的标识符          |
+|-----------------------------------|-----------------------|
+| `ncBean.PackBomMatrix`            | `BomMatrix`           |
+| `ncBean.PackBomMatrixDetail`      | `BomMatrixDetail`     |
+| `ncBean.PackBomMatrix.ColorMatch` | `BomMatrixColorMatch` |
+| `planBean.YupaiOrder`             | `YupaiOrder`          |
 
 去掉第一段包名（`ncBean` / `planBean` / `configBean` / `loginBean` …）。
 
-⚠️ **内层类保留父名**：`ncBean.PackBomMatrix.ColorMatch` 生成 `PackBomMatrixColorMatch`
+⚠️ **内层类保留父名**：`ncBean.PackBomMatrix.ColorMatch` 生成 `BomMatrixColorMatch`
 而不是 `ColorMatch` —— `ColorMatch` / `SizeMatch` 这种名字太通用，
 一旦同一文件里出现两个类的同名内层类型就会互相顶掉。
 
@@ -71,7 +71,7 @@ export type PackBomMatrix = z.output<typeof PackBomMatrixSchema>;
 （退出码 1，不写文件）。实测全规范里有 **10 组**会撞：
 `configBean.Employee` vs `misBean.Employee`、`configBean.DepartmentTree` vs
 `ncBean.DepartmentTree`、`configBean.StyleInfo` vs `plmBean.StyleInfo` …
-遇到时**分批生成到不同文件**，或只生成其中一个。
+遇到时 **分批生成到不同文件**，或只生成其中一个。
 
 ## 三、为什么全字段 `nullish` + `loose`（不是偷懒）
 
@@ -83,9 +83,9 @@ export type PackBomMatrix = z.output<typeof PackBomMatrixSchema>;
 - 菜单树 `Children` 是 `null`（叶子节点）。
 
 直译（不加 nullish）的后果实测过：`Employee` 上报 **56151 处**错误、菜单树 153/402 处。
-所以这是**没有选择**，不是保守。
+所以这是 **没有选择**，不是保守。
 
-代价要知道：**校验能抓类型错，抓不住「字段消失」和「新增字段」**。
+代价要知道： **校验能抓类型错，抓不住「字段消失」和「新增字段」**。
 后者靠 `loose()` 放行（后端加字段不该白屏），前者需要 TS 层的 interface 来保证。
 
 ## 四、目录约定
@@ -117,19 +117,18 @@ detail: async (id: string): Promise<ApiResponse<PackBomMatrix>> => {
 
 不搞「告警放行 + 严格」两个版本 —— 拿到结构不对的数据继续往下用，
 比当场报错危险得多（下游可能 `.map()` 空数组、算错金额而不自知）。
-`null` / 缺字段 / 多字段本来就是 schema 允许的（`nullish` + `loose`），
-**不会**触发抛错；只有真正的类型漂移才抛。
+`null` / 缺字段 / 多字段本来就是 schema 允许的（`nullish` + `loose`）， **不会**触发抛错；只有真正的类型漂移才抛。
 
 ## 六、生成器的 6 个坑（改的时候别踩回去）
 
-| # | 坑 | 正确做法 |
-|---|---|---|
+| # | 坑                                                                        | 正确做法                                                                                                                                       |
+|---|---------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------|
 | 1 | definition 常**没有 `type` 字段**（有 properties 却省略 `type:'object'`） | `node.type ?? (node.properties ? 'object' : undefined)`。漏了会全部落到 `z.unknown()` → **校验看着全过，实际什么都没校验**（假阳性，最难发现） |
-| 2 | `$ref` 指向 type 而非常量 | `z.lazy(() => XxxSchema)`，不能写 `Xxx` |
-| 3 | 顶层 schema 加 `.nullish()` | 不要加。响应主体不会是 null，加了会让 `data` 多出 null |
-| 4 | 递归自引用（菜单树 `Children`） | 类型用 `interface`（`type X = {children: X[]}` 报 TS2456）；schema 用 `as unknown as z.ZodType<X>` 打断循环推断（否则 TS7022） |
-| 5 | `additionalProperties`（字典，如 `ColorMatch`） | 生成 `z.record(z.string(), <value>)`；它指向的定义可能是空 `{}`（= 任意值） |
-| 6 | 头注释里 Markdown 风格的行 | 生成的是 `.ts`，每行都要 `//` 前缀，否则语法错误 |
+| 2 | `$ref` 指向 type 而非常量                                                 | `z.lazy(() => XxxSchema)`，不能写 `Xxx`                                                                                                        |
+| 3 | 顶层 schema 加 `.nullish()`                                               | 不要加。响应主体不会是 null，加了会让 `data` 多出 null                                                                                         |
+| 4 | 递归自引用（菜单树 `Children`）                                           | 类型用 `interface`（`type X = {children: X[]}` 报 TS2456）；schema 用 `as unknown as z.ZodType<X>` 打断循环推断（否则 TS7022）                 |
+| 5 | `additionalProperties`（字典，如 `ColorMatch`）                           | 生成 `z.record(z.string(), <value>)`；它指向的定义可能是空 `{}`（= 任意值）                                                                    |
+| 6 | 头注释里 Markdown 风格的行                                                | 生成的是 `.ts`，每行都要 `//` 前缀，否则语法错误                                                                                               |
 
 **验证生成器有没有效，必须反测**：故意把一个字段改成错误的类型，
 schema 必须拦下来。只跑「真实数据全过」是不够的 —— 第 1 条坑就是靠这个发现的。

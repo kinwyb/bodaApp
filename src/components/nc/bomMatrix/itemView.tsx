@@ -1,19 +1,20 @@
 import React, {useEffect, useMemo, useState} from "react";
-import type {PackBomMatrixDetail} from "@/api/schemas/nc/packBomMatrix.ts";
+import type {BomMatrixDetail} from "@/api/schemas/nc/bomMatrix.ts";
 import {type AppColumnDef, GridTable} from "@/components/grid-table";
 import {BackFlushTypeLabel, ItemSourceLabel} from "@/components/nc/bomMatrix/common.ts";
-import NCMaterial, {MATERIAL_EDITOR} from "@/components/nc/materialModal.tsx";
+import NCMaterialModal, {MATERIAL_EDITOR} from "@/components/nc/materialModal.tsx";
 import type {EditorRowAccessor} from "@/components/grid-table/editors/antd-editors";
+import type {NCMaterial} from "@/api/schemas/nc/NCMaterial.ts";
 
 /** bom矩阵子物料树形 */
 export interface BomMatrixItemProps {
-    items: PackBomMatrixDetail[]
+    items: BomMatrixDetail[]
     isEditable: boolean
 }
 
 const BomMatrixItemView: React.FC<BomMatrixItemProps> = ({items, isEditable}) => {
 
-    const [datas, setDatas] = useState<PackBomMatrixDetail[]>([]);
+    const [datas, setDatas] = useState<BomMatrixDetail[]>([]);
 
     const columns = useMemo((): AppColumnDef[] => {
         return [
@@ -72,11 +73,28 @@ const BomMatrixItemView: React.FC<BomMatrixItemProps> = ({items, isEditable}) =>
                        rowKey={'PackBomMatrixDetailID'}
                        rowNumber={false}
                        multiSelect={false} widthMode={'autoWidth'}/>
-            <NCMaterial open={false}
-                        isEditor={true}
-                        onSelect={function (record: Record<string, unknown>, activeRow: EditorRowAccessor | null): void {
-                            console.log(record, activeRow);
-                        }}/>
+            <NCMaterialModal open={false}
+                             isEditor={true}
+                             onSelect={function (record: NCMaterial, activeRow: EditorRowAccessor | null): void {
+                                 let updateFields: Record<string, unknown> = {
+                                     MaterialVID: record.pk_material,
+                                     MaterialCode: record.code,
+                                     MaterialName: record.name,
+                                     MaterialVersion: record.version,
+                                     MaterialSpec: record.materialspec,
+                                     MaterialType: record.materialtype,
+                                     CMeasureid: record.pk_measdoc,
+                                     CMeasure: record.measdoc,
+                                 }
+                                 if (record.materialconvert && record.materialconvert.length > 0) {
+                                     updateFields.Cassmeasure = record.materialconvert[0].measdoc;
+                                     updateFields.Cassmeasureid = record.materialconvert[0].pk_measdoc;
+                                     updateFields.VChangerate = record.materialconvert[0].measrate;
+                                 }
+                                 activeRow?.setFields(updateFields);
+                                 activeRow?.endEdit();
+                                 console.log(updateFields);
+                             }}/>
         </>
     );
 }

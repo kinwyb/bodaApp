@@ -3,7 +3,7 @@ import type {ViewPageProps} from "@/pages/types.ts";
 import {PageBreadcrumb} from "@/components/PageBreadcrumb.tsx";
 import {packBomMatrixApi} from "@/api/modules/nc/bomMatrix.ts";
 import {BomMatrixView} from "@/components/nc/bomMatrix";
-import type {PackBomMatrix} from "@/api/schemas/nc/packBomMatrix.ts";
+import type {BomMatrix} from "@/api/schemas/nc/bomMatrix.ts";
 import {Button} from "antd";
 import NCMaterialModal from "@/components/nc/materialModal.tsx";
 import type {NCMaterial} from "@/api/schemas/nc/NCMaterial.ts";
@@ -11,7 +11,7 @@ import NCProductorModal from "@/components/nc/productorModal.tsx";
 
 const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({trail}) => {
 
-    const [bomMatrix, setBomMatrix] = useState<PackBomMatrix>({});
+    const [bomMatrix, setBomMatrix] = useState<BomMatrix>({});
     const [openModal, setOpenModal] = useState<boolean>(false);
     const [openModal2, setOpenModal2] = useState<boolean>(false);
     const [material, setMaterial] = useState<NCMaterial | undefined>();

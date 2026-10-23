@@ -1,10 +1,10 @@
 import React, {useEffect, useMemo, useState} from "react";
-import type {PackBomMatrix} from "@/api/schemas/nc/packBomMatrix.ts";
+import type {BomMatrix} from "@/api/schemas/nc/bomMatrix.ts";
 import {toNumberOrZero, toStringOrEmpty} from "@/utils";
 import {type AppColumnDef, type AppColumnGroupDef, GridTable} from "@/components/grid-table";
 
 export type BomMatrixSizeViewProps = {
-    bomMatrix: PackBomMatrix;
+    bomMatrix: BomMatrix;
 }
 
 interface bomMatrixSizeData {
@@ -28,7 +28,7 @@ interface bomMatrixSizeData {
  * bom矩阵数据转换成尺码表数据
  * @param matrix
  */
-function bomMatrixToSizeData(matrix: PackBomMatrix): bomMatrixSizeData[] {
+function bomMatrixToSizeData(matrix: BomMatrix): bomMatrixSizeData[] {
     if (!matrix || !matrix.Detail) {
         return [];
     }

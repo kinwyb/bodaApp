@@ -1,10 +1,10 @@
 import React, {useEffect, useMemo, useState} from "react";
-import type {PackBomMatrix} from "@/api/schemas/nc/packBomMatrix.ts";
+import type {BomMatrix} from "@/api/schemas/nc/bomMatrix.ts";
 import {toStringOrEmpty} from "@/utils";
 import {type AppColumnDef, type AppColumnGroupDef, GridTable} from "@/components/grid-table";
 
 export type BomMatrixColorViewProps = {
-    bomMatrix: PackBomMatrix;
+    bomMatrix: BomMatrix;
 }
 
 
@@ -28,7 +28,7 @@ interface bomMatrixColorData {
  * bom矩阵数据转换成颜色表数据
  * @param matrix
  */
-function bomMatrixToColorData(matrix: PackBomMatrix): bomMatrixColorData[] {
+function bomMatrixToColorData(matrix: BomMatrix): bomMatrixColorData[] {
     if (!matrix || !matrix.Detail) {
         return [];
     }

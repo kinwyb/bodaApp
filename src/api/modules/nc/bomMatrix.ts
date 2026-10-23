@@ -1,6 +1,6 @@
 import {http} from '../../request';
 import type {ApiResponse} from '../../types';
-import {type PackBomMatrix, PackBomMatrixSchema,} from '../../schemas/nc/packBomMatrix';
+import {type BomMatrix, BomMatrixSchema,} from '../../schemas/nc/bomMatrix.ts';
 
 /**
  * 包装 BOM 矩阵。
@@ -23,11 +23,11 @@ export const packBomMatrixApi = {
      *
      * GET /nc/bom/packBomMatrix?packBomMatrixID=xxx
      */
-    detail: async (packBomMatrixID: string): Promise<ApiResponse<PackBomMatrix>> => {
+    detail: async (packBomMatrixID: string): Promise<ApiResponse<BomMatrix>> => {
         const res = await http.get<unknown>('/nc/bom/packBomMatrix', {packBomMatrixID});
         if (res.data === undefined || res.data === null) {
             return {...res, data: undefined};
         }
-        return {...res, data: PackBomMatrixSchema.parse(res.data)};
+        return {...res, data: BomMatrixSchema.parse(res.data)};
     },
 };
