@@ -243,7 +243,7 @@ const NCMaterialView: React.FC<NCMaterialViewProps> = ({filter, onSelect}) => {
 
 export type NCMaterialModalProps = RegisterModalProps<NCMaterial, NCMaterialViewProps>;
 
-const NCMaterialModal: React.FC<NCMaterialModalProps> = ({open, onCancel, isEditor, onSelect, filter}) => {
+const NCMaterialModal: React.FC<NCMaterialModalProps> = ({open, onCancel, isEditor, onSelect, onInput, filter}) => {
     return (
         <RegisterInputModal<NCMaterial, NCMaterialViewProps>
             open={open}
@@ -253,6 +253,7 @@ const NCMaterialModal: React.FC<NCMaterialModalProps> = ({open, onCancel, isEdit
             editorPlaceholder="物料"
             onCancel={onCancel}
             onSelect={onSelect}
+            onInput={onInput}
             width='60vw'
             View={NCMaterialView}
             viewProps={{filter}}

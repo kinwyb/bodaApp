@@ -156,6 +156,13 @@ export interface EditorCommitPayload<V = unknown> {
   value: V;
   /** 只有 Select 类控件有：被选中的那个 option 对象本身（原始行挂在上面即可取到） */
   option?: Record<string, unknown>;
+  /**
+   * 编辑前这一格的值。
+   *
+   * 用来区分「用户真的改了什么」和「值没变就回车」——比如「直接输入编码后回车就去查基础资料」
+   * 这种联动，值没变时不该再发一次请求。
+   */
+  previousValue?: V;
 }
 
 /**
@@ -480,17 +487,27 @@ function resolveRecordIndex(context: EditContext<unknown>): number | null {
 /**
  * 当前编辑行对应的原始记录对象。
  *
- * 用的就是 edit-manager 自己取行数据的那个方法（见 `es/edit/edit-manager.js` 的
- * startEditCell：`this.table.getCellRawRecord(col, row)`），拿到的正是数据源里的
- * record 对象 —— 也就是页面 records 数组里那一个，改它等于改页面的数据。
+ * ⚠️ 优先从数据源里按行下标直接取**真实那一个对象**，`getCellRawRecord` 只作回退。
  *
- * 数据源异步时这个方法可能返回 Promise，那种情况当作拿不到（返回 undefined）。
+ * 原因（2026-10-23 实测踩到）：`CachedDataSource.getRawRecord` 对**本次改动过的行**
+ * 会先查 `beforeChangedRecordsMap` —— 里面存的是 `changeFieldValueByRecordIndex` 写之前
+ * 做的 `cloneDeep` 快照，且**整个会话里一直留着**。于是同一行第二次进入编辑时，
+ * `getCellRawRecord` 返回的是那份副本，不是 `records` 数组里的对象：
+ * 拿它当写回锚点，`indexOf` 永远找不到（副本不在数组里），表现就是
+ * 「第一次改没问题，改第二次没反应」。
  */
 function resolveRecord(
   context: EditContext<unknown>,
+  recordIndex: number | null,
 ): Record<string, unknown> | undefined {
   const table = context.table;
-  if (!table || typeof table.getCellRawRecord !== 'function') return undefined;
+  if (!table) return undefined;
+  const rows = table.dataSource?.dataSourceObj?.records;
+  if (Array.isArray(rows) && recordIndex !== null) {
+    const row = rows[recordIndex];
+    if (row && typeof row === 'object') return row as Record<string, unknown>;
+  }
+  if (typeof table.getCellRawRecord !== 'function') return undefined;
   const record = table.getCellRawRecord(context.col, context.row);
   if (!record || typeof record !== 'object') return undefined;
   if (typeof (record as { then?: unknown }).then === 'function') return undefined;
@@ -571,6 +588,12 @@ export abstract class BaseAntdEditor<V = unknown> implements IEditor<V> {
   private rerender: (() => void) | null = null;
   /** ESC 放弃编辑时置位，让这一次 completeEdit 跳过校验（见 cancelEdit） */
   private readonly skipNextValidation: { current: boolean } = { current: false };
+  /**
+   * 程序化回填（setFields 写中当前编辑格）之后紧跟的那次提交不是用户输入，
+   * 吞掉它 —— 否则业务会把「弹窗选完 → endEdit」当成一次手工输入再查一遍接口。
+   * 置位在 writeRow，消费在 commit。
+   */
+  private readonly suppressCommitRef: { current: boolean } = { current: false };
   /** 进入编辑时的原值：ESC 放弃时用它还原，别让当前值被写进表格 */
   private readonly initialValueRef: { current: unknown } = { current: undefined };
   private readonly endEditRef: { current: (() => void) | null } = { current: null };
@@ -661,13 +684,14 @@ export abstract class BaseAntdEditor<V = unknown> implements IEditor<V> {
     this.errorRef.current = undefined;
     this.pendingRef.current = false;
     this.skipNextValidation.current = false;
+    this.suppressCommitRef.current = false;
     this.optionRef.current = undefined;
     // 记下原值：ESC 放弃时还原用它（见 cancelEdit）
     this.initialValueRef.current = value;
     this.endEditRef.current = context.endEdit;
     this.tableRef.current = context.table;
     this.recordIndexRef.current = resolveRecordIndex(context);
-    this.recordRef.current = resolveRecord(context);
+    this.recordRef.current = resolveRecord(context, this.recordIndexRef.current);
     this.editFieldRef.current = resolveEditField(context);
     // 写回锚点：行对象是稳定锚，下标与表格随时可能失效（见 EditSession）
     this.sessionRef.current = {
@@ -705,7 +729,7 @@ export abstract class BaseAntdEditor<V = unknown> implements IEditor<V> {
     this.options.onStart?.(this.createRow());
   }
 
-  validateValue(newValue?: V): ValidateValueResult | Promise<ValidateValueResult> {
+  validateValue(newValue?: V, oldValue?: V): ValidateValueResult | Promise<ValidateValueResult> {
     if (this.skipNextValidation.current) {
       this.skipNextValidation.current = false;
       return true;
@@ -721,21 +745,28 @@ export abstract class BaseAntdEditor<V = unknown> implements IEditor<V> {
       // 异步校验：把 Promise 交给 vtable（它会等结果再决定退出还是留在编辑态，
       // 等待期间挡住重复触发）。业务回调也跟着延后到结果回来之后。
       return validated.then((passed) => {
-        if (passed) this.commit(newValue);
+        if (passed) this.commit(newValue, oldValue);
         return passed;
       });
     }
     // 校验通过才回调：ESC 与校验失败都提前 return 了，业务不会拿到「半截」的提交
-    if (validated) this.commit(newValue);
+    if (validated) this.commit(newValue, oldValue);
     return validated;
   }
 
   /** 校验通过后回调业务（异步校验时等结果回来才走） */
-  private commit(value: V | undefined): void {
+  private commit(value: V | undefined, previousValue?: V): void {
+    // 程序化回填（setFields 写中当前编辑格）之后的那次「提交」不是用户输入，
+    // 别让业务把它当成一次手工输入再查一遍接口。见 writeRow。
+    if (this.suppressCommitRef.current) {
+      this.suppressCommitRef.current = false;
+      return;
+    }
     this.options.onCommit?.(
       {
         value: value as V,
         option: this.optionRef.current as Record<string, unknown> | undefined,
+        previousValue,
       },
       this.createRow(),
     );
@@ -764,6 +795,7 @@ export abstract class BaseAntdEditor<V = unknown> implements IEditor<V> {
     this.recordIndexRef.current = null;
     this.recordRef.current = undefined;
     this.editFieldRef.current = '';
+    this.suppressCommitRef.current = false;
     this.optionRef.current = undefined;
 
     // ⚠️ wrapper / root 不能在这里同步清理。
@@ -868,7 +900,11 @@ export abstract class BaseAntdEditor<V = unknown> implements IEditor<V> {
     });
     table.refreshAfterSourceChange?.();
     // 同步了输入框的值就刷一下，别让界面上的控件还显示旧内容
-    if (touchedEditingCell) this.rerender?.();
+    if (touchedEditingCell) {
+      // 这次回填让「值变了」，随后的 endEdit 会走一次 commit —— 那不是用户输入，吞掉
+      this.suppressCommitRef.current = true;
+      this.rerender?.();
+    }
   }
 }
 
@@ -883,20 +919,11 @@ export class AntdInputEditor extends BaseAntdEditor<string> {
   }
 
   /**
-   * 配了 `onSearch` 时，回车**只用来打开选择弹窗**，不能同时「提交并退出编辑」。
+   * 只处理**输入法组词中的回车**（`isComposing` / keyCode 229）——那是「确认候选词」，
+   * 表格不该把它当成「提交单元格」，否则一选词就退出编辑。挡一下传播，别的什么都不做。
    *
-   * 为什么必须在 wrapper 上拦：@visactor/vtable 的 keydown 监听挂在表格容器
-   * （`table.getElement()`，是编辑器的祖先）上，`es/event/listener/container-dom.js`
-   * 的 Enter 分支会 `completeEdit()` —— 原生监听比 React 挂在 #root 上的冒泡派发**先执行**，
-   * 所以 antd 的 `onPressEnter` / `onSearch` 拿到事件时，编辑已经结束、`onEnd` 也跑完了
-   * （`onEnd` 会清掉 onStart 里存下的行访问器，弹窗选完 `setFields` 就成了静默空操作）。
-   *
-   * 在 wrapper 上用**捕获阶段**拦（比祖先容器先拿到），`stopPropagation()` 之后表格
-   * 再也看不到这次回车；代价是 React 的合成事件也收不到，所以这里自己调一次 onSearch。
-   *
-   * 输入法组词中的回车（`isComposing` / keyCode 229）是「确认候选词」：
-   * 既不能当成「查/选」，也不能让表格把它当成「提交单元格」（否则一确认候选词就退出编辑）。
-   * 所以只挡传播、不触发 onSearch。
+   * 正常回车**放行**：照旧由表格 `completeEdit` 提交退出（手工输入编码 + 回车必须能用）。
+   * 「打开选择弹窗」只走搜索按钮，见下面 createControl 里对 onSearch 的包装。
    */
   protected bindWrapperEvents(wrapper: HTMLDivElement): (() => void) | undefined {
     const onSearch = this.props.onSearch;
@@ -904,13 +931,8 @@ export class AntdInputEditor extends BaseAntdEditor<string> {
     const handler = (event: KeyboardEvent) => {
       if (event.key !== 'Enter') return;
       if (event.isComposing || event.keyCode === 229) {
-        // 中文输入法：这一下回车是在选词，别让表格拿去 completeEdit
         event.stopPropagation();
-        return;
       }
-      event.stopPropagation();
-      event.preventDefault();
-      onSearch(String(this.valueRef.current ?? ''));
     };
     wrapper.addEventListener('keydown', handler, true);
     return () => wrapper.removeEventListener('keydown', handler, true);
@@ -924,7 +946,21 @@ export class AntdInputEditor extends BaseAntdEditor<string> {
       return createElement(Input.Search, {
         ...inputProps,
         allowClear: true,
-        onSearch: (value: string) => onSearch(value),
+        // ⚠️ 只有**点搜索按钮**才打开弹窗，回车和清空都不打开：
+        // - 回车必须留给表格「提交并退出编辑」（用户要能手工输入编码后回车确认）；
+        // - 清空（点 X）只是把内容抹掉，不该顺手弹一个选择框出来。
+        // antd 把触发来源放在参数上：键盘是 event.type === 'keydown'，
+        // 清空按钮是 info.source === 'clear'，搜索按钮两者都不是。
+        onSearch: (
+          value: string,
+          event?: unknown,
+          info?: { source?: 'input' | 'clear' },
+        ) => {
+          if (info?.source === 'clear') return;
+          const type = (event as { type?: string } | undefined)?.type;
+          if (type === 'keydown') return;
+          onSearch(value);
+        },
       } as ComponentProps<typeof Input.Search>) as ReactElement;
     }
     return createElement(Input, { ...this.props, allowClear: true }) as ReactElement;
