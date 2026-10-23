@@ -7,7 +7,7 @@ import type {PackBomMatrix} from "@/api/schemas/nc/packBomMatrix.ts";
 import {Button} from "antd";
 import NCMaterialModal from "@/components/nc/materialModal.tsx";
 import type {NCMaterial} from "@/api/schemas/nc/NCMaterial.ts";
-import NCMaterialConvertModal from "@/components/nc/materialConvertModal.tsx";
+import NCMaterialVFreeModal from "@/components/nc/materialVFreeModal.tsx";
 
 const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({trail}) => {
 
@@ -33,18 +33,18 @@ const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({trail}) => {
                 setOpenModal2(true);
             }}>点击单位</Button>
             <BomMatrixView bomMatrix={bomMatrix}/>
-            <NCMaterialModal open={openModal} onCancel={() => setOpenModal(false)} filter={['3', '4']}
+            <NCMaterialModal open={openModal} onCancel={() => setOpenModal(false)}
                              onSelect={(material, activeRow) => {
                                  console.log("物料", material);
                                  console.log(activeRow);
                                  setMaterial(material);
                              }}/>
 
-            <NCMaterialConvertModal open={openModal2} onCancel={() => setOpenModal2(false)}
-                                    onSelect={(material, activeRow) => {
-                                        console.log("物料单位", material);
-                                        console.log(activeRow);
-                                    }} converts={material?.materialconvert ?? []}/>
+            <NCMaterialVFreeModal open={openModal2} onCancel={() => setOpenModal2(false)}
+                                  onSelect={(material, activeRow) => {
+                                      console.log("辅助属性", material);
+                                      console.log(activeRow);
+                                  }} materialVID={material?.pk_material ?? ''} vfreeField={'vfree4'}/>
         </div>
     );
 }

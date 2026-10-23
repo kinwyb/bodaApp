@@ -3,7 +3,9 @@ import {
     type NCMaterial,
     type NCMaterialClassTree,
     NCMaterialClassTreeSchema,
-    NCMaterialSchema
+    NCMaterialSchema,
+    type NCMaterialVFree,
+    NCMaterialVFreeSchema
 } from "@/api/schemas/nc/NCMaterial.ts";
 
 export type NCMaterialQuery = {
@@ -11,6 +13,11 @@ export type NCMaterialQuery = {
     Name?: string;
     PkClass?: string;
     ID?: string;
+}
+
+export type NCMaterialVFreeQuery = {
+    fieldName: string;
+    pkMaterial: string;
 }
 
 /**
@@ -39,5 +46,17 @@ export const ncMaterialApi = {
             return {...res, data: undefined};
         }
         return {...res, data: NCMaterialSchema.array().parse(res.data)};
+    },
+
+    /**
+     * 物料辅助属性查询
+     * @param params
+     */
+    vfree: async (params: NCMaterialVFreeQuery): Promise<ApiResponse<NCMaterialVFree[]>> => {
+        const res = await http.post('/nc/material/queryVFree', params);
+        if (res.data === undefined || res.data === null) {
+            return {...res, data: undefined};
+        }
+        return {...res, data: NCMaterialVFreeSchema.array().parse(res.data)};
     }
 };
