@@ -7,7 +7,7 @@ import type {PackBomMatrix} from "@/api/schemas/nc/packBomMatrix.ts";
 import {Button} from "antd";
 import NCMaterialModal from "@/components/nc/materialModal.tsx";
 import type {NCMaterial} from "@/api/schemas/nc/NCMaterial.ts";
-import NCMaterialVFreeModal from "@/components/nc/materialVFreeModal.tsx";
+import NCProductorModal from "@/components/nc/productorModal.tsx";
 
 const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({trail}) => {
 
@@ -40,11 +40,11 @@ const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({trail}) => {
                                  setMaterial(material);
                              }}/>
 
-            <NCMaterialVFreeModal open={openModal2} onCancel={() => setOpenModal2(false)}
-                                  onSelect={(material, activeRow) => {
-                                      console.log("辅助属性", material);
-                                      console.log(activeRow);
-                                  }} materialVID={material?.pk_material ?? ''} vfreeField={'vfree4'}/>
+            <NCProductorModal open={openModal2} onCancel={() => setOpenModal2(false)}
+                              onSelect={(material, activeRow) => {
+                                  console.log("生产厂商", material);
+                                  console.log(activeRow);
+                              }}/>
         </div>
     );
 }

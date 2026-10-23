@@ -32,6 +32,12 @@ const TREE_STYLE: React.CSSProperties = {
     overflow: 'auto',
 };
 
+/**
+ * 搜索框做本地过滤用的字段：物料名称 / 编码 / 规格 / 型号。
+ * 这几个是用户实际拿来认物料的字段，其余（单位、PK）没有搜索价值。
+ */
+const SEARCH_FIELDS: Array<keyof NCMaterial> = ['name', 'code', 'materialspec', 'materialtype'];
+
 const NCMaterialView: React.FC<NCMaterialViewProps> = ({filter, onSelect}) => {
 
     const tableRef = useRef<GridTableApi | null>(null);
@@ -119,6 +125,22 @@ const NCMaterialView: React.FC<NCMaterialViewProps> = ({filter, onSelect}) => {
         void loadMaterialData(query);
     }, [query]);
 
+    /**
+     * 搜索框的本地过滤：在**当前已经查出来的物料**里做包含匹配，方便就地缩范围。
+     * - 不触发请求：输入只改这里的过滤结果，要按关键字重新查库请点「搜索」按钮（那才是 setQuery）；
+     * - 与按钮叠加是有意为之：按钮查回来的本来就是与关键字相关的结果，这里再筛一次只会更窄；
+     *   万一某行匹配不上，清空搜索框（或点 X）就恢复显示全部。
+     */
+    const filterText = keyword.trim().toLowerCase();
+    const displayMaterials = useMemo(() => {
+        if (!filterText) {
+            return materials;
+        }
+        return materials.filter((material) =>
+            SEARCH_FIELDS.some((field) => toStringOrEmpty(material[field]).toLowerCase().includes(filterText)),
+        );
+    }, [materials, filterText]);
+
     const handleDblClick = useCallback(() => {
         if (!tableRef.current || !onSelect) {
             return;
@@ -127,12 +149,12 @@ const NCMaterialView: React.FC<NCMaterialViewProps> = ({filter, onSelect}) => {
         if (!activeRow || activeRow.isSummaryRow || activeRow.isGroupRow) {
             return;
         }
-        const m = materials?.find((m) => m.pk_material === activeRow.rowKey);
+        const m = displayMaterials.find((m) => m.pk_material === activeRow.rowKey);
         if (!m) {
             return;
         }
         onSelect(m);
-    }, [onSelect, materials]);
+    }, [onSelect, displayMaterials]);
 
     return (
         <Splitter style={{
@@ -175,10 +197,11 @@ const NCMaterialView: React.FC<NCMaterialViewProps> = ({filter, onSelect}) => {
             <Splitter.Panel className="splitter-pane-body">
                 <div className="quick-select-toolbar" style={{margin: '10px'}}>
                     <span className="quick-select-label">搜索</span>
+                    {/* 输入即本地过滤当前结果；按钮才是按关键字请求接口重新查询 */}
                     <Input
                         allowClear
                         value={keyword}
-                        placeholder={'关键字'}
+                        placeholder={'名称 / 编码 / 规格 / 型号'}
                         onChange={(event) => setKeyword(event.target.value)}
                         style={{width: 260}}
                     />
@@ -186,14 +209,15 @@ const NCMaterialView: React.FC<NCMaterialViewProps> = ({filter, onSelect}) => {
                         if (!keyword) {
                             return;
                         }
-                        const query: NCMaterialQuery = {}
+                        const next: NCMaterialQuery = {}
+                        // 纯数字当作物料编码查，否则按名称模糊查（沿用原来的判定）
                         const mcode = toNumberOrNullIfZero(keyword);
                         if (mcode) {
-                            query.Code = keyword;
+                            next.Code = keyword;
                         } else {
-                            query.Name = keyword;
+                            next.Name = keyword;
                         }
-                        setQuery(query);
+                        setQuery(next);
                         setSelectedNodes([]);
                     }}>
                         搜索
@@ -204,7 +228,7 @@ const NCMaterialView: React.FC<NCMaterialViewProps> = ({filter, onSelect}) => {
                     <GridTable
                         ref={tableRef}
                         columns={columns}
-                        records={materials}
+                        records={displayMaterials}
                         rowKey={'pk_material'}
                         highlightMode="row"
                         widthMode={'autoWidth'}
