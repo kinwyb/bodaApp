@@ -52,10 +52,8 @@ const BomMatrixItemView: React.FC<BomMatrixItemProps> = ({items, isEditable}) =>
 
     const editableFields = useMemo(() => {
         if (!isEditable) {
-            console.log("禁止编辑")
             return undefined;
         }
-        console.log("itemview 编辑")
         return {
             'ProjectMaterial': 'auto',
             'MaterialCode': MATERIAL_EDITOR,
@@ -93,7 +91,6 @@ const BomMatrixItemView: React.FC<BomMatrixItemProps> = ({items, isEditable}) =>
                                  }
                                  activeRow?.setFields(updateFields);
                                  activeRow?.endEdit();
-                                 console.log(updateFields);
                              }}/>
         </>
     );

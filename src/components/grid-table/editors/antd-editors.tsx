@@ -117,14 +117,20 @@ export interface IEditor<V = any> {
  *
  * 不需要在页面里另外维护 `value -> 整行` 的字典，也不需要自己查表格坐标。
  *
- * ⚠️ 只在**编辑期间**有效：编辑器 onEnd 之后（用户提交或按 ESC 放弃）访问器失效，
- * 写入会被静默忽略，拿 `record` 会得到 undefined。弹窗这类异步流程要在 onStart 里
- * 存下访问器、onEnd 里清掉，别长期持有。
+ * ⚠️ 关于「什么时候不能用」：
+ *
+ * - `record` / `recordIndex` / `getField` 是**拿到访问器那一刻的快照**，onEnd 之后就不要再读
+ *   （`record` 会变 undefined，读到的也是旧值）；
+ * - `setField` / `setFields` 不一样：它们锚定在**行对象**上（EditSession），写回时按对象身份
+ *   在数据源里重新定位下标 —— 所以「弹窗开着、编辑被回车之类提前结束、选完再回填」照样写得进去，
+ *   行对象已经不在表里则放弃（不会写到别的行）。
+ *
+ * 即便如此也别长期持有（挂到全局 / 模块级变量）：下一次编辑会覆盖写回锚点。
  */
 export interface EditorRowAccessor {
   /** 当前编辑行的原始记录（就是表格数据源里那一个对象，@visactor/vtable 编辑时也改它） */
   readonly record: Record<string, unknown> | undefined;
-  /** 数据行下标（不含表头）；拿不到时为 null，此时写入不生效 */
+  /** 数据行下标（不含表头）；拿不到时为 null */
   readonly recordIndex: number | null;
   /**
    * 读本行某一列。
@@ -491,6 +497,55 @@ function resolveRecord(
   return record as Record<string, unknown>;
 }
 
+/**
+ * 当前编辑的单元格对应的**字段名**（取自列定义）。
+ *
+ * 用来判断 `setField` / `setFields` 是不是正好改了「用户正在编辑的那一格」——
+ * 是的话要把输入框的值一起换掉（见 BaseAntdEditor.writeRow）。拿不到返回空串。
+ */
+function resolveEditField(context: EditContext<unknown>): string {
+  const table = context.table;
+  if (!table || typeof table.getBodyColumnDefine !== 'function') return '';
+  const define = table.getBodyColumnDefine(context.col, context.row) as
+    | { field?: unknown }
+    | undefined;
+  return typeof define?.field === 'string' ? define.field : '';
+}
+
+/**
+ * 一次编辑的写回锚点。
+ *
+ * 为什么不直接用 `tableRef` / `recordIndexRef`：那两个在 onEnd 时会被清空，而
+ * vtable 结束编辑的路径比想象中多（回车、点到别处、表格 release、`getEditor` 的缓存清理…），
+ * 只要有一条提前触发，「弹窗选完回填」就会变成静默空操作。锚点存在**行对象**上：
+ * 写回时按对象身份在数据源里重新定位下标（见 resolveLiveRecordIndex），
+ * 对象不在了就放弃 —— 比索引可信，也不会串行。
+ */
+interface EditSession {
+  table: any;
+  record: Record<string, unknown> | undefined;
+  recordIndex: number | null;
+}
+
+/**
+ * 这行记录**现在**在数据源里的下标。
+ *
+ * 先试编辑时记下的下标（快路径），再按对象身份 `indexOf` 兜底 ——
+ * 排序 / 增删行之后下标会变，但对象引用不会变，所以对象身份才是可信的锚。
+ * 找不到返回 null（说明这行已经不在表里了，宁可放弃也不能写到别的行上）。
+ */
+function resolveLiveRecordIndex(
+  table: any,
+  record: Record<string, unknown>,
+  preferred: number | null,
+): number | null {
+  const rows = table?.dataSource?.dataSourceObj?.records;
+  if (!Array.isArray(rows)) return null;
+  if (preferred !== null && rows[preferred] === record) return preferred;
+  const found = rows.indexOf(record);
+  return found >= 0 ? found : null;
+}
+
 // ─── 基础编辑器：三个 antd 编辑器共用的骨架 ──────────────────────────────────
 
 /**
@@ -521,12 +576,22 @@ export abstract class BaseAntdEditor<V = unknown> implements IEditor<V> {
   private readonly endEditRef: { current: (() => void) | null } = { current: null };
   /** ESC 监听的解绑函数（见 bindEscapeToCancel），onEnd 里必须调，否则全局监听会累积 */
   private readonly unbindEscapeRef: { current: (() => void) | null } = { current: null };
+  /** 子类额外绑定的解绑函数（见 bindWrapperEvents），同样在 onEnd 里调 */
+  private readonly unbindWrapperRef: { current: (() => void) | null } = { current: null };
   /** 以下三样只在编辑期间有效，onEnd 里一并清掉 */
   private readonly tableRef: { current: any } = { current: null };
   private readonly recordIndexRef: { current: number | null } = { current: null };
   private readonly recordRef: { current: Record<string, unknown> | undefined } = {
     current: undefined,
   };
+  /** 本次编辑的字段名：setFields 写中它时要把输入框的值一起换掉 */
+  private readonly editFieldRef: { current: string } = { current: '' };
+  /**
+   * 本次编辑的写回锚点。**onEnd 不清空** —— 业务手里的访问器（弹窗选完才用）
+   * 靠它继续工作；写回时按行对象身份定位，不会因为「编辑已经结束」而静默丢写。
+   * 下一次 onStart 直接覆盖。
+   */
+  private readonly sessionRef: { current: EditSession | null } = { current: null };
   protected wrapper: HTMLDivElement | null = null;
   private root: Root | null = null;
 
@@ -548,6 +613,16 @@ export abstract class BaseAntdEditor<V = unknown> implements IEditor<V> {
   /** 子类：是否需要收下 onChange 的第二个参数（只有 Select 有这个概念） */
   protected acceptsOption(): boolean {
     return false;
+  }
+
+  /**
+   * 子类：wrapper 就绪后的额外绑定（返回解绑函数，onEnd 会自动调）。
+   *
+   * 目前只有 Input 的 `onSearch` 用它 —— 回车必须只触发「打开选择弹窗」，
+   * 不能同时被表格当成「提交并退出编辑」（见 AntdInputEditor 的实现）。
+   */
+  protected bindWrapperEvents(_wrapper: HTMLDivElement): (() => void) | undefined {
+    return undefined;
   }
 
   private setError = (message: string | undefined): void => {
@@ -593,6 +668,13 @@ export abstract class BaseAntdEditor<V = unknown> implements IEditor<V> {
     this.tableRef.current = context.table;
     this.recordIndexRef.current = resolveRecordIndex(context);
     this.recordRef.current = resolveRecord(context);
+    this.editFieldRef.current = resolveEditField(context);
+    // 写回锚点：行对象是稳定锚，下标与表格随时可能失效（见 EditSession）
+    this.sessionRef.current = {
+      table: context.table,
+      record: this.recordRef.current,
+      recordIndex: this.recordIndexRef.current,
+    };
     // 上一轮万一把监听留下来了（正常不会），先收掉，免得叠出多个
     this.unbindEscapeRef.current?.();
     this.unbindEscapeRef.current = bindEscapeToCancel(
@@ -618,6 +700,8 @@ export abstract class BaseAntdEditor<V = unknown> implements IEditor<V> {
         />
       </ConfigProvider>,
     );
+    // 子类的额外绑定（wrapper 已进 DOM，捕获阶段能挡在表格容器之前）
+    this.unbindWrapperRef.current = this.bindWrapperEvents(wrapper) ?? null;
     this.options.onStart?.(this.createRow());
   }
 
@@ -669,6 +753,9 @@ export abstract class BaseAntdEditor<V = unknown> implements IEditor<V> {
     // 用户就再也关不掉弹窗了
     this.unbindEscapeRef.current?.();
     this.unbindEscapeRef.current = null;
+    // 子类绑在 wrapper 上的监听同理：wrapper 下一个微任务就删了，但解绑仍然要做
+    this.unbindWrapperRef.current?.();
+    this.unbindWrapperRef.current = null;
     // 异步校验可能还在飞：结果回来时编辑器已经收工，写回会被下面的清空挡掉，
     // 这里把「校验中」一并复位，免得下次进来带着上一轮的提示
     this.pendingRef.current = false;
@@ -676,6 +763,7 @@ export abstract class BaseAntdEditor<V = unknown> implements IEditor<V> {
     this.tableRef.current = null;
     this.recordIndexRef.current = null;
     this.recordRef.current = undefined;
+    this.editFieldRef.current = '';
     this.optionRef.current = undefined;
 
     // ⚠️ wrapper / root 不能在这里同步清理。
@@ -706,18 +794,26 @@ export abstract class BaseAntdEditor<V = unknown> implements IEditor<V> {
   }
 
   /**
-   * 本行访问器。每次调用都新造一个，但内部读的始终是编辑期间那几份引用，
-   * 所以业务可以放心把它存起来（存到 onEnd 为止）。
+   * 本行访问器。每次调用都新造一个，里面的 `record` / `recordIndex` 是**那一刻的快照**；
+   * `setField` / `setFields` 走的是**创建时捕获的写回锚点**（见 EditSession），
+   * 所以「弹窗选完再回填」这种跨事件、甚至编辑已经结束的场景也能写进去。
+   *
+   * ⚠️ 但不要长期持有（比如挂到全局变量上）：下一次编辑会覆盖锚点，
+   * 旧访问器虽然不会写错行（按对象身份定位），却也写不回你期望的那一行。
    */
   protected createRow(): EditorRowAccessor {
     const record = this.recordRef.current;
+    const session = this.sessionRef.current;
     return {
       record,
-      recordIndex: this.recordIndexRef.current,
+      recordIndex: this.recordIndexRef.current ?? session?.recordIndex ?? null,
       getField: (field: string) => record?.[field],
-      setField: (field: string, value: unknown) => this.writeRow([[field, value]]),
+      setField: (field: string, value: unknown) => this.writeRow([[field, value]], session),
       setFields: (fields: Record<string, unknown>) =>
-        this.writeRow(Object.entries(fields).filter(([, value]) => value !== undefined)),
+        this.writeRow(
+          Object.entries(fields).filter(([, value]) => value !== undefined),
+          session,
+        ),
       endEdit: () => this.endEditRef.current?.(),
     };
   }
@@ -732,11 +828,32 @@ export abstract class BaseAntdEditor<V = unknown> implements IEditor<V> {
    *
    * 逐列写时不刷新（autoRefresh: false），全部写完统一 refreshAfterSourceChange 一次：
    * 每次写都刷会把整表重绘好几遍。
+   *
+   * ⚠️ 写中的如果正是「用户正在编辑的那一格」，必须把输入框的值（valueRef）一起换掉：
+   * vtable 结束编辑时（doExit）会把 `getValue()` 写回这一格，而 getValue 读的是
+   * valueRef —— 不同步的话，「弹窗选完 → setFields → endEdit」最后又被输入框里的
+   * 旧内容盖回去，只有这一格看着没变（其余列已经是新值），极难排查。
+   *
+   * ⚠️ 定位「哪一行」一律按**行对象身份**（resolveLiveRecordIndex），不用 onEnd 之后可能
+   * 已经被清掉的下标：编辑被提前结束（回车、表格释放、缓存清理…）时下标是 null，
+   * 但行对象还在数据源里，照样写得上；对象不在表里就放弃，绝不写到别的行。
    */
-  private writeRow(entries: Array<[string, unknown]>): void {
-    const table = this.tableRef.current;
-    const recordIndex = this.recordIndexRef.current;
-    if (!table || recordIndex === null || entries.length === 0) return;
+  private writeRow(
+    entries: Array<[string, unknown]>,
+    session?: EditSession | null,
+  ): void {
+    if (entries.length === 0) return;
+    const record = session?.record ?? this.recordRef.current;
+    const table = session?.table ?? this.tableRef.current;
+    if (!record) return;
+    const preferred = session?.recordIndex ?? this.recordIndexRef.current;
+    const recordIndex = table ? resolveLiveRecordIndex(table, record, preferred) : null;
+    if (!table || recordIndex === null || table.isReleased) {
+      // 行已经不在表里（或表格已释放）：只能改对象，界面不会跟着变，但不会串行
+      Object.assign(record, Object.fromEntries(entries));
+      return;
+    }
+    let touchedEditingCell = false;
     entries.forEach(([field, value]) => {
       table.changeCellValueByRecord(
         recordIndex,
@@ -744,8 +861,14 @@ export abstract class BaseAntdEditor<V = unknown> implements IEditor<V> {
         (value ?? null) as string | number | null,
         { autoRefresh: false },
       );
+      if (field === this.editFieldRef.current) {
+        this.valueRef.current = value ?? null;
+        touchedEditingCell = true;
+      }
     });
     table.refreshAfterSourceChange?.();
+    // 同步了输入框的值就刷一下，别让界面上的控件还显示旧内容
+    if (touchedEditingCell) this.rerender?.();
   }
 }
 
@@ -757,6 +880,40 @@ export class AntdInputEditor extends BaseAntdEditor<string> {
   constructor(props: AntdInputEditorProps = {}, options: EditorOptions<string> = {}) {
     super(options);
     this.props = props;
+  }
+
+  /**
+   * 配了 `onSearch` 时，回车**只用来打开选择弹窗**，不能同时「提交并退出编辑」。
+   *
+   * 为什么必须在 wrapper 上拦：@visactor/vtable 的 keydown 监听挂在表格容器
+   * （`table.getElement()`，是编辑器的祖先）上，`es/event/listener/container-dom.js`
+   * 的 Enter 分支会 `completeEdit()` —— 原生监听比 React 挂在 #root 上的冒泡派发**先执行**，
+   * 所以 antd 的 `onPressEnter` / `onSearch` 拿到事件时，编辑已经结束、`onEnd` 也跑完了
+   * （`onEnd` 会清掉 onStart 里存下的行访问器，弹窗选完 `setFields` 就成了静默空操作）。
+   *
+   * 在 wrapper 上用**捕获阶段**拦（比祖先容器先拿到），`stopPropagation()` 之后表格
+   * 再也看不到这次回车；代价是 React 的合成事件也收不到，所以这里自己调一次 onSearch。
+   *
+   * 输入法组词中的回车（`isComposing` / keyCode 229）是「确认候选词」：
+   * 既不能当成「查/选」，也不能让表格把它当成「提交单元格」（否则一确认候选词就退出编辑）。
+   * 所以只挡传播、不触发 onSearch。
+   */
+  protected bindWrapperEvents(wrapper: HTMLDivElement): (() => void) | undefined {
+    const onSearch = this.props.onSearch;
+    if (!onSearch) return undefined;
+    const handler = (event: KeyboardEvent) => {
+      if (event.key !== 'Enter') return;
+      if (event.isComposing || event.keyCode === 229) {
+        // 中文输入法：这一下回车是在选词，别让表格拿去 completeEdit
+        event.stopPropagation();
+        return;
+      }
+      event.stopPropagation();
+      event.preventDefault();
+      onSearch(String(this.valueRef.current ?? ''));
+    };
+    wrapper.addEventListener('keydown', handler, true);
+    return () => wrapper.removeEventListener('keydown', handler, true);
   }
 
   protected createControl(): ReactElement {
