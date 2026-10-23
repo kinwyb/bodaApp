@@ -53,9 +53,8 @@ function bomMatrixToColorData(matrix: BomMatrix): bomMatrixColorData[] {
                 if (!color) {
                     return;
                 }
-                const match = matrix.ColorMatch?.[color];
-                if (match) {
-                    const matchColor = match[row.Key];
+                const matchColor = matrix.ColorMatch?.[color]?.[row.Key];
+                if (matchColor) {
                     row[color] = matchColor.VFree6Name;
                     row[color + '_val'] = matchColor.VFree6;
                 }

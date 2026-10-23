@@ -55,9 +55,8 @@ function bomMatrixToSizeData(matrix: BomMatrix): bomMatrixSizeData[] {
                 if (!size) {
                     return;
                 }
-                const match = matrix.SizeMatch?.[size];
-                if (match) {
-                    const matchSize = match[row.Key];
+                const matchSize = matrix.SizeMatch?.[size]?.[row.Key];
+                if (matchSize) {
                     row['Sunhao' + size] = matchSize.Nbfixshrinknum;
                     row['S' + size] = matchSize.VFree7Name;
                     row['S' + size + '_val'] = matchSize.VFree7;
