@@ -485,6 +485,29 @@ body {
   padding: 6px 0;
 }
 
+/*
+ * 同一套 Tabs 直接放在**整页**里（BomMatrixView 就是这种用法，不是展开区）。
+ *
+ * 两种形态的「高度从哪来」完全不同，必须分开：
+ * - 展开区：外层 wrapper 的高度是 JS 量出来的确定 px，靠 height:100% 传导；
+ * - 整页：外层是 `.page-container`（flex 列），Tabs 只是其中一项，
+ *   要的是「占满兄弟元素之外的剩余高度」。
+ *
+ * 之前整页用法复用了展开区那套，结果两处叠出底部空白：
+ * 1. `height:100%` 让 Tabs 的基础高度等于整个容器高度，再和面包屑 / 按钮 /
+ *    下面那句 marginBottom:32 一起溢出，overflow:auto 的外壳就冒出滚动条；
+ * 2. 展开区为了和下一行拉开距离留的 `marginBottom:32`，在整页里纯粹是页脚空白，
+ *    表格再撑也撑不到那块去。
+ * 这里把高度交回 flex 分配，页脚间距也一并去掉。
+ */
+.page-tabs-fill {
+  /* flex 父级里由 flex 分配剩余高度；万一被放进普通高度的容器，
+     height:100% 兜底（此时 flex 属性无效，不会和兄弟元素叠加出空白） */
+  height: 100%;
+  flex: 1 1 0;
+  min-height: 0;
+}
+
 /* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 6px;

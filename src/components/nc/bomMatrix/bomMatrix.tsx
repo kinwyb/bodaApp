@@ -42,10 +42,9 @@ export const BomMatrixView: React.FC<BomMatrixViewProps> = ({bomMatrix, tabs, is
                 setIsEdit(!isEdit);
             }}>编辑 </Button>
             <Tabs
-                className="grid-table-expand-tabs"
+                className="grid-table-expand-tabs page-tabs-fill"
                 defaultActiveKey="1"
                 size={'small'}
-                style={{marginBottom: 32}}
                 items={items}
             />
         </>
