@@ -131,19 +131,25 @@ export function QuickSelectView<T extends QuickSelectRow = QuickSelectRow>({
         [message],
     );
 
-    // 数据加载：本地过滤模式只加载一次，否则按关键字防抖重载
+    /*
+     * ⚠️ 「打开时重置」不能写在这里：本组件每次打开都是重新挂载的
+     * （QuickSelectModal 用了 destroyOnHidden + {open && <QuickSelectView/>}），
+     * state 初值就是空的。之前把 setKeyword('') 塞进下面这个依赖 keyword 的 effect，
+     * 结果用户输入一个字母 → effect 跑 → 立刻把 keyword 清空 → 输入框空白，
+     * 清空又触发一次 effect → 再请求一次，本地过滤因此彻底失效。
+     */
+
+    // 本地过滤模式：只在本次打开时拉一次全量数据，之后由 keyword 在前端过滤。
+    // loadedRef 顺手挡住 StrictMode 的双执行和 runLoad 引用抖动导致的重复请求。
     useEffect(() => {
-        setKeyword('');
-        setRecords([]);
-        setSelectedRecord(null);
-        loadedRef.current = false;
-        requestIdRef.current += 1;
-        if (localFilter) {
-            if (loadedRef.current) return undefined;
-            loadedRef.current = true;
-            void runLoad('');
-            return undefined;
-        }
+        if (!localFilter || loadedRef.current) return;
+        loadedRef.current = true;
+        void runLoad('');
+    }, [localFilter, runLoad]);
+
+    // 服务端过滤模式：关键字变化后防抖重载（本地过滤模式下关键字不过网络）
+    useEffect(() => {
+        if (localFilter) return;
         const timer = setTimeout(() => void runLoad(keyword), keyword ? debounceMs : 0);
         return () => clearTimeout(timer);
     }, [keyword, localFilter, debounceMs, runLoad]);
