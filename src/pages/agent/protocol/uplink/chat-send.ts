@@ -10,8 +10,11 @@ import { CLIENT_TYPE, KIND, newEnvelope } from '../envelope';
 import type { ChatSendData } from '../payloads';
 
 export type ChatSendInput = {
-  /** 前端会话 key，作为后端 chatID（服务端据此推导 sessionID） */
-  chatID: string;
+  /**
+   * 后端 chatID（前端会话 key）。只有「会话还没落库」时才需要 ——
+   * 已有 sessionID 的会话不要传，服务端会用 chatID 建连接上下文，传错会串到别的对话。
+   */
+  chatID?: string;
   content: string;
   /** 指定 agent，为空用服务端默认 */
   agent?: string;
@@ -24,7 +27,7 @@ export type ChatSendInput = {
 export function buildChatSend(input: ChatSendInput): AgentEnvelope {
   const data: ChatSendData = {
     sessionID: input.sessionID || undefined,
-    chatID: input.chatID,
+    chatID: input.chatID || undefined,
     agent: input.agent || undefined,
     content: input.content,
     metadata: input.attachments?.length ? { attachments: input.attachments } : undefined,

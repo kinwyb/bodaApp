@@ -12,6 +12,7 @@ import { useAuth } from './store/auth-context';
 import { PermissionProvider } from './store/permission';
 import LoginPage from './pages/LoginPage';
 import MainLayout from './layouts/MainLayout';
+import WorkbenchLayout from './layouts/WorkbenchLayout';
 import AgentChatPage from './pages/agent';
 
 dayjs.locale('zh-cn');
@@ -30,12 +31,17 @@ const CenteredSpin: React.FC = () => (
 );
 
 /**
- * 旧版管理后台的入口守卫（/app/*）。
+ * 登录守卫：确认登录态 → 包上菜单权限 → 渲染界面。
  *
- * 注意：首页（/）是 Agent 对话界面，**不做登录校验** —— 它现在还在做界面、
- * 用本地演示数据，不需要后端。校验只挡旧后台，避免本地没登录时整站打不开。
+ * 所有需要登录的入口都套这一层：
+ * - `/`     工作台（左 Agent + 右后台，登录后的主界面）
+ * - `/app`  只有后台（留作回退 / 大屏看表格时用）
+ * - `/agent` 只有 Agent（整页对话，调试与演示用）
+ *
+ * Agent 的连接凭证就是登录拿到的 api token（见 api/request 的 getToken），
+ * 所以它必须在这个守卫里面 —— 没登录时不建立 ws 连接。
  */
-const LegacyAppRoute: React.FC = () => {
+const Protected: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { status, isAuthenticated } = useAuth();
 
   // 正在用本地 token 向后端确认登录态：先挡住路由。
@@ -43,11 +49,7 @@ const LegacyAppRoute: React.FC = () => {
   if (status === 'checking') return <CenteredSpin />;
   if (!isAuthenticated) return <Navigate to="/login" replace />;
 
-  return (
-    <PermissionProvider>
-      <MainLayout />
-    </PermissionProvider>
-  );
+  return <PermissionProvider>{children}</PermissionProvider>;
 };
 
 const App: React.FC = () => {
@@ -65,12 +67,34 @@ const App: React.FC = () => {
         <AuthProvider>
           <BrowserRouter>
             <Routes>
-              {/* 首页：Agent 对话界面（当前不接入旧主界面） */}
-              <Route path="/" element={<AgentChatPage />} />
-              <Route path="/agent" element={<AgentChatPage />} />
+              {/* 主界面：左侧 Agent 助手 + 右侧原本的后台 */}
+              <Route
+                path="/"
+                element={
+                  <Protected>
+                    <WorkbenchLayout />
+                  </Protected>
+                }
+              />
+              {/* 单独的后台（不带 Agent），方便回退与宽屏看表格 */}
+              <Route
+                path="/app/*"
+                element={
+                  <Protected>
+                    <MainLayout />
+                  </Protected>
+                }
+              />
+              {/* 单独的 Agent 整页对话 */}
+              <Route
+                path="/agent"
+                element={
+                  <Protected>
+                    <AgentChatPage />
+                  </Protected>
+                }
+              />
               <Route path="/login" element={<LoginPage />} />
-              {/* 旧版管理后台，暂时保留在 /app 下，方便随时回退 */}
-              <Route path="/app/*" element={<LegacyAppRoute />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </BrowserRouter>

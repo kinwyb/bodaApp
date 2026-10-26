@@ -9,21 +9,20 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { App as AntdApp, Avatar, Button, Input, Tag } from 'antd';
+import { App as AntdApp, Avatar, Button, Tag } from 'antd';
 import { Bubble } from '@ant-design/x';
 import type { BubbleItemType } from '@ant-design/x';
 import { PaperClipOutlined, RobotOutlined, UserOutlined } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
 
 import type { AgentAssistantContent } from './types';
 import { assistantContentOf } from './types';
 import { useAgentChat } from './chat/use-agent-chat';
 import { AgentAnswer } from './components/AgentAnswer';
 import { AgentComposer } from './components/AgentComposer';
+import { AgentConversationPanel } from './components/AgentConversationPanel';
 import { AgentHeader } from './components/AgentHeader';
 import { AgentMessageFooter } from './components/AgentMessageFooter';
 import { AgentSettingsDrawer } from './components/AgentSettingsDrawer';
-import { AgentSidebar } from './components/AgentSidebar';
 import { AgentWelcome } from './components/AgentWelcome';
 import './agent.css';
 
@@ -67,12 +66,21 @@ const BUBBLE_ROLES = {
   },
 };
 
-const AgentChatPage: React.FC = () => {
+/**
+ * 组件属性。
+ *
+ * `embedded`：嵌在工作台左侧（见 layouts/WorkbenchLayout）时的形态 ——
+ * 顶栏更紧凑、不再提供「返回管理后台」（右边就是后台）。
+ * 不传则是独立的整页 Agent（路由 /agent）。
+ */
+type AgentChatPageProps = {
+  embedded?: boolean;
+};
+
+const AgentChatPage: React.FC<AgentChatPageProps> = ({ embedded = false }) => {
   const chat = useAgentChat();
-  const navigate = useNavigate();
   const { message, modal } = AntdApp.useApp();
 
-  const [collapsed, setCollapsed] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const { messages } = chat.activeConversation;
@@ -139,50 +147,6 @@ const AgentChatPage: React.FC = () => {
     [messages, retry, replayTurn],
   );
 
-  const openRename = useCallback(
-    (conversationKey: string) => {
-      const target = chat.conversations.find((conversation) => conversation.key === conversationKey);
-      if (!target) return;
-
-      let nextLabel = target.label;
-      modal.confirm({
-        title: '重命名会话',
-        icon: null,
-        content: (
-          <Input
-            defaultValue={target.label}
-            maxLength={30}
-            placeholder="会话名称"
-            onChange={(event) => {
-              nextLabel = event.target.value;
-            }}
-          />
-        ),
-        okText: '保存',
-        cancelText: '取消',
-        onOk: () => {
-          const label = nextLabel.trim();
-          if (label) chat.renameConversation(conversationKey, label);
-        },
-      });
-    },
-    [chat, modal],
-  );
-
-  const confirmDelete = useCallback(
-    (conversationKey: string) => {
-      modal.confirm({
-        title: '删除会话',
-        content: '会话中的消息会一起删除，且不可恢复。',
-        okText: '删除',
-        okButtonProps: { danger: true },
-        cancelText: '取消',
-        onOk: () => chat.deleteConversation(conversationKey),
-      });
-    },
-    [chat, modal],
-  );
-
   const confirmClear = useCallback(() => {
     if (isEmpty) {
       message.info('当前会话还没有消息');
@@ -200,19 +164,6 @@ const AgentChatPage: React.FC = () => {
 
   return (
     <div className="agent-page">
-      <AgentSidebar
-        conversations={chat.conversations}
-        activeKey={chat.activeKey}
-        collapsed={collapsed}
-        userId={chat.userId}
-        onToggleCollapsed={() => setCollapsed((value) => !value)}
-        onSwitch={chat.switchConversation}
-        onCreate={chat.createConversation}
-        onRename={openRename}
-        onDelete={confirmDelete}
-        onOpenLegacy={() => navigate('/app')}
-      />
-
       <section className="agent-main">
         <AgentHeader
           title={chat.activeConversation.label}
@@ -223,8 +174,22 @@ const AgentChatPage: React.FC = () => {
           connection={chat.connection}
           mode={chat.mode}
           latency={chat.latency}
-          collapsed={collapsed}
-          onExpandSidebar={() => setCollapsed(false)}
+          compact={embedded}
+          conversationSlot={
+            <AgentConversationPanel
+              conversations={chat.conversations}
+              activeKey={chat.activeKey}
+              loading={chat.sessionsLoading}
+              hasMore={chat.sessionsHasMore}
+              // 打开浮层时刷新一次：别的端刚聊过的对话也能看到
+              onOpenChange={(open) => {
+                if (open) chat.refreshSessions();
+              }}
+              onSwitch={chat.switchConversation}
+              onCreate={chat.createConversation}
+              onLoadMore={chat.loadMoreSessions}
+            />
+          }
           onOpenSettings={() => setSettingsOpen(true)}
           onClear={confirmClear}
           onCreate={chat.createConversation}
@@ -262,6 +227,7 @@ const AgentChatPage: React.FC = () => {
           mode={chat.mode}
           connection={chat.connection}
           latency={chat.latency}
+          compact={embedded}
           onSend={chat.send}
           onAbort={chat.abort}
         />

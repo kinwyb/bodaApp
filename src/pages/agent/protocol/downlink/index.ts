@@ -44,6 +44,8 @@ export function mapAgentEnvelope(
 
 export { mapEnvelopeAttachments, readSources } from './attachments';
 export { toHistoryEvent, toReplayEvent } from './history';
+export { parseSessionList } from './session-list';
+export type { AgentSessionPage } from './session-list';
 export type { HistoryMode } from './history';
 export { toToolStep } from './tool';
 export { parseAck, parseError, parseHello, parsePong } from './system';

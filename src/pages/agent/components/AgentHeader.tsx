@@ -1,12 +1,15 @@
 /**
- * 顶栏：会话标题 + 连接状态 + agent 选择 + 常用操作。
+ * 顶栏：会话标题 + 连接状态 + 会话记录入口 + agent 选择 + 常用操作。
+ *
+ * 会话的「新建 / 历史」由外部传入的 conversationSlot 承载（见 AgentConversationPanel），
+ * 这里不关心它长什么样，只负责给它一个位置。
  */
 
 import React, { useMemo } from 'react';
-import { Button, Select, Space, Tag, Tooltip, Typography } from 'antd';
+import { Button, Dropdown, Select, Space, Tag, Tooltip, Typography } from 'antd';
 import {
   ClearOutlined,
-  MenuUnfoldOutlined,
+  EllipsisOutlined,
   PlusOutlined,
   ReloadOutlined,
   SettingOutlined,
@@ -25,8 +28,10 @@ export const AgentHeader: React.FC<{
   connection: AgentConnectionStatus;
   mode: 'mock' | 'websocket';
   latency?: number;
-  collapsed: boolean;
-  onExpandSidebar: () => void;
+  /** 紧凑形态（嵌在工作台左栏时）：标题更短、agent 下拉更窄、按钮只留图标 */
+  compact?: boolean;
+  /** 会话记录入口（弹出新建 + 历史会话） */
+  conversationSlot?: React.ReactNode;
   onOpenSettings: () => void;
   onClear: () => void;
   onCreate: () => void;
@@ -40,8 +45,8 @@ export const AgentHeader: React.FC<{
   connection,
   mode,
   latency,
-  collapsed,
-  onExpandSidebar,
+  compact = false,
+  conversationSlot,
   onOpenSettings,
   onClear,
   onCreate,
@@ -62,20 +67,26 @@ export const AgentHeader: React.FC<{
   const statusTag =
     mode === 'mock' ? { text: '演示模式', color: 'gold' } : CONNECTION_META[connection];
 
+  /**
+   * 副标题：紧凑形态里省掉 agent 名字 —— 它就在右边的下拉里，
+   * 再写一遍在 480px 的面板里会把副标题挤成两行。
+   */
+  const subtitle = [
+    messageCount > 0 ? `${messageCount} 条消息` : '新会话',
+    compact ? '' : agent || '未选择 agent',
+    latency !== undefined ? `${latency}ms` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
+
   return (
-    <header className="agent-header">
+    <header className={`agent-header${compact ? ' agent-header-compact' : ''}`}>
       <div className="agent-header-left">
-        {collapsed ? (
-          <Button type="text" icon={<MenuUnfoldOutlined />} onClick={onExpandSidebar} />
-        ) : null}
         <div className="agent-header-title">
           <Text strong ellipsis className="agent-header-name">
             {title}
           </Text>
-          <span className="agent-header-sub">
-            {messageCount > 0 ? `${messageCount} 条消息` : '新会话'} · {agent || '未选择 agent'}
-            {latency !== undefined ? ` · ${latency}ms` : ''}
-          </span>
+          <span className="agent-header-sub">{subtitle}</span>
         </div>
       </div>
 
@@ -83,6 +94,8 @@ export const AgentHeader: React.FC<{
         <Tag color={statusTag.color} className="agent-status-tag">
           {statusTag.text}
         </Tag>
+        {/* 会话记录入口（新建 / 历史），由 AgentConversationPanel 提供 */}
+        {conversationSlot}
         {/* 鉴权失败 / 断线时给一个手动重连入口（重连会重新读 token） */}
         {mode === 'websocket' && connection === 'error' ? (
           <Button size="small" danger icon={<ReloadOutlined />} onClick={onReconnect}>
@@ -90,7 +103,7 @@ export const AgentHeader: React.FC<{
           </Button>
         ) : null}
         <Select
-          className="agent-model-select"
+          className={`agent-model-select${compact ? ' agent-model-select-compact' : ''}`}
           value={agent || undefined}
           onChange={onAgentChange}
           variant="borderless"
@@ -98,15 +111,48 @@ export const AgentHeader: React.FC<{
           placeholder="选择 agent"
           options={agentOptions}
         />
-        <Tooltip title="对话参数">
-          <Button type="text" icon={<SettingOutlined />} onClick={onOpenSettings} />
-        </Tooltip>
-        <Tooltip title="清空当前对话">
-          <Button type="text" icon={<ClearOutlined />} onClick={onClear} />
-        </Tooltip>
-        <Button type="primary" icon={<PlusOutlined />} onClick={onCreate}>
-          新对话
-        </Button>
+        {/*
+          紧凑形态把「对话参数 / 清空」收进一个更多菜单：
+          480px 的面板里，四个按钮并排会顶到换行（顶栏变成两行）。
+        */}
+        {compact ? (
+          <Dropdown
+            trigger={['click']}
+            menu={{
+              items: [
+                {
+                  key: 'settings',
+                  icon: <SettingOutlined />,
+                  label: '对话参数',
+                  onClick: onOpenSettings,
+                },
+                {
+                  key: 'clear',
+                  icon: <ClearOutlined />,
+                  label: '清空当前对话',
+                  onClick: onClear,
+                },
+              ],
+            }}
+          >
+            <Button type="text" icon={<EllipsisOutlined />} />
+          </Dropdown>
+        ) : (
+          <>
+            <Tooltip title="对话参数">
+              <Button type="text" icon={<SettingOutlined />} onClick={onOpenSettings} />
+            </Tooltip>
+            <Tooltip title="清空当前对话">
+              <Button type="text" icon={<ClearOutlined />} onClick={onClear} />
+            </Tooltip>
+          </>
+        )}
+        {/* 紧凑形态里「新建对话」就在会话浮层顶部，顶栏不再放一个重复按钮 */}
+        {compact ? null : (
+          <Button type="primary" icon={<PlusOutlined />} onClick={onCreate}>
+            新对话
+          </Button>
+        )}
       </Space>
     </header>
   );

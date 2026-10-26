@@ -13,6 +13,7 @@ import {
   buildChatSend,
   buildPing,
   buildSessionHistory,
+  buildSessionList,
   buildTurnReplay,
   conversationIdOf,
   mapAgentEnvelope,
@@ -20,13 +21,15 @@ import {
   parseAck,
   parseError,
   parseHello,
+  parseSessionList,
   toHistoryEvent,
   toReplayEvent,
 } from '../protocol';
+import type { AgentSessionPage } from '../protocol';
 import type { AgentHello, AgentTransport } from './types';
 
 /** 上行请求的类别：决定响应回来时用哪种方式解析 */
-type PendingKind = 'chat' | 'history' | 'replay';
+type PendingKind = 'chat' | 'history' | 'replay' | 'sessions';
 
 /** 断线重连上限与退避上限 */
 const MAX_RECONNECT = 5;
@@ -41,6 +44,7 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
   const eventListeners = new Set<(event: import('../protocol').AgentStreamEvent) => void>();
   const statusListeners = new Set<(status: AgentConnectionStatus) => void>();
   const helloListeners = new Set<(hello: AgentHello) => void>();
+  const sessionListeners = new Set<(page: AgentSessionPage) => void>();
   const latencyListeners = new Set<(ms: number) => void>();
 
   /** 上行信封 id → 请求上下文（ack / error / 历史 / 回放 靠 replyTo 找回） */
@@ -140,6 +144,12 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
         if (request && data.sessionID) {
           // 登记后，下行 agent 事件靠 sessionID 就能定位会话
           sessions.set(data.sessionID, request.conversationId);
+          // 告诉状态层「这条会话落库了」：草稿据此认领会话列表里的自己
+          emit({
+            type: 'session-bound',
+            conversationId: request.conversationId,
+            sessionId: data.sessionID,
+          });
         }
         if (envelope.replyTo) pending.delete(envelope.replyTo);
         if (!data.ok && request) {
@@ -152,6 +162,13 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
         break;
       }
 
+      case SYSTEM_TYPE.sessionList: {
+        if (envelope.replyTo) pending.delete(envelope.replyTo);
+        const page = parseSessionList(envelope.data);
+        sessionListeners.forEach((listener) => listener(page));
+        break;
+      }
+
       case SYSTEM_TYPE.sessionHistory: {
         const result = (envelope.data ?? {}) as SessionHistoryResult;
         const request = envelope.replyTo ? pending.get(envelope.replyTo) : undefined;
@@ -161,6 +178,7 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
           request?.conversationId ?? conversationIdOf(envelope.sessionID, sessions, identity);
         if (result.sessionID && conversationId) {
           sessions.set(result.sessionID, conversationId);
+          emit({ type: 'session-bound', conversationId, sessionId: result.sessionID });
         }
         if (!conversationId) break;
         emit(toHistoryEvent(result, conversationId, request?.mode ?? 'replace'));
@@ -334,23 +352,27 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
     },
 
     send(payload) {
+      // 已知 sessionID 就不再传 chatID：列表里那条会话的本地 key 是 threadID，
+      // 当成 chatID 传给服务端会被记成连接上下文，后续消息就串到别的对话上了
+      const sessionID = payload.sessionId || sessionIdOf(payload.conversationId);
       postEnvelope(
         buildChatSend({
-          chatID: payload.conversationId,
+          chatID: sessionID ? undefined : payload.conversationId,
+          sessionID,
           content: payload.content,
           agent: payload.agent,
           attachments: payload.attachments,
-          sessionID: sessionIdOf(payload.conversationId),
         }),
         { conversationId: payload.conversationId },
       );
     },
 
     history(query) {
+      const sessionID = query.sessionId || sessionIdOf(query.conversationId);
       postEnvelope(
         buildSessionHistory({
-          chatID: query.conversationId,
-          sessionID: sessionIdOf(query.conversationId),
+          chatID: sessionID ? undefined : query.conversationId,
+          sessionID,
           threadID: query.threadID,
           beforeSeq: query.beforeSeq,
           since: query.since,
@@ -363,10 +385,11 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
     },
 
     replay(query) {
+      const sessionID = query.sessionId || sessionIdOf(query.conversationId);
       postEnvelope(
         buildTurnReplay({
-          chatID: query.conversationId,
-          sessionID: sessionIdOf(query.conversationId),
+          chatID: sessionID ? undefined : query.conversationId,
+          sessionID,
           turnID: query.turnId,
           afterSeq: query.afterSeq,
           limit: query.limit,
@@ -375,11 +398,16 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
       );
     },
 
-    abort(conversationId) {
+    sessions(query) {
+      postEnvelope(buildSessionList(query), { conversationId: '', kind: 'sessions' });
+    },
+
+    abort(conversationId, sessionId) {
+      const sessionID = sessionId || sessionIdOf(conversationId);
       postEnvelope(
         buildChatCancel({
-          chatID: conversationId,
-          sessionID: sessionIdOf(conversationId),
+          chatID: sessionID ? undefined : conversationId,
+          sessionID,
         }),
       );
     },
@@ -403,6 +431,13 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
       helloListeners.add(listener);
       return () => {
         helloListeners.delete(listener);
+      };
+    },
+
+    onSessions(listener) {
+      sessionListeners.add(listener);
+      return () => {
+        sessionListeners.delete(listener);
       };
     },
 

@@ -15,12 +15,6 @@ export const CONNECTION_META: Record<AgentConnectionStatus, { text: string; colo
 /** 拿不到 hello（没连服务端）时的 agent 兜底选项 */
 export const FALLBACK_AGENT_OPTIONS = [{ value: 'boda-agent', label: 'boda-agent' }];
 
-/** 会话右键菜单的 key */
-export const CONVERSATION_MENU_KEYS = {
-  rename: 'rename',
-  delete: 'delete',
-} as const;
-
 /** 参数抽屉里的默认值（纯界面，等后端约定后再接） */
 export const DEFAULT_SYSTEM_PROMPT =
   '你是 bodaWay 车间管理系统的助手。回答要给出结论、依据和可执行的下一步，涉及数据时注明来源。';

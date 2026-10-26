@@ -86,6 +86,43 @@ export type ChatCancelData = {
   chatID?: string;
 };
 
+/** protocol.SessionListData（上行：拉取对话列表） */
+export type SessionListData = {
+  /** 返回条数：0 用默认 50，负数取全量（上限 200） */
+  limit?: number;
+  /** 翻页游标：只取最后更新时间早于该时刻（毫秒）的对话 */
+  beforeLastUpdate?: number;
+  /** 与 beforeLastUpdate 组成复合游标（同一毫秒有多条时续接用） */
+  beforeThreadID?: string;
+};
+
+/** protocol.SessionListItem（下行：一条对应一个 thread） */
+export type SessionListItem = {
+  /** 线程标识，拉历史时作为 session.history 的 threadID */
+  threadID?: string;
+  /** 所属会话，续聊时作为 chat.send 的 sessionID */
+  sessionID?: string;
+  agent?: string;
+  /** 首轮提问（40 字截断）；纯媒体轮次为空 */
+  title?: string;
+  /** 末轮回答（80 字截断），列表页做副标题 */
+  preview?: string;
+  /** 轮次数量 */
+  turns?: number;
+  /** 末轮是否正常结束 */
+  completed?: boolean;
+  createdAt?: number;
+  lastUpdate?: number;
+};
+
+/** protocol.SessionListResult（下行） */
+export type SessionListResult = {
+  items?: SessionListItem[];
+  hasMore?: boolean;
+  nextBeforeLastUpdate?: number;
+  nextBeforeThreadID?: string;
+};
+
 /** protocol.SessionHistoryData（上行） */
 export type SessionHistoryData = {
   sessionID?: string;

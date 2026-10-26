@@ -32,6 +32,9 @@ export type {
   HelloData,
   PongData,
   SessionHistoryData,
+  SessionListData,
+  SessionListItem,
+  SessionListResult,
   SessionHistoryResult,
   TurnReplayData,
   TurnReplayResult,
@@ -47,9 +50,10 @@ export {
   parseError,
   parseHello,
   parsePong,
+  parseSessionList,
   readSources,
   toHistoryEvent,
   toReplayEvent,
   toToolStep,
 } from './downlink';
-export type { HelloInfo, HistoryMode } from './downlink';
+export type { AgentSessionPage, HelloInfo, HistoryMode } from './downlink';

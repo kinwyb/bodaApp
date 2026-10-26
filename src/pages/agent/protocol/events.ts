@@ -51,6 +51,13 @@ export type AgentStreamEvent =
     }
   /** 一轮回答结束（finished） */
   | { type: 'reply-done'; conversationId: string }
+  /**
+   * 服务端确认了这条会话的 sessionID（来自 ack / 历史响应）。
+   *
+   * 状态层据此把本地草稿和「会话列表」里的同一条对上：
+   * 草稿没有 threadID，靠 sessionID 才能认领自己在列表里的那一项，避免刷新列表后重复出现。
+   */
+  | { type: 'session-bound'; conversationId: string; sessionId: string }
   /** conversationId 为空表示连接级错误 */
   | { type: 'error'; conversationId: string; message: string };
 

@@ -60,6 +60,14 @@ export type AgentChatApi = {
   /** 连接级错误（投不到具体会话的那些） */
   lastError: string;
   clearError: () => void;
+  /** 会话列表加载中 */
+  sessionsLoading: boolean;
+  /** 会话列表还有更早的（服务端 hasMore） */
+  sessionsHasMore: boolean;
+  /** 重新拉会话列表（打开会话浮层时调） */
+  refreshSessions: () => void;
+  /** 翻页：拉更早的会话 */
+  loadMoreSessions: () => void;
   /** 手动重连（鉴权失败或断线后） */
   reconnect: () => void;
   switchConversation: (key: string) => void;
@@ -84,6 +92,8 @@ export function useAgentChat(): AgentChatApi {
   const [serverChatId, setServerChatId] = useState('');
   const [latency, setLatency] = useState<number | undefined>(undefined);
   const [lastError, setLastError] = useState('');
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [sessionsHasMore, setSessionsHasMore] = useState(false);
   // 传输方式是构建期就能确定的（看有没有配 VITE_AGENT_WS_URL），不需要 state
   const mode = agentTransportMode();
 
@@ -92,8 +102,10 @@ export function useAgentChat(): AgentChatApi {
   const stateRef = useRef(state);
   /** send / retry 要读当前 agent，但它们的 useCallback 依赖是空的 */
   const agentRef = useRef(agent);
-  /** 是否已经认领过服务端的当前对话（只认一次） */
-  const adoptedRef = useRef(false);
+  /** 会话列表的复合翻页游标（服务端给什么就原样回传什么） */
+  const sessionsCursorRef = useRef<{ beforeLastUpdate?: number; beforeThreadID?: string }>({});
+  /** 本次会话列表请求是「整体刷新」还是「翻页追加」，响应回来时要按它合并 */
+  const sessionsModeRef = useRef<'replace' | 'append'>('replace');
 
   useEffect(() => {
     stateRef.current = state;
@@ -189,6 +201,14 @@ export function useAgentChat(): AgentChatApi {
         case 'reply-done':
           dispatch({ type: 'finish', conversationKey: event.conversationId });
           break;
+        case 'session-bound':
+          // 草稿落库了：记下 sessionID，刷新会话列表时靠它认领列表里的自己
+          dispatch({
+            type: 'bind',
+            conversationKey: event.conversationId,
+            sessionId: event.sessionId,
+          });
+          break;
         case 'error':
           dispatch({ type: 'fail', conversationKey: event.conversationId, message: event.message });
           break;
@@ -206,22 +226,22 @@ export function useAgentChat(): AgentChatApi {
       setServerChatId(hello.chatId);
 
       /*
-       * 认领服务端的「当前对话」。
-       *
-       * hello.chatID 可能来自 token（续接别的端），也可能是服务端生成的；里面有历史时
-       * 前端直接用它当会话 key 就能看到上次的对话。但只认一次、且只在「本地只有一个空会话」时认：
-       * 否则重连会把多个本地会话都绑到同一个 chatID 上，历史就串了。
+       * hello 里的 chatID 只是「这条连接当前落在哪个对话」，不再拿它当会话身份：
+       * 历史会话统一由 session.list 提供，进入工作台默认仍是一条空白新对话。
        */
-      const { conversations } = stateRef.current;
-      if (!adoptedRef.current && hello.chatId && conversations.length === 1) {
-        const only = conversations[0];
-        if (only.key !== hello.chatId && only.messages.length === 0) {
-          adoptedRef.current = true;
-          // 历史由下面的 connection effect 用新 key 去拉
-          dispatch({ type: 'rebindConversation', fromKey: only.key, toKey: hello.chatId });
-        }
-      }
     });
+
+    // 会话列表（session.list）：服务端按 thread 返回，一条就是一次完整对话
+    const offSessions = transport.onSessions((page) => {
+      sessionsCursorRef.current = {
+        beforeLastUpdate: page.nextBeforeLastUpdate,
+        beforeThreadID: page.nextBeforeThreadID,
+      };
+      setSessionsHasMore(page.hasMore);
+      setSessionsLoading(false);
+      dispatch({ type: 'sessions', items: page.items, mode: sessionsModeRef.current });
+    });
+
     transport.connect();
 
     return () => {
@@ -229,9 +249,26 @@ export function useAgentChat(): AgentChatApi {
       offStatus();
       offLatency();
       offHello();
+      offSessions();
       transport.disconnect();
       transportRef.current = null;
     };
+  }, []);
+
+  /** 拉会话列表：refresh = 从第一页重来，append = 用游标续拉 */
+  const requestSessions = useCallback((mode: 'replace' | 'append') => {
+    const transport = transportRef.current;
+    if (!transport) return;
+    sessionsModeRef.current = mode;
+    setSessionsLoading(true);
+    transport.sessions(
+      mode === 'append'
+        ? {
+            beforeLastUpdate: sessionsCursorRef.current.beforeLastUpdate,
+            beforeThreadID: sessionsCursorRef.current.beforeThreadID,
+          }
+        : {},
+    );
   }, []);
 
   const activeConversation = useMemo(() => {
@@ -254,21 +291,35 @@ export function useAgentChat(): AgentChatApi {
     const transport = transportRef.current;
     if (!transport) return;
 
+    // 会话列表与当前会话的历史互不依赖，一起发出去
+    requestSessions('replace');
+
     const { activeKey, conversations } = stateRef.current;
     const conversation = conversations.find((item) => item.key === activeKey);
     if (!conversation) return;
 
     if (!conversation.historyLoaded) {
-      transport.history({ conversationId: activeKey, mode: 'replace' });
+      transport.history({
+        conversationId: activeKey,
+        sessionId: conversation.sessionId,
+        threadID: conversation.threadId,
+        mode: 'replace',
+      });
       return;
     }
     // 增量补发用 turn 的创建时间（不是消息的 completedAt），否则短时间内的轮次会漏
     const since =
       conversation.lastTurnAt ?? conversation.messages[conversation.messages.length - 1]?.createdAt;
     if (since) {
-      transport.history({ conversationId: activeKey, since, mode: 'append' });
+      transport.history({
+        conversationId: activeKey,
+        sessionId: conversation.sessionId,
+        threadID: conversation.threadId,
+        since,
+        mode: 'append',
+      });
     }
-  }, [connection]);
+  }, [connection, requestSessions]);
 
   /** 提交一条用户消息，同时插入一条空的助手消息等待流式填充 */
   const send = useCallback((text: string, attachments?: AgentMessage['attachments']) => {
@@ -300,8 +351,10 @@ export function useAgentChat(): AgentChatApi {
       autoLabel: question,
     });
 
+    const conversation = stateRef.current.conversations.find((item) => item.key === conversationKey);
     const payload: AgentSendPayload = {
       conversationId: conversationKey,
+      sessionId: conversation?.sessionId,
       content: question,
       agent: agentRef.current || undefined,
       attachments: attachments?.map((file) => ({ name: file.name, size: file.size })),
@@ -311,8 +364,8 @@ export function useAgentChat(): AgentChatApi {
 
   const abort = useCallback(() => {
     const { activeKey, conversations } = stateRef.current;
-    transportRef.current?.abort(activeKey);
     const conversation = conversations.find((item) => item.key === activeKey);
+    transportRef.current?.abort(activeKey, conversation?.sessionId);
     if (conversation?.messages.some((message) => message.status === 'streaming')) {
       dispatch({ type: 'stop', conversationKey: activeKey });
     }
@@ -335,6 +388,7 @@ export function useAgentChat(): AgentChatApi {
     dispatch({ type: 'resetReply', conversationKey: activeKey, messageKey });
     transportRef.current?.send({
       conversationId: activeKey,
+      sessionId: conversation.sessionId,
       content: question.content,
       agent: agentRef.current || undefined,
     });
@@ -345,7 +399,12 @@ export function useAgentChat(): AgentChatApi {
     // 切到一个还没拉过历史的会话：顺手拉一次（服务端也会因此订阅该会话）
     const conversation = stateRef.current.conversations.find((item) => item.key === key);
     if (conversation && !conversation.historyLoaded) {
-      transportRef.current?.history({ conversationId: key, mode: 'replace' });
+      transportRef.current?.history({
+        conversationId: key,
+        sessionId: conversation.sessionId,
+        threadID: conversation.threadId,
+        mode: 'replace',
+      });
     }
   }, []);
 
@@ -359,6 +418,8 @@ export function useAgentChat(): AgentChatApi {
     dispatch({ type: 'historyStart', conversationKey: activeKey });
     transportRef.current?.history({
       conversationId: activeKey,
+      sessionId: conversation.sessionId,
+      threadID: conversation.threadId,
       beforeSeq: conversation.oldestSeq,
       mode: 'prepend',
     });
@@ -372,7 +433,13 @@ export function useAgentChat(): AgentChatApi {
    */
   const replayTurn = useCallback((turnId: string) => {
     if (!turnId) return;
-    transportRef.current?.replay({ conversationId: stateRef.current.activeKey, turnId });
+    const { activeKey, conversations } = stateRef.current;
+    const conversation = conversations.find((item) => item.key === activeKey);
+    transportRef.current?.replay({
+      conversationId: activeKey,
+      sessionId: conversation?.sessionId,
+      turnId,
+    });
   }, []);
 
   const handleCreate = useCallback(() => {
@@ -392,6 +459,13 @@ export function useAgentChat(): AgentChatApi {
   }, []);
 
   const clearError = useCallback(() => setLastError(''), []);
+
+  const refreshSessions = useCallback(() => requestSessions('replace'), [requestSessions]);
+
+  const loadMoreSessions = useCallback(() => {
+    if (!sessionsHasMore || sessionsLoading) return;
+    requestSessions('append');
+  }, [requestSessions, sessionsHasMore, sessionsLoading]);
 
   /** 鉴权失败 / 断线后手动重连：重新读 token 再连一次 */
   const reconnect = useCallback(() => {
@@ -420,6 +494,10 @@ export function useAgentChat(): AgentChatApi {
     latency,
     lastError,
     clearError,
+    sessionsLoading,
+    sessionsHasMore,
+    refreshSessions,
+    loadMoreSessions,
     reconnect,
     switchConversation,
     createConversation: handleCreate,

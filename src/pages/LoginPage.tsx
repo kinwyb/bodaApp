@@ -15,7 +15,8 @@ const LoginPage: React.FC = () => {
 
   React.useEffect(() => {
     if (isAuthenticated) {
-      navigate('/app', { replace: true });
+      // 登录后的主界面 = 工作台（左 Agent + 右后台）
+      navigate('/', { replace: true });
     }
   }, [isAuthenticated, navigate]);
 
@@ -24,7 +25,7 @@ const LoginPage: React.FC = () => {
     try {
       await login(values.username, values.password);
       message.success('登录成功');
-      navigate('/app', { replace: true });
+      navigate('/', { replace: true });
     } catch (error) {
       // 后端返回的提示（如「用户名或密码错误」）比统一的「登录失败」更有用
       message.error(error instanceof ApiError ? error.message : '登录失败');

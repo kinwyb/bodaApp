@@ -103,6 +103,30 @@ export type AgentMessage = {
   truncated?: boolean;
 };
 
+/**
+ * 会话列表里的一条（服务端 session.list 下发，一条对应一个 thread）。
+ *
+ * 一个 session（`ws_<userID>_<chatID>`）下可以有多个 thread：换过 agent 就会新建，
+ * 所以列表里会出现「同一会话的多条对话」，各自延续各自的上下文。
+ */
+export type AgentSessionSummary = {
+  /** 线程标识：拉历史时作为 session.history 的 threadID */
+  threadId: string;
+  /** 所属会话：续聊时作为 chat.send 的 sessionID */
+  sessionId: string;
+  agent: string;
+  /** 首轮提问（服务端已截断 40 字），纯媒体轮次为空 */
+  title: string;
+  /** 末轮回答（服务端已截断 80 字） */
+  preview: string;
+  /** 轮次数量 */
+  turns: number;
+  /** 末轮是否正常结束：false 表示被中断或仍在生成 */
+  completed: boolean;
+  createdAt: number;
+  updatedAt: number;
+};
+
 export type AgentConversation = {
   key: string;
   label: string;
@@ -110,6 +134,21 @@ export type AgentConversation = {
   group: string;
   updatedAt: number;
   messages: AgentMessage[];
+  /**
+   * 服务端标识：只出现在「已落库」的会话上。
+   *
+   * - threadId：一个 thread 就是一次完整对话，拉历史时按它过滤；
+   * - sessionId：续聊时 chat.send 带它（带了这个就不再传 chatID，避免服务端
+   *   把 threadID 当成一个新的 chatID）。
+   *
+   * 两者都为空的是本地草稿（还没发过消息，或刚发出第一轮还没拿到 ack）。
+   */
+  threadId?: string;
+  sessionId?: string;
+  /** 列表副标题：末轮回答摘要 */
+  preview?: string;
+  /** 轮次数量（服务端给，不必拉详情就能显示「共 N 轮」） */
+  turns?: number;
   /** 是否已经拉过历史（避免每次切回来都请求一遍） */
   historyLoaded?: boolean;
   /** 历史请求进行中 */

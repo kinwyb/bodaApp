@@ -1,0 +1,147 @@
+/*
+ * 工作台（左后台 + 右 Agent）的分栏样式。
+ *
+ * 只负责「两栏怎么分」，两侧各自的观感交给 agent.css 与 index.css。
+ * 高度链：.workbench(height:100%) → 两侧(height:100%) → 内部 Layout/Agent 页自身的 height:100%。
+ */
+
+.workbench {
+  height: 100%;
+  display: flex;
+  overflow: hidden;
+  background: #fff;
+}
+
+/* ---------------- 右侧 Agent ---------------- */
+
+.workbench-agent {
+  flex: 0 0 auto;
+  height: 100%;
+  min-width: 0;
+  overflow: hidden;
+  background: #fff;
+}
+
+/*
+ * 收起态：保留组件、只把布局收掉（display:none 不会卸载 React 组件），
+ * 这样 ws 连接、正在生成的回答、会话列表都还在，展开就能接着用。
+ */
+.workbench-agent-hidden {
+  display: none;
+}
+
+/*
+ * 顶栏高度对齐左侧后台（antd Header 是 64px，Agent 自己的 60px），
+ * 否则两栏在分界处的横线会差 4px，看起来像没对齐。
+ */
+.workbench .agent-header {
+  height: 64px;
+}
+
+/* ---------------- 分隔条 ---------------- */
+
+.workbench-divider {
+  position: relative;
+  flex: 0 0 6px;
+  width: 6px;
+  cursor: col-resize;
+  background: #f0f0f0;
+  transition: background 0.15s ease;
+}
+
+.workbench-divider:hover,
+body.workbench-resizing .workbench-divider {
+  background: #bae0ff;
+}
+
+/* 拖拽期间全局统一光标并禁掉选中（否则两侧内容会被刷蓝） */
+body.workbench-resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
+/*
+ * 收起按钮：默认隐藏，鼠标移到分隔条上才出现 ——
+ * 常驻的话它正好压在消息区旁边，容易被误认成内容的一部分。
+ */
+.workbench-divider-handle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 2;
+  width: 18px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid #e5e6eb;
+  border-radius: 9px;
+  background: #fff;
+  color: rgba(0, 0, 0, 0.45);
+  font-size: 11px;
+  cursor: pointer;
+  opacity: 0;
+  transform: translate(-50%, -50%);
+  transition: opacity 0.15s ease, color 0.15s ease;
+}
+
+.workbench-divider:hover .workbench-divider-handle {
+  opacity: 1;
+}
+
+.workbench-divider-handle:hover {
+  color: #1677ff;
+}
+
+/* ---------------- 收起后的窄轨 ---------------- */
+
+.workbench-rail {
+  flex: 0 0 44px;
+  width: 44px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-left: 1px solid #f0f0f0;
+  background: #fafafa;
+}
+
+.workbench-rail-icon {
+  font-size: 15px;
+  color: #1677ff;
+}
+
+/*
+ * 竖排文字只放纯文本：图标塞进来会被 writing-mode 一起转成竖的，
+ * 看着就像一个乱码字（见 WorkbenchLayout 里的注释）。
+ */
+.workbench-rail-text {
+  font-size: 12px;
+  letter-spacing: 2px;
+  color: rgba(0, 0, 0, 0.45);
+  writing-mode: vertical-rl;
+}
+
+/* ---------------- 右侧 Agent 在窄栏里的两处适配 ---------------- */
+
+/* 输入框吃掉整栏宽度：默认 80%（和气泡对齐）在 480px 里只剩三百出头，占位文案会折两行 */
+.workbench .agent-sender {
+  width: 100%;
+}
+
+/* 窄栏里把消息区左右留白收一收，把宽度让给内容 */
+.workbench .agent-bubble-list {
+  padding: 16px 12px 12px;
+}
+
+/* ---------------- 左侧主界面 ---------------- */
+
+.workbench-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+}

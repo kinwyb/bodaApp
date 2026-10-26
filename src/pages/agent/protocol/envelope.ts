@@ -42,6 +42,8 @@ export const CLIENT_TYPE = {
   chatSend: 'chat.send',
   chatCancel: 'chat.cancel',
   sessionHistory: 'session.history',
+  /** 拉取对话列表（一条对应一个 thread） */
+  sessionList: 'session.list',
   /** 回放单轮的完整执行过程 */
   turnReplay: 'session.turn.replay',
   ping: 'ping',
@@ -57,6 +59,8 @@ export const SYSTEM_TYPE = {
   shutdown: 'shutdown',
   /** 历史响应与上行同名 */
   sessionHistory: 'session.history',
+  /** 对话列表响应与上行同名 */
+  sessionList: 'session.list',
   /** 单轮回放响应与上行同名 */
   turnReplay: 'session.turn.replay',
 } as const;

@@ -8,6 +8,7 @@ import type { AgentEnvelope } from '../protocol';
 import type {
   AgentAssistantContent,
   AgentConversation,
+  AgentSessionSummary,
   AgentHistoryThread,
   AgentMedia,
   AgentMessage,
@@ -51,12 +52,18 @@ export type AgentChatAction =
   | { type: 'remove'; key: string }
   | { type: 'clear'; key: string }
   /**
-   * 把本地会话 key 对齐到服务端下发的 chatID。
+   * 会话列表（服务端 session.list 的结果）。
    *
-   * token 里可能已经带了 chatID（续接别的端的对话），服务端握手时会通过 hello 告诉我们；
-   * 此时本地如果继续用自己的 key，消息会分裂成两个会话。
+   * 合并规则见 reducer：服务端条目按 threadID 对齐，本地草稿靠 sessionID 认领
+   * 「自己在列表里的那一项」，认领不上的草稿留在最前面（还没落库的新对话）。
    */
-  | { type: 'rebindConversation'; fromKey: string; toKey: string }
+  | { type: 'sessions'; items: AgentSessionSummary[]; mode?: 'replace' | 'append' }
+  /**
+   * 服务端确认了这条会话的 sessionID / threadID（ack、历史响应里带回来）。
+   *
+   * 只补字段、不动别的：草稿要凭它才能和会话列表里的条目对上。
+   */
+  | { type: 'bind'; conversationKey: string; sessionId?: string; threadId?: string }
   | { type: 'append'; conversationKey: string; messages: AgentMessage[]; autoLabel?: string }
   | { type: 'replyStart'; conversationKey: string; messageKey: string }
   | {

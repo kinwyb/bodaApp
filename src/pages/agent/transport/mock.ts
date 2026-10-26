@@ -50,6 +50,7 @@ export function createMockTransport(): AgentTransport {
   const eventListeners = new Set<(event: AgentStreamEvent) => void>();
   const statusListeners = new Set<(status: import('../types').AgentConnectionStatus) => void>();
   const helloListeners = new Set<(hello: AgentHello) => void>();
+  const sessionListeners = new Set<(page: import('../protocol').AgentSessionPage) => void>();
   const latencyListeners = new Set<(ms: number) => void>();
 
   let status: import('../types').AgentConnectionStatus = 'idle';
@@ -207,6 +208,13 @@ export function createMockTransport(): AgentTransport {
       }, 200);
     },
 
+    sessions() {
+      // 演示模式没有落库的会话：给个空列表，界面只显示当前的草稿
+      setTimeout(() => {
+        sessionListeners.forEach((listener) => listener({ items: [], hasMore: false }));
+      }, 120);
+    },
+
     abort() {
       cancelled = true;
     },
@@ -230,6 +238,13 @@ export function createMockTransport(): AgentTransport {
       helloListeners.add(listener);
       return () => {
         helloListeners.delete(listener);
+      };
+    },
+
+    onSessions(listener) {
+      sessionListeners.add(listener);
+      return () => {
+        sessionListeners.delete(listener);
       };
     },
 

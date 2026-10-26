@@ -11,112 +11,134 @@
   overflow: hidden;
 }
 
-/* ---------------- 左侧会话栏 ---------------- */
+/* ---------------- 会话浮层（顶栏按钮弹出） ---------------- */
 
-.agent-sider {
-  flex: 0 0 264px;
-  width: 264px;
+/*
+ * 会话列表来自服务端 session.list，每条显示「标题 + 时间 + 末轮回答摘要」，
+ * 所以浮层比原来宽一点（288px），列表超过一屏时在浮层内部滚动。
+ */
+.agent-conv-panel {
+  width: 288px;
   display: flex;
   flex-direction: column;
-  background: #fff;
-  border-right: 1px solid #f0f0f0;
-  transition: width 0.2s ease, flex-basis 0.2s ease;
-  overflow: hidden;
-}
-
-.agent-sider-collapsed {
-  flex: 0 0 64px;
-  width: 64px;
-}
-
-.agent-brand {
-  flex: 0 0 auto;
-  height: 60px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 0 16px;
-  border-bottom: 1px solid #f0f0f0;
-}
-
-.agent-sider-collapsed .agent-brand {
-  padding: 0;
-  justify-content: center;
-}
-
-.agent-brand-logo {
-  background: linear-gradient(135deg, #1677ff 0%, #36cfc9 100%);
-  flex: 0 0 auto;
-}
-
-.agent-brand-name {
-  font-size: 15px;
-  font-weight: 600;
-  line-height: 1.2;
-  color: rgba(0, 0, 0, 0.88);
-}
-
-.agent-brand-tip {
-  font-size: 11px;
-  line-height: 1.4;
-  color: rgba(0, 0, 0, 0.45);
-}
-
-.agent-conversations {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  padding: 8px;
-}
-
-.agent-conv-group {
-  font-size: 11px;
-  font-weight: 500;
-  color: rgba(0, 0, 0, 0.4);
-  letter-spacing: 0.4px;
-}
-
-.agent-sider-mini {
-  padding: 12px 8px;
-}
-
-.agent-sider-footer {
-  flex: 0 0 auto;
-  height: 52px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-  padding: 0 8px 0 10px;
-  border-top: 1px solid #f0f0f0;
-}
-
-.agent-user {
-  display: flex;
-  align-items: center;
   gap: 8px;
-  min-width: 0;
-  padding: 4px 6px;
-  border: 0;
+}
+
+.agent-conv-new {
+  flex: 0 0 auto;
+}
+
+.agent-conv-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 360px;
+  overflow: auto;
+}
+
+.agent-conv-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 8px;
   border-radius: 6px;
-  background: transparent;
   cursor: pointer;
 }
 
-.agent-user:hover {
+.agent-conv-item:hover {
   background: rgba(0, 0, 0, 0.04);
 }
 
-.agent-user-name {
+/* 当前会话：浅蓝底 + 主色文字，一眼能看出「正在这个会话里」 */
+.agent-conv-item-active,
+.agent-conv-item-active:hover {
+  background: #e6f4ff;
+}
+
+.agent-conv-icon {
+  flex: 0 0 auto;
+  margin-top: 3px;
   font-size: 13px;
-  color: rgba(0, 0, 0, 0.75);
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.agent-conv-item-active .agent-conv-icon {
+  color: #1677ff;
+}
+
+.agent-conv-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.agent-conv-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.agent-conv-label {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: rgba(0, 0, 0, 0.88);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.agent-user-more {
+.agent-conv-item-active .agent-conv-label {
+  color: #1677ff;
+  font-weight: 500;
+}
+
+.agent-conv-time {
+  flex: 0 0 auto;
+  font-size: 11px;
   color: rgba(0, 0, 0, 0.35);
+}
+
+/* 末轮回答摘要：一行，超出省略 —— 两行会把列表撑得很高 */
+.agent-conv-preview {
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(0, 0, 0, 0.45);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-conv-footer {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: center;
+  padding-top: 6px;
+  border-top: 1px solid #f0f0f0;
+}
+
+.agent-conv-tip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.4);
+}
+
+.agent-conv-loadmore.ant-btn {
+  padding: 0;
+  height: auto;
+  font-size: 12px;
+}
+
+.agent-conv-empty {
+  padding: 12px 0;
+  margin: 0;
+}
+
+.agent-conv-empty .ant-empty-description {
   font-size: 12px;
 }
 
@@ -172,6 +194,30 @@
 
 .agent-model-select {
   width: 148px;
+}
+
+/*
+ * 嵌入工作台左栏时的紧凑形态：480px 的面板里，148px 的下拉 + 三个按钮
+ * 会把「新对话」挤到第二行。这里收窄下拉、按钮只留图标、标题再短一档。
+ */
+.agent-header-compact {
+  gap: 8px;
+  padding: 0 12px;
+}
+
+.agent-header-compact .agent-header-name {
+  max-width: 150px;
+}
+
+/* 面板被拖到最窄（320px）时，副标题宁可省略号也不要折成两行 */
+.agent-header-compact .agent-header-sub {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-model-select-compact {
+  width: 108px;
 }
 
 /* ---------------- 消息区 ---------------- */
@@ -601,10 +647,6 @@
 /* ---------------- 窄屏 ---------------- */
 
 @media (max-width: 900px) {
-  .agent-sider {
-    display: none;
-  }
-
   .agent-capabilities {
     grid-template-columns: 1fr;
   }

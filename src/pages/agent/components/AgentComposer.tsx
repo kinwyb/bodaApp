@@ -18,9 +18,11 @@ export const AgentComposer: React.FC<{
   mode: 'mock' | 'websocket';
   connection: AgentConnectionStatus;
   latency?: number;
+  /** 紧凑形态（嵌在工作台左栏时）：面板窄，占位文案要短一档才不会折行 */
+  compact?: boolean;
   onSend: (text: string, attachments?: AgentAttachment[]) => void;
   onAbort: () => void;
-}> = ({ streaming, mode, connection, latency, onSend, onAbort }) => {
+}> = ({ streaming, mode, connection, latency, compact = false, onSend, onAbort }) => {
   const [inputValue, setInputValue] = useState('');
   const [fileList, setFileList] = useState<UploadFile[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -74,7 +76,9 @@ export const AgentComposer: React.FC<{
         onSubmit={handleSubmit}
         onCancel={onAbort}
         loading={streaming}
-        placeholder="描述你想让助手做的事，Enter 发送，Shift + Enter 换行"
+        placeholder={
+          compact ? '想让助手做什么？Enter 发送' : '描述你想让助手做的事，Enter 发送，Shift + Enter 换行'
+        }
         autoSize={{ minRows: 2, maxRows: 6 }}
         header={
           fileList.length > 0 ? (
