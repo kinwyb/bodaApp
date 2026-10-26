@@ -34,6 +34,8 @@ import type {DesktopMenu} from '../api';
 import {isNavigableMenu} from '../services';
 import Dashboard from '../pages/Dashboard';
 import {resolveView} from '../pages/registry';
+import {useWorkbenchBridge} from '../pages/agent/ui-bridge';
+import type {UINavItem} from '../pages/agent/protocol';
 import type {ViewTrailItem} from '../pages/types';
 import {isDebugEnv} from "@/utils";
 
@@ -180,6 +182,22 @@ const MainLayout: React.FC = () => {
     const menuItems = useMemo(() => buildMenuItems(displayTree, 0), [displayTree]);
 
     /**
+     * 界面桥用的导航清单：权限过滤后的菜单，平铺成 {view, title, trail}。
+     *
+     * 用菜单的 View 与名称而不是 URL：模型按业务名称选页面，猜 URL 对它没有意义
+     * （页面解析走 `resolveView` 的「精确命中 → 逐级取祖先 → 兜底列表页」规则）。
+     */
+    const navItems = useMemo<UINavItem[]>(
+        () =>
+            [...menuMetaMap.entries()].map(([view, meta]) => ({
+                view,
+                title: meta.label,
+                trail: meta.trail.map((item) => item.name),
+            })),
+        [menuMetaMap],
+    );
+
+    /**
      * 左侧菜单的高亮项：**用 view**（菜单项的 key），不是页签 key。
      * 页签 key 可能带 `::实例标识` 后缀，同一个菜单可以同时开着好几个页签，
      * 高亮的是它们共同的菜单节点。
@@ -260,6 +278,19 @@ const MainLayout: React.FC = () => {
         }),
         [openTab, menuMetaMap],
     );
+
+    /*
+     * 界面桥（工作台级）：把「你在哪、能去哪」交给 agent。
+     *
+     * 常驻在这里而不是业务页里 —— 用户停在主页、没进任何业务页面时，
+     * agent 也能被正确告知工作台状态与可打开的页面。页面里注册的是另一半
+     * （这一页能做什么、怎么操作）。
+     */
+    useWorkbenchBridge({
+        currentView: () => activeView,
+        navigation: () => navItems,
+        openView: (view, params) => tabsApi.openView(view, params),
+    });
 
     const handleMenuClick = useCallback(
         (info: { key: string }) => {

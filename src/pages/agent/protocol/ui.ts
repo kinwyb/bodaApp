@@ -111,17 +111,53 @@ export type UIForm = {
   dirty: boolean;
 };
 
+/**
+ * 页面自述（本页怎么操作）。
+ *
+ * 由页面作者人工编写，**只写快照里推不出来的东西**：步骤顺序、前置条件、业务术语映射、陷阱。
+ * 两条禁忌：
+ * - 不写命令清单（命令已经在 actions 里，再写一份就是平行维护，必然对不上）；
+ * - 不从页面数据生成（它是可信内容，data 是不可信内容，混起来等于把用户文本当指令）。
+ */
+export type UIGuide = {
+  /** 一句话说明这一页是干什么的 */
+  summary?: string;
+  /** 本页特有的操作顺序与前置条件 */
+  steps?: string[];
+  /** 业务术语 → 字段取值，例如 { 越南工厂: "workPlace = 越南" } */
+  terms?: Record<string, string>;
+  /** 容易踩的坑，例如「发布后不可撤销」 */
+  cautions?: string[];
+};
+
+/** 可导航的页面条目（来自权限过滤后的菜单树） */
+export type UINavItem = {
+  /** 菜单的 View 字段，ui_navigate 用它打开页面 */
+  view: string;
+  /** 菜单名，模型按业务名称选，不要按 URL 猜 */
+  title: string;
+  /** 从根到当前的层级，例如 ["计划管理", "预订单"] */
+  trail?: string[];
+};
+
 /** 页面发布给桥的结构（rev / ts 由桥补齐，页面不用管） */
 export type UISnapshotData = {
   /** 页面标识，如 V0189_V0279_V0280（来自路由/视图注册表） */
   view: string;
   title?: string;
   mode?: 'list' | 'form';
+  /** 本页怎么操作，由页面提供 */
+  guide?: UIGuide;
   actions: UIAction[];
   filters?: UIField[];
   selection?: UISelection;
   data?: UIDataSummary | null;
   form?: UIForm | null;
+  /**
+   * 能打开哪些页面。只在「当前没有业务页面」时给（主页），且只给顶层若干条 ——
+   * 菜单上百项，每次 observe 都全量下发是纯浪费；要搜完整菜单用 ui_navigate 的 query。
+   */
+  navigation?: UINavItem[];
 };
 
 /** 下发给模型的完整快照 */
@@ -132,7 +168,7 @@ export type UISnapshot = UISnapshotData & {
 };
 
 /** 服务端的操作类型 */
-export type UIRequestOp = 'observe' | 'act';
+export type UIRequestOp = 'observe' | 'act' | 'navigate';
 
 /** 服务端下发的请求载荷 */
 export type UIRequestPayload = {
@@ -142,6 +178,10 @@ export type UIRequestPayload = {
   params?: Record<string, unknown>;
   /** 看快照时的页面版本 */
   rev?: number;
+  /** navigate 的目标页面（菜单的 View 字段）；与 query 二选一 */
+  view?: string;
+  /** navigate 的检索词：只给 query 表示「搜菜单」，不导航 */
+  query?: string;
 };
 
 /** 浏览器回传的结果载荷 */
@@ -160,7 +200,7 @@ export type UIResponsePayload = {
 export function parseUIRequest(data: unknown): UIRequestPayload | null {
   if (!data || typeof data !== 'object') return null;
   const raw = data as Partial<UIRequestPayload>;
-  if (raw.op !== 'observe' && raw.op !== 'act') return null;
+  if (raw.op !== 'observe' && raw.op !== 'act' && raw.op !== 'navigate') return null;
 
   const payload: UIRequestPayload = { op: raw.op };
   if (typeof raw.cmd === 'string' && raw.cmd) payload.cmd = raw.cmd;
@@ -168,6 +208,8 @@ export function parseUIRequest(data: unknown): UIRequestPayload | null {
     payload.params = raw.params as Record<string, unknown>;
   }
   if (typeof raw.rev === 'number') payload.rev = raw.rev;
+  if (typeof raw.view === 'string' && raw.view) payload.view = raw.view;
+  if (typeof raw.query === 'string' && raw.query) payload.query = raw.query;
   return payload;
 }
 

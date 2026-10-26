@@ -32,6 +32,8 @@ export type {
   UIField,
   UIFieldType,
   UIForm,
+  UIGuide,
+  UINavItem,
   UIRequestOp,
   UIRequestPayload,
   UIResponsePayload,

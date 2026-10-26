@@ -13,7 +13,7 @@ import type {
 import {FilterTable} from '@/components/grid-table';
 import {PageBreadcrumb} from '@/components/PageBreadcrumb';
 import {useUIBridgeHost} from '@/pages/agent/ui-bridge';
-import type {UIField} from '@/pages/agent/protocol';
+import type {UIField, UIGuide} from '@/pages/agent/protocol';
 import type {ViewPageProps} from '@/pages/types';
 import {useTabs} from '@/store/tabs';
 import {yupaiService} from '@/services/yupai.ts';
@@ -50,6 +50,27 @@ const SNAPSHOT_COLUMNS = [
 /** 快照一次最多给多少行；超出部分靠筛选缩小范围，而不是全量塞给模型 */
 const SNAPSHOT_ROW_LIMIT = 20;
 
+/**
+ * 页面自述：告诉 agent 这一页该怎么操作。
+ *
+ * 只写快照里推不出来的东西 —— 操作顺序、前置条件、业务术语、陷阱。
+ * 两条禁忌：不写命令清单（命令已经在 actions 里，再写一份就是对不上的平行维护）；
+ * 不从页面数据生成（这里是可信内容，data 才是不可信内容）。
+ */
+const PREORDER_GUIDE: UIGuide = {
+    summary: '预订单管理：按条件查询预订单，并对选中的单据执行编辑、发布、分批、查看变更日志等操作',
+    steps: [
+        '改条件用 filter.set（参数名见该 action 的 params），等列表变成你要的范围再动单据',
+        '编辑 / 删除 / 发布 / 分批 / 复制 都要求先选中一行：本页还没开放选择命令，需要请用户在表格里点选',
+    ],
+    terms: {
+        产地: 'workPlace，例如「越南」',
+        业务员: 'salesman',
+        关键字: 'keyword',
+    },
+    cautions: ['命令被禁用时先看 disabledReason，不要反复重试'],
+};
+
 /** 取一行的识别列，行 ID 用业务主键（不是行号 —— 排序一变行号就全错） */
 function snapshotRow(record: YupaiOrder): Record<string, unknown> {
     const source = record as unknown as Record<string, unknown>;
@@ -77,6 +98,11 @@ const YupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
     const [dataSource, setDataSource] = useState<YupaiOrder[]>([]);
     const [loading, setLoading] = useState(false);
     const [total, setTotal] = useState(0);
+    /**
+     * 界面桥就绪标志：第一次数据加载完成后才置 true。
+     * ui_navigate 打开本页后会等它 —— 否则 agent 拿到的是一份空列表，会以为页面没打开。
+     */
+    const [snapshotReady, setSnapshotReady] = useState(false);
     /** 选中的行数：只用来驱动按钮 disabled，行数据本身一律向表格要（见 getActiveRows） */
     const [activeRowCount, setActiveRowCount] = useState(0);
     /**
@@ -118,6 +144,7 @@ const YupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
                 void message.error(error instanceof ApiError ? error.message : '加载预订单失败');
             } finally {
                 setLoading(false);
+                setSnapshotReady(true);
             }
         },
         [message, tableRef, setLoading],
@@ -412,11 +439,12 @@ const YupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
      * 动作表直接来自 commands（CommandBar 的命令项），**不另维护一份描述** ——
      * 命令 ID 就是 CommandItem.key，与页面上的按钮一一对应，权限过滤也已经由 CommandBar 做过。
      */
-    useUIBridgeHost({
+    useUIBridgeHost(view, {
         snapshot: () => ({
             view,
             title: '计划管理 > 预订单 > 预订单管理',
             mode: 'list',
+            guide: PREORDER_GUIDE,
             actions: [
                 ...commands.map((item) => ({
                     id: item.key,
@@ -472,6 +500,8 @@ const YupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
                 return `已按 ${JSON.stringify(params)} 重新查询`;
             },
         },
+        // agent 用 ui_navigate 打开本页时会等它：第一次数据加载完成后才算就绪
+        ready: () => snapshotReady,
     });
 
     return (

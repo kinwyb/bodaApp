@@ -1,48 +1,66 @@
 /**
- * 当前页面的界面桥宿主。
+ * 界面桥的宿主注册表：**两级**。
  *
- * 同一时刻只有一个「当前页面」：工作台是多标签页，但 agent 操作的是用户正在看的那个，
- * 所以后注册者覆盖先注册者，页面卸载时再注销。
+ * - **工作台级**（挂在 MainLayout 上，全局唯一）：知道当前激活的是哪个页面、能打开哪些页面、
+ *   怎么打开。用户停在主页、没进任何业务页面时，靠它回答「你在工作台，这些页面可以打开」——
+ *   这是「用户在主页直接发问」能走通的前提。
+ * - **页面级**（业务页面各自注册，按 view 索引）：只贡献自己那一段
+ *   guide / actions / filters / data / form。
  *
- * 存 getter 而不是快照对象：React 每次渲染都会产生新的闭包，存 getter 能让桥
- * 始终读到最新的 state，而不必为了更新描述而反复注册。
+ * 存 getter 而不是快照对象：React 每次渲染都会产生新的闭包，存 getter 能让桥始终读到最新
+ * 的 state，而不必为了更新描述而反复注册。
+ *
+ * 版本号按 view 分域：跨页面共用一个计数器，导航之后校验必然混乱 ——
+ * 打开另一个页面跟当前页面的版本本来就没有关系。
  */
 
-import type { UIBridgeHost } from './types';
+import type { UIBridgeHost, UIWorkbenchHost } from './types';
 
-let hostGetter: (() => UIBridgeHost | null) | null = null;
+/** 页面级宿主：view -> getter */
+const pageHosts = new Map<string, () => UIBridgeHost | null>();
 
-/**
- * 页面版本号（乐观锁）。
- *
- * 当前实现：每完成一次操作推进一格，用于拦住「拿着旧快照继续操作」这种错误。
- * 它**不等于**页面真实状态的版本——用户自己改筛选、翻页不会推进它。
- * 真实实现应由页面状态派生（例如查询条件的序列化值 + 数据版本），
- * 这样并发操作才有意义。
- */
-let rev = 1;
+/** 工作台级宿主：全局唯一 */
+let workbenchGetter: (() => UIWorkbenchHost | null) | null = null;
 
-/** 注册宿主，返回注销函数 */
-export function registerUIBridgeHost(getter: () => UIBridgeHost | null): () => void {
-  hostGetter = getter;
+/** 页面版本（乐观锁），按 view 维护 */
+const revByView = new Map<string, number>();
+
+/** 注册页面级宿主，返回注销函数 */
+export function registerPageHost(view: string, getter: () => UIBridgeHost | null): () => void {
+  pageHosts.set(view, getter);
   return () => {
     // 只有还是自己注册的那个才清空，避免后注册者被先卸载的页面误注销
-    if (hostGetter === getter) hostGetter = null;
+    if (pageHosts.get(view) === getter) pageHosts.delete(view);
   };
 }
 
-/** 取当前宿主，没有注册时返回 null */
-export function getUIBridgeHost(): UIBridgeHost | null {
-  return hostGetter ? hostGetter() : null;
+/** 取某个 view 的页面宿主；该页面没打开或没接入时返回 null */
+export function getPageHost(view: string): UIBridgeHost | null {
+  const getter = pageHosts.get(view);
+  return getter ? getter() : null;
 }
 
-/** 当前页面版本 */
-export function currentRev(): number {
-  return rev;
+/** 注册工作台级宿主，返回注销函数 */
+export function registerWorkbenchHost(getter: () => UIWorkbenchHost | null): () => void {
+  workbenchGetter = getter;
+  return () => {
+    if (workbenchGetter === getter) workbenchGetter = null;
+  };
 }
 
-/** 推进页面版本 */
-export function bumpRev(): number {
-  rev += 1;
-  return rev;
+/** 取工作台级宿主 */
+export function getWorkbenchHost(): UIWorkbenchHost | null {
+  return workbenchGetter ? workbenchGetter() : null;
+}
+
+/** 某个页面的当前版本 */
+export function currentRev(view: string): number {
+  return revByView.get(view) ?? 1;
+}
+
+/** 推进某个页面的版本 */
+export function bumpRev(view: string): number {
+  const next = currentRev(view) + 1;
+  revByView.set(view, next);
+  return next;
 }
