@@ -73,6 +73,8 @@ export type AgentChatAction =
       replace: boolean;
       /** 上游实体 id：换 id 说明是同一轮里的另一段 */
       eventId?: string;
+      /** 该片段是否已结束（completed 帧）：结束后不再显示流式光标 */
+      done?: boolean;
     }
   | {
       type: 'appendReasoning';
@@ -80,6 +82,8 @@ export type AgentChatAction =
       text: string;
       replace: boolean;
       eventId?: string;
+      /** 思考结束（reasoning_completed）：转圈图标据此停下 */
+      done?: boolean;
     }
   | { type: 'upsertStep'; conversationKey: string; step: AgentToolStep }
   | { type: 'setApproval'; conversationKey: string; approval: AgentAssistantContent['approval'] }

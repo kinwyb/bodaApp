@@ -53,28 +53,30 @@ export type AgentAttachment = {
 };
 
 /**
- * 一段正文 / 思考。
+ * 一轮回答里的一个片段，按**到达顺序**排列。
  *
- * 一轮对话里 codex 可能产出多个 message / reasoning item，每个 item 是一个独立段落；
- * 同一 item 的 start / delta / completed 共享 `eventID`，只更新自己那一段。
+ * 关键：后端的思考与正文是交错的（思考 → 工具 → 回答 → 思考 → 回答 …），
+ * 早期版本把它们按类型分成三堆渲染，多轮思考后完全看不出先后。
+ * 现在统一进 timeline，渲染严格按数组顺序走。
  */
-export type AgentSegment = {
-  /** 上游实体 id（codex item ID）；为空表示服务端没给，归到当前段 */
-  id?: string;
-  text: string;
-};
+export type AgentTimelineItem =
+  | { kind: 'reasoning'; key: string; eventId?: string; text: string; done: boolean }
+  | { kind: 'text'; key: string; eventId?: string; text: string; done: boolean }
+  | { kind: 'tool'; key: string; step: AgentToolStep }
+  | { kind: 'approval'; key: string; approval: AgentApproval }
+  | { kind: 'error'; key: string; message: string };
 
-/** 助手消息的完整内容：正文 + 思考 + 工具链 + 审批 + 媒体 */
+/** 助手消息的完整内容：时间线 + 派生汇总 + 媒体/引用 */
 export type AgentAssistantContent = {
+  /**
+   * 渲染真源：思考 / 工具 / 正文按到达顺序交错。
+   *
+   * 历史消息来自旧数据时可能没有（用 timelineOf 由 text/steps 合成）。
+   */
+  timeline?: AgentTimelineItem[];
   text: string;
   /** reasoning_delta 累积出来的思考内容（多段思考用空行拼接） */
   reasoning?: string;
-  /**
-   * 内部字段：正文 / 思考的分段。`text` / `reasoning` 是它们的拼接结果，
-   * 保留分段是为了让「同一段的 completed 全量替换」只替换那一段，不会盖掉别的段。
-   */
-  textSegments?: AgentSegment[];
-  reasoningSegments?: AgentSegment[];
   steps?: AgentToolStep[];
   approval?: AgentApproval;
   media?: AgentMedia[];
@@ -204,6 +206,31 @@ export type AgentHistoryThread = {
   turns: AgentHistoryTurn[];
   hasMore?: boolean;
 };
+
+/**
+ * 渲染用：取内容的时间线。
+ *
+ * 旧消息（没有 timeline）按原渲染顺序合成一个 —— 思考 → 工具 → 错误 → 正文，
+ * 等价于改造前的观感，不会因为升级而丢内容。
+ */
+export function timelineOf(content: AgentAssistantContent): AgentTimelineItem[] {
+  if (content.timeline && content.timeline.length > 0) return content.timeline;
+
+  const built: AgentTimelineItem[] = [];
+  if (content.reasoning) {
+    built.push({ kind: 'reasoning', key: 'legacy-reasoning', text: content.reasoning, done: true });
+  }
+  (content.steps ?? []).forEach((step) => {
+    built.push({ kind: 'tool', key: `legacy-tool-${step.key}`, step });
+  });
+  if (content.error) {
+    built.push({ kind: 'error', key: 'legacy-error', message: content.error });
+  }
+  if (content.text) {
+    built.push({ kind: 'text', key: 'legacy-text', text: content.text, done: true });
+  }
+  return built;
+}
 
 /** 判断一条消息是不是助手消息并取出结构化内容 */
 export function assistantContentOf(message: AgentMessage): AgentAssistantContent {

@@ -141,6 +141,7 @@ export function useAgentChat(): AgentChatApi {
             text: event.text,
             replace: event.replace,
             eventId: event.eventId,
+            done: event.done,
           });
           break;
         case 'reasoning':
@@ -150,6 +151,7 @@ export function useAgentChat(): AgentChatApi {
             text: event.text,
             replace: event.replace,
             eventId: event.eventId,
+            done: event.done,
           });
           break;
         case 'tool':

@@ -20,8 +20,11 @@ export const mapReasoningEvent: AgentEventHandler = (name, data, conversationId,
     return undefined;
   }
 
-  const piece = data.reasoning || data.content;
-  if (!piece) return [];
+  const piece = data.reasoning || data.content || '';
+  const done = name === AGENT_EVENT.reasoningCompleted;
+
+  // completed 可能不带内容（只表示「想完了」）：仍然要发，状态层据此停掉转圈
+  if (!piece && !done) return [];
 
   return [
     {
@@ -29,8 +32,9 @@ export const mapReasoningEvent: AgentEventHandler = (name, data, conversationId,
       conversationId,
       text: piece,
       // start 带的是该段首段内容，completed 带的是该段全量 —— 都按「替换当前段」处理
-      replace: name === AGENT_EVENT.reasoningStart || data.delta === false,
+      replace: name === AGENT_EVENT.reasoningStart || (Boolean(piece) && data.delta === false),
       eventId: envelope.eventID,
+      done,
     },
   ];
 };

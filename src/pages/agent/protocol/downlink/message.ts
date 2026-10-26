@@ -30,9 +30,8 @@ export const mapMessageEvent: AgentEventHandler = (name, data, conversationId, e
         : [];
 
     case AGENT_EVENT.messageCompleted:
-      return data.content
-        ? [{ type: 'text', conversationId, text: data.content, replace: true, eventId }]
-        : [];
+      // 即使没带内容也要发一条：状态层靠 done 把这一段的流式光标收掉
+      return [{ type: 'text', conversationId, text: data.content ?? '', replace: true, eventId, done: true }];
 
     default:
       return undefined;

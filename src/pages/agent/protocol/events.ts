@@ -14,8 +14,24 @@ export type AgentStreamEvent =
    * 正文增量；replace=true 表示 data.delta=false，是全量内容。
    * eventId 是上游实体（codex item）标识：换 id 说明是同一轮里的另一段正文。
    */
-  | { type: 'text'; conversationId: string; text: string; replace: boolean; eventId?: string }
-  | { type: 'reasoning'; conversationId: string; text: string; replace: boolean; eventId?: string }
+  | {
+      type: 'text';
+      conversationId: string;
+      text: string;
+      replace: boolean;
+      eventId?: string;
+      /** 该段已结束（completed 帧）：结束流式光标 */
+      done?: boolean;
+    }
+  | {
+      type: 'reasoning';
+      conversationId: string;
+      text: string;
+      replace: boolean;
+      eventId?: string;
+      /** 这段思考已结束：折叠块的转圈据此停下 */
+      done?: boolean;
+    }
   /** 工具调用的一步（tool_start → loading，tool_completed → success/error） */
   | { type: 'tool'; conversationId: string; step: AgentToolStep }
   | { type: 'approval'; conversationId: string; approval: AgentApproval }

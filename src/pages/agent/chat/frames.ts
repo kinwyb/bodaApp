@@ -9,10 +9,23 @@
  * 因此这里不需要考虑打字机效果。
  */
 
-import type { AgentEnvelope, AgentEventData, AgentStreamEvent } from '../protocol';
-import { mapAgentEnvelope, mapEnvelopeAttachments } from '../protocol';
-import type { AgentAssistantContent, AgentHistoryTurn, AgentMessage, AgentToolStep } from '../types';
-import { joinSegments, upsertSegment } from './helpers';
+import type { AgentEnvelope, AgentEventData } from '../protocol';
+import { AGENT_EVENT, mapAgentEnvelope, mapEnvelopeAttachments } from '../protocol';
+import type {
+  AgentAssistantContent,
+  AgentHistoryTurn,
+  AgentMedia,
+  AgentMessage,
+  AgentSource,
+  AgentTimelineItem,
+} from '../types';
+import {
+  appendTimelineText,
+  upsertTimelineApproval,
+  upsertTimelineError,
+  upsertTimelineTool,
+  withTimeline,
+} from './helpers';
 
 /** 服务端截断文本时会追加这个标记（replay.clip） */
 const TRUNCATED_MARK = '（已截断';
@@ -36,10 +49,17 @@ function eventNameOf(frame: AgentEnvelope): string {
   return (frame.data as AgentEventData | undefined)?.event || frame.type;
 }
 
-/** 一组帧 → 一条助手消息的内容 */
+/**
+ * 一组帧 → 一条助手消息的内容。
+ *
+ * 严格按帧的到达顺序铺 timeline：思考 / 工具 / 正文会交错，渲染才能还原
+ * 「思考 → 工具 → 回答 → 思考 → 回答」的真实过程。
+ */
 export function contentFromFrames(frames: AgentEnvelope[]): AgentAssistantContent {
-  const content: AgentAssistantContent = { text: '' };
-  const steps = new Map<string, AgentToolStep>();
+  let timeline: AgentTimelineItem[] = [];
+  let media: AgentMedia[] | undefined;
+  let sources: AgentSource[] | undefined;
+  let error: string | undefined;
 
   for (const frame of frames) {
     const name = eventNameOf(frame);
@@ -47,66 +67,56 @@ export function contentFromFrames(frames: AgentEnvelope[]): AgentAssistantConten
     // 回放帧一律是全量快照（delta=false）；实时帧可能是增量
     const replace = data.delta !== true;
 
-    if (name === 'message_start' || name === 'message_delta' || name === 'message_completed') {
-      if (data.content) {
-        const textSegments = upsertSegment(content.textSegments, frame.eventID, data.content, replace);
-        content.textSegments = textSegments;
-        content.text = joinSegments(textSegments);
-      }
-    } else if (name === 'reasoning_start' || name === 'reasoning_delta' || name === 'reasoning_completed') {
-      const piece = data.reasoning || data.content;
-      if (piece) {
-        const reasoningSegments = upsertSegment(
-          content.reasoningSegments,
-          frame.eventID,
-          piece,
-          replace,
-        );
-        content.reasoningSegments = reasoningSegments;
-        content.reasoning = joinSegments(reasoningSegments);
-      }
+    if (
+      name === AGENT_EVENT.messageStart ||
+      name === AGENT_EVENT.messageDelta ||
+      name === AGENT_EVENT.messageCompleted
+    ) {
+      timeline = appendTimelineText(
+        timeline,
+        'text',
+        frame.eventID,
+        data.content ?? '',
+        replace,
+        name === AGENT_EVENT.messageCompleted,
+      );
+    } else if (
+      name === AGENT_EVENT.reasoningStart ||
+      name === AGENT_EVENT.reasoningDelta ||
+      name === AGENT_EVENT.reasoningCompleted
+    ) {
+      timeline = appendTimelineText(
+        timeline,
+        'reasoning',
+        frame.eventID,
+        data.reasoning || data.content || '',
+        replace,
+        name === AGENT_EVENT.reasoningCompleted,
+      );
     } else {
-      // 工具 / 审批 / 错误等：语义与实时一致，直接复用协议映射
+      // 工具 / 审批 / 错误：语义与实时一致，直接复用协议映射
       for (const event of mapAgentEnvelope(frame, '')) {
-        applyEvent(content, steps, event);
+        if (event.type === 'tool') timeline = upsertTimelineTool(timeline, event.step);
+        else if (event.type === 'approval') timeline = upsertTimelineApproval(timeline, event.approval);
+        else if (event.type === 'error') {
+          timeline = upsertTimelineError(timeline, event.message);
+          error = event.message;
+        }
       }
     }
 
     // 媒体与引用挂在任意帧上
     for (const event of mapEnvelopeAttachments(frame, '')) {
-      applyEvent(content, steps, event);
+      if (event.type === 'media') media = event.media;
+      else if (event.type === 'sources') sources = event.sources;
     }
   }
 
-  if (steps.size > 0) content.steps = [...steps.values()];
+  const content = withTimeline({ text: '' }, timeline);
+  content.media = media;
+  content.sources = sources;
+  content.error = error;
   return content;
-}
-
-function applyEvent(
-  content: AgentAssistantContent,
-  steps: Map<string, AgentToolStep>,
-  event: AgentStreamEvent,
-) {
-  switch (event.type) {
-    case 'tool':
-      // 同一个 ToolCall.id 先 loading 后 success，后到的覆盖
-      steps.set(event.step.key, event.step);
-      break;
-    case 'approval':
-      content.approval = event.approval;
-      break;
-    case 'media':
-      content.media = event.media;
-      break;
-    case 'sources':
-      content.sources = event.sources;
-      break;
-    case 'error':
-      content.error = event.message;
-      break;
-    default:
-      break;
-  }
 }
 
 /** 内容里有没有被服务端截断的痕迹（replay.clip 会追加标记） */

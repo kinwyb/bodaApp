@@ -4,9 +4,19 @@
 
 import type { AgentChatAction, AgentChatState } from './actions';
 import type { AgentConversation } from '../types';
+import { timelineOf } from '../types';
 import { DEFAULT_LABEL, createConversation } from './actions';
 import { contentFromFrames, groupFramesByReq, historyMessagesOf, isTruncatedContent } from './frames';
-import { finishStreamingReply, joinSegments, mapStreamingReply, upsertSegment, withConversation } from './helpers';
+import {
+  appendTimelineText,
+  finishStreamingReply,
+  mapStreamingReply,
+  upsertTimelineApproval,
+  upsertTimelineError,
+  upsertTimelineTool,
+  withConversation,
+  withTimeline,
+} from './helpers';
 
 /** 还没落库的会话（本地新建、或刚发出第一轮还没拿到 sessionID） */
 function isDraft(conversation: AgentConversation): boolean {
@@ -156,7 +166,7 @@ export function chatReducer(state: AgentChatState, action: AgentChatAction): Age
             {
               key: action.messageKey,
               role: 'assistant',
-              content: { text: '' },
+              content: { text: '', timeline: [] },
               createdAt: Date.now(),
               status: 'streaming',
             },
@@ -167,50 +177,55 @@ export function chatReducer(state: AgentChatState, action: AgentChatAction): Age
 
     case 'appendText':
       return withConversation(state, action.conversationKey, (conversation) =>
-        mapStreamingReply(conversation, (content) => {
-          const textSegments = upsertSegment(
-            content.textSegments,
-            action.eventId,
-            action.text,
-            action.replace,
-          );
-          return { ...content, textSegments, text: joinSegments(textSegments) };
-        }),
+        mapStreamingReply(conversation, (content) =>
+          withTimeline(
+            content,
+            appendTimelineText(
+              timelineOf(content),
+              'text',
+              action.eventId,
+              action.text,
+              action.replace,
+              action.done,
+            ),
+          ),
+        ),
       );
 
     case 'appendReasoning':
       return withConversation(state, action.conversationKey, (conversation) =>
-        mapStreamingReply(conversation, (content) => {
-          const reasoningSegments = upsertSegment(
-            content.reasoningSegments,
-            action.eventId,
-            action.text,
-            action.replace,
-          );
-          return {
-            ...content,
-            reasoningSegments,
-            reasoning: joinSegments(reasoningSegments),
-          };
-        }),
+        mapStreamingReply(conversation, (content) =>
+          withTimeline(
+            content,
+            appendTimelineText(
+              timelineOf(content),
+              'reasoning',
+              action.eventId,
+              action.text,
+              action.replace,
+              action.done,
+            ),
+          ),
+        ),
       );
 
     case 'upsertStep':
       return withConversation(state, action.conversationKey, (conversation) =>
-        mapStreamingReply(conversation, (content) => {
-          const steps = content.steps ?? [];
-          const index = steps.findIndex((step) => step.key === action.step.key);
-          const nextSteps =
-            index < 0
-              ? [...steps, action.step]
-              : steps.map((step) => (step.key === action.step.key ? action.step : step));
-          return { ...content, steps: nextSteps };
-        }),
+        mapStreamingReply(conversation, (content) =>
+          withTimeline(content, upsertTimelineTool(timelineOf(content), action.step)),
+        ),
       );
 
     case 'setApproval':
       return withConversation(state, action.conversationKey, (conversation) =>
-        mapStreamingReply(conversation, (content) => ({ ...content, approval: action.approval })),
+        mapStreamingReply(conversation, (content) => {
+          if (!action.approval) return content;
+          return {
+            ...withTimeline(content, upsertTimelineApproval(timelineOf(content), action.approval)),
+            // 保留汇总字段：历史预览也读它
+            approval: action.approval,
+          };
+        }),
       );
 
     case 'setMedia':
@@ -325,9 +340,14 @@ export function chatReducer(state: AgentChatState, action: AgentChatAction): Age
       );
 
     case 'fail':
-      return withConversation(state, action.conversationKey, (conversation) =>
-        finishStreamingReply(conversation, 'error', action.message),
-      );
+      return withConversation(state, action.conversationKey, (conversation) => {
+        // 错误也进时间线，位置就是它发生的地方（不总是排最后）
+        const withError = mapStreamingReply(conversation, (content) => ({
+          ...withTimeline(content, upsertTimelineError(timelineOf(content), action.message)),
+          error: action.message,
+        }));
+        return finishStreamingReply(withError, 'error', action.message);
+      });
 
     case 'resetReply':
       return withConversation(state, action.conversationKey, (conversation) => ({
