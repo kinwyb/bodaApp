@@ -14,6 +14,8 @@
   },
   "dependencies": {
     "@ant-design/icons": "^6.3.4",
+    "@ant-design/x": "^2.9.0",
+    "@ant-design/x-markdown": "^2.9.0",
     "@visactor/vtable": "^1.26.8",
     "@visactor/vtable-plugins": "^1.26.8",
     "@visactor/vtable-search": "^1.26.8",

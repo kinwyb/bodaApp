@@ -1,0 +1,619 @@
+/*
+ * Agent 对话界面样式。
+ *
+ * 只负责「布局 + 少量观感微调」：主色、圆角、字体都继承 antd 6 / Ant Design X 的 token，
+ * 这样以后调整主题不用改这里。
+ */
+
+.agent-page {
+  height: 100%;
+  display: flex;
+  overflow: hidden;
+}
+
+/* ---------------- 左侧会话栏 ---------------- */
+
+.agent-sider {
+  flex: 0 0 264px;
+  width: 264px;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border-right: 1px solid #f0f0f0;
+  transition: width 0.2s ease, flex-basis 0.2s ease;
+  overflow: hidden;
+}
+
+.agent-sider-collapsed {
+  flex: 0 0 64px;
+  width: 64px;
+}
+
+.agent-brand {
+  flex: 0 0 auto;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.agent-sider-collapsed .agent-brand {
+  padding: 0;
+  justify-content: center;
+}
+
+.agent-brand-logo {
+  background: linear-gradient(135deg, #1677ff 0%, #36cfc9 100%);
+  flex: 0 0 auto;
+}
+
+.agent-brand-name {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: rgba(0, 0, 0, 0.88);
+}
+
+.agent-brand-tip {
+  font-size: 11px;
+  line-height: 1.4;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.agent-conversations {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px;
+}
+
+.agent-conv-group {
+  font-size: 11px;
+  font-weight: 500;
+  color: rgba(0, 0, 0, 0.4);
+  letter-spacing: 0.4px;
+}
+
+.agent-sider-mini {
+  padding: 12px 8px;
+}
+
+.agent-sider-footer {
+  flex: 0 0 auto;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 0 8px 0 10px;
+  border-top: 1px solid #f0f0f0;
+}
+
+.agent-user {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.agent-user:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.agent-user-name {
+  font-size: 13px;
+  color: rgba(0, 0, 0, 0.75);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-user-more {
+  color: rgba(0, 0, 0, 0.35);
+  font-size: 12px;
+}
+
+/* ---------------- 右侧主区 ---------------- */
+
+.agent-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #fff;
+}
+
+.agent-header {
+  flex: 0 0 auto;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 16px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.agent-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.agent-header-title {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.agent-header-name {
+  font-size: 14px;
+  max-width: 320px;
+}
+
+.agent-header-sub {
+  font-size: 12px;
+  line-height: 1.4;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.agent-status-tag {
+  margin-inline-end: 0;
+}
+
+.agent-model-select {
+  width: 148px;
+}
+
+/* ---------------- 消息区 ---------------- */
+
+/*
+ * 聊天区：整页白底，只有「每条对话内容」自己是灰块。
+ * （整片涂灰会糊成一整块，看不出哪里是内容、哪里是背景）
+ */
+.agent-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #fff;
+}
+
+.agent-chat-surface {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #fff;
+}
+
+/* 消息滚动区：Bubble.List 需要有确定高度才能自己滚 */
+.agent-messages {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* 「加载更早的消息」：固定在消息区顶部，不跟着内容滚 */
+.agent-history-bar {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: center;
+  padding: 6px 0 0;
+}
+
+.agent-bubble-list {
+  padding: 20px 24px 16px;
+}
+
+/* 助手回答：白底 + 淡边框的轻容器，比灰底更清爽；宽度由气泡角色配置给（跟随内容，最多 80%） */
+.agent-answer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 14px 16px;
+  border: 1px solid #ebedf0;
+  border-radius: 10px;
+  background: transparent;
+}
+
+.agent-thought-chain {
+  margin-bottom: 2px;
+}
+
+/* 思考过程：比正文弱一档，默认折叠 */
+.agent-think {
+  font-size: 13px;
+  color: rgba(0, 0, 0, 0.6);
+}
+
+.agent-reasoning {
+  white-space: pre-wrap;
+  line-height: 1.7;
+  color: rgba(0, 0, 0, 0.6);
+}
+
+.agent-approval {
+  margin: 2px 0;
+}
+
+/* 历史里以错误收尾的一轮 */
+.agent-answer-error {
+  margin: 2px 0;
+}
+
+.agent-approval-hint {
+  margin-top: 4px;
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.agent-media {
+  margin-top: 2px;
+}
+
+.agent-markdown {
+  font-size: 14px;
+  line-height: 1.75;
+  color: rgba(0, 0, 0, 0.88);
+  /* 只在超长单词（URL 之类）才断行：用 break-word 会把表格里的参数名拆成竖排 */
+  overflow-wrap: anywhere;
+}
+
+/* XMarkdown 自带默认间距偏大，这里收紧到和气泡行高匹配 */
+.agent-markdown p {
+  margin: 0 0 8px;
+}
+
+.agent-markdown p:last-child {
+  margin-bottom: 0;
+}
+
+.agent-markdown ul,
+.agent-markdown ol {
+  margin: 0 0 8px;
+  padding-left: 20px;
+}
+
+.agent-markdown h1,
+.agent-markdown h2,
+.agent-markdown h3,
+.agent-markdown h4 {
+  margin: 14px 0 8px;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.agent-markdown h1:first-child,
+.agent-markdown h2:first-child,
+.agent-markdown h3:first-child {
+  margin-top: 0;
+}
+
+/*
+ * 表格：容器淡灰、表格本身白底 —— 只靠边框区分的话，和内容卡同色时几乎看不出来。
+ * display:block + overflow-x 是为了长表格能横向滚，不撑破气泡。
+ */
+.agent-markdown table {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  border: 1px solid #ebedf0;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 13px;
+}
+
+.agent-markdown th,
+.agent-markdown td {
+  padding: 6px 12px;
+  border: 1px solid #ebedf0;
+  /* 单元格不折行：折了就变成「std / cat / tam」那种竖排 */
+  white-space: nowrap;
+  word-break: normal;
+}
+
+.agent-markdown td {
+  background: #fff;
+}
+
+.agent-markdown th {
+  background: #f5f6f7;
+  font-weight: 600;
+}
+
+.agent-markdown blockquote {
+  margin: 8px 0;
+  padding: 4px 12px;
+  border-left: 3px solid #d6e4ff;
+  background: #f5f8ff;
+  color: rgba(0, 0, 0, 0.65);
+}
+
+/*
+ * 分隔线：跟着内容卡走。卡片宽度是「按内容自适应」的，
+ * 所以 `---` 自然和内容同宽，不需要额外收窄。
+ */
+.agent-markdown hr {
+  margin: 16px 0;
+  border: 0;
+  border-top: 1px solid #ebedf0;
+}
+
+.agent-markdown pre {
+  margin: 8px 0;
+  padding: 12px 14px;
+  border: 1px solid #ebedf0;
+  border-radius: 6px;
+  /* 比内容卡(#fafafa)略深一档，否则代码块边界看不出来 */
+  background: #f2f4f6;
+  overflow-x: auto;
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.agent-markdown code {
+  font-family: 'SFMono-Regular', Menlo, Consolas, monospace;
+}
+
+.agent-markdown :not(pre) > code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.05);
+  font-size: 12.5px;
+  /* 行内代码、参数名整体显示，别被拆成竖排 */
+  white-space: nowrap;
+  word-break: normal;
+}
+
+.agent-sources {
+  margin-top: 2px;
+}
+
+.agent-msg-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 2px;
+}
+
+.agent-msg-time {
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.35);
+}
+
+.agent-user-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.7;
+}
+
+.agent-user-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.agent-file-tag {
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-inline-end: 0;
+}
+
+/* 「正在思考」后面的光标 */
+.agent-thinking {
+  font-size: 13px;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.agent-thinking::after {
+  content: '▋';
+  margin-left: 2px;
+  animation: agent-blink 1s steps(2, start) infinite;
+}
+
+@keyframes agent-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
+/* ---------------- 欢迎页 ---------------- */
+
+.agent-welcome {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  width: 100%;
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 40px 24px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 20px;
+}
+
+/*
+ * Welcome 默认是「图标在左、文字在右」的横排，
+ * 首页要竖排居中 —— 根节点的 flex-direction 通过组件 style 传（内联优先级更高），
+ * 这里只补外层留白与内层对齐。
+ */
+.agent-welcome-head {
+  padding: 0;
+  background: transparent;
+  max-width: 620px;
+}
+
+.agent-welcome-head .ant-welcome-content-wrapper {
+  align-items: center;
+}
+
+.agent-welcome-icon {
+  background: linear-gradient(135deg, #1677ff 0%, #36cfc9 100%);
+}
+
+.agent-prompts {
+  background: transparent;
+}
+
+.agent-capabilities {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+/* 欢迎页的能力卡片：白底上同样用灰块，和对话内容一个语言 */
+.agent-capability {
+  display: flex;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #f4f5f7;
+}
+
+.agent-capability-icon {
+  font-size: 18px;
+  color: #1677ff;
+  line-height: 1;
+  margin-top: 2px;
+}
+
+.agent-capability-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(0, 0, 0, 0.88);
+}
+
+.agent-capability-desc {
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+/* ---------------- 输入区 ---------------- */
+
+.agent-composer {
+  flex: 0 0 auto;
+  padding: 8px 16px 12px;
+  background: #fff;
+  /* 极浅的分隔线：消息滚到输入框下方时有个边界，又不至于把白底割断 */
+  border-top: 1px solid #f5f5f5;
+}
+
+.agent-sender {
+  /* 和助手气泡同一比例，两边宽度看起来是一条线 */
+  width: 80%;
+  max-width: 100%;
+  margin: 0 auto;
+}
+
+.agent-sender-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.4);
+  padding: 2px 2px 0;
+}
+
+/* ---------------- 参数抽屉 ---------------- */
+
+.agent-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.agent-settings-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.agent-settings-row {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.agent-settings-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.agent-settings-hint {
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.agent-settings-section {
+  margin: 4px 0 0;
+}
+
+.agent-tool-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid #f0f0f0;
+  border-radius: 6px;
+}
+
+.agent-tool-icon {
+  font-size: 16px;
+  color: #1677ff;
+}
+
+.agent-tool-text {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ---------------- 窄屏 ---------------- */
+
+@media (max-width: 900px) {
+  .agent-sider {
+    display: none;
+  }
+
+  .agent-capabilities {
+    grid-template-columns: 1fr;
+  }
+
+  .agent-bubble-list {
+    padding: 16px 12px 12px;
+  }
+
+  .agent-composer {
+    padding: 8px 12px 12px;
+  }
+}
