@@ -35,6 +35,8 @@ export const KIND = {
   agent: 'agent',
   system: 'system',
   client: 'client',
+  /** 服务端 → 浏览器的界面操作请求（反向 RPC，见 ui.ts） */
+  ui: 'ui',
 } as const;
 
 /** 上行命令（kind=client） */
@@ -63,6 +65,19 @@ export const SYSTEM_TYPE = {
   sessionList: 'session.list',
   /** 单轮回放响应与上行同名 */
   turnReplay: 'session.turn.replay',
+} as const;
+
+/**
+ * 界面操作域：下行是 kind=ui，上行回执是 kind=client。
+ *
+ * 这是本项目里唯一「服务端先问、浏览器后答」的通道：agent 通过它取页面快照、
+ * 下发操作命令，回执靠 replyTo 关联（对应 buibuiCodex 的 core/ws/server/ui.go）。
+ */
+export const UI_TYPE = {
+  /** 服务端下发：observe 取快照 / act 执行命令 */
+  request: 'ui.request',
+  /** 浏览器回执（kind=client，replyTo 指回 ui.request 的 id） */
+  response: 'ui.response',
 } as const;
 
 /** 下行流式事件（kind=agent，取值与 types.EventType 一致） */

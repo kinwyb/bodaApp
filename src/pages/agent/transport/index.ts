@@ -48,5 +48,6 @@ export type {
   AgentReplayQuery,
   AgentSendPayload,
   AgentTransport,
+  AgentUIRequest,
 } from './types';
 export type { TokenSource } from './websocket';

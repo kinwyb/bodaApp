@@ -19,7 +19,7 @@ import {
 import { buildMockHistory } from '../mock/history';
 import { buildMockScript } from '../mock/scripts';
 import { sleep, splitText } from '../mock/util';
-import type { AgentHello, AgentTransport } from './types';
+import type { AgentHello, AgentTransport, AgentUIRequest } from './types';
 
 /** 演示用的 agent 列表（结构与 hello 下发的 AgentInfo 一致） */
 const MOCK_AGENTS: AgentInfo[] = [
@@ -52,6 +52,7 @@ export function createMockTransport(): AgentTransport {
   const helloListeners = new Set<(hello: AgentHello) => void>();
   const sessionListeners = new Set<(page: import('../protocol').AgentSessionPage) => void>();
   const latencyListeners = new Set<(ms: number) => void>();
+  const uiListeners = new Set<(request: AgentUIRequest) => void>();
 
   let status: import('../types').AgentConnectionStatus = 'idle';
   let cancelled = false;
@@ -252,6 +253,16 @@ export function createMockTransport(): AgentTransport {
       latencyListeners.add(listener);
       return () => {
         latencyListeners.delete(listener);
+      };
+    },
+
+    /**
+     * 演示模式没有服务端来问界面操作，保留订阅接口只为让上层代码不区分传输实现。
+     */
+    onUIRequest(listener) {
+      uiListeners.add(listener);
+      return () => {
+        uiListeners.delete(listener);
       };
     },
   };

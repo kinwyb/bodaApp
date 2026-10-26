@@ -3,7 +3,13 @@
  */
 
 import type { AgentConnectionStatus } from '../types';
-import type { AgentSessionPage, AgentStreamEvent, HelloInfo } from '../protocol';
+import type {
+  AgentSessionPage,
+  AgentStreamEvent,
+  HelloInfo,
+  UIRequestPayload,
+  UIResponsePayload,
+} from '../protocol';
 
 export type AgentSendPayload = {
   /** 前端会话 key；会话还没落库时它就当后端 chatID 用 */
@@ -64,6 +70,22 @@ export type AgentSessionQuery = {
 /** hello 握手信息 */
 export type AgentHello = HelloInfo;
 
+/**
+ * 服务端发起的一次界面操作请求（ui.request）。
+ *
+ * 这是全项目唯一「服务端问、浏览器答」的通道，对应 agent 的 ui_observe / ui_act 工具。
+ * 处理器必须调用 `respond` **恰好一次**：服务端在同步等待回执，不回应就是超时，
+ * 模型会因此收到一条失败结果而不是拿到页面快照。
+ */
+export type AgentUIRequest = {
+  /** 请求信封的 id，回执靠它做 replyTo */
+  id: string;
+  /** 会话标识，回执必须原样带回（服务端用它校验会话一致性） */
+  sessionID?: string;
+  payload: UIRequestPayload;
+  respond: (payload: UIResponsePayload) => void;
+};
+
 export type AgentTransport = {
   kind: 'mock' | 'websocket';
   connect(): void;
@@ -82,4 +104,6 @@ export type AgentTransport = {
   onHello(listener: (hello: AgentHello) => void): () => void;
   onSessions(listener: (page: AgentSessionPage) => void): () => void;
   onLatency(listener: (ms: number) => void): () => void;
+  /** 订阅界面操作请求（见 AgentUIRequest） */
+  onUIRequest(listener: (request: AgentUIRequest) => void): () => void;
 };

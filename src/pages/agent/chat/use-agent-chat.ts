@@ -16,6 +16,7 @@ import type {
 } from '../types';
 import type { AgentSendPayload } from '../transport';
 import { agentTransportMode, createAgentTransport } from '../transport';
+import { createUIRequestHandler } from '../ui-bridge';
 import { createInitialConversations } from '../mock/fixtures';
 import type { AgentChatState } from './actions';
 import { createConversation, nextMessageKey } from './actions';
@@ -242,6 +243,12 @@ export function useAgentChat(): AgentChatApi {
       dispatch({ type: 'sessions', items: page.items, mode: sessionsModeRef.current });
     });
 
+    /*
+     * 界面操作请求（服务端 → 浏览器）：交给界面桥作答。
+     * 页面没接入桥时也会回一条带原因的失败，不会让服务端空等到超时。
+     */
+    const offUI = transport.onUIRequest(createUIRequestHandler());
+
     transport.connect();
 
     return () => {
@@ -250,6 +257,7 @@ export function useAgentChat(): AgentChatApi {
       offLatency();
       offHello();
       offSessions();
+      offUI();
       transport.disconnect();
       transportRef.current = null;
     };

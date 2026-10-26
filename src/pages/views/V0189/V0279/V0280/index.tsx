@@ -12,6 +12,8 @@ import type {
 } from '@/components/grid-table';
 import {FilterTable} from '@/components/grid-table';
 import {PageBreadcrumb} from '@/components/PageBreadcrumb';
+import {useUIBridgeHost} from '@/pages/agent/ui-bridge';
+import type {UIField} from '@/pages/agent/protocol';
 import type {ViewPageProps} from '@/pages/types';
 import {useTabs} from '@/store/tabs';
 import {yupaiService} from '@/services/yupai.ts';
@@ -33,6 +35,40 @@ import type {
 } from './command';
 import {useYupaiOrderCommands} from './command';
 import {YupaiOrderLogModal} from "@/pages/views/V0189/V0279/V0280/models/yupaiOrderLog.tsx";
+
+/**
+ * 界面桥用的识别列：能让 agent 指认一行的字段，**不是全部列**。
+ * 完整列定义给表格用，这里只挑几个够定位的，避免把整张表塞进模型上下文。
+ */
+const SNAPSHOT_COLUMNS = [
+    {field: 'OrderCode', title: '订单号'},
+    {field: 'YPDate', title: '预订日期'},
+    {field: 'Ywy', title: '业务员'},
+    {field: 'Qty', title: '总数量'},
+];
+
+/** 快照一次最多给多少行；超出部分靠筛选缩小范围，而不是全量塞给模型 */
+const SNAPSHOT_ROW_LIMIT = 20;
+
+/** 取一行的识别列，行 ID 用业务主键（不是行号 —— 排序一变行号就全错） */
+function snapshotRow(record: YupaiOrder): Record<string, unknown> {
+    const source = record as unknown as Record<string, unknown>;
+    const picked: Record<string, unknown> = {rowId: source.ID};
+    SNAPSHOT_COLUMNS.forEach((column) => {
+        picked[column.field] = source[column.field];
+    });
+    return picked;
+}
+
+/** 把 agent 传来的筛选参数收敛成查询条件：只认已知字段，避免脏值进 state */
+function toQueryPatch(params: Record<string, unknown>): YupaiOrderQuery {
+    const patch: YupaiOrderQuery = {page: 1};
+    if (typeof params.keyword === 'string') patch.keyword = params.keyword;
+    if (typeof params.salesman === 'string') patch.salesman = params.salesman;
+    if (typeof params.workPlace === 'string') patch.workPlace = params.workPlace;
+    if (typeof params.isDel === 'boolean') patch.isDel = params.isDel ? 1 : 0;
+    return patch;
+}
 
 /** V0189_V0279_V0280 计划管理 > 预订单 > 预订单管理 */
 const YupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
@@ -349,6 +385,94 @@ const YupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
             Number: totals.number,
         };
     }, []);
+
+    /** 快照里的列表摘要：识别列 + 前若干行，行 ID 用业务主键 */
+    const snapshotRows = useMemo(
+        () => dataSource.slice(0, SNAPSHOT_ROW_LIMIT).map(snapshotRow),
+        [dataSource],
+    );
+
+    /**
+     * 快照里的筛选条件：同一份数据既当「当前值」发布，也当 filter.set 的参数声明 ——
+     * 一处维护，不会出现「filters 里有产地、命令里却没有」这种对不上的情况。
+     */
+    const snapshotFilters = useMemo<UIField[]>(
+        () => [
+            {id: 'keyword', label: '关键字', type: 'text', value: query.keyword ?? ''},
+            {id: 'salesman', label: '业务员', type: 'text', value: query.salesman ?? ''},
+            {id: 'workPlace', label: '产地', type: 'text', value: query.workPlace ?? ''},
+            {id: 'isDel', label: '包含已删除', type: 'switch', value: query.isDel === 1},
+        ],
+        [query.keyword, query.salesman, query.workPlace, query.isDel],
+    );
+
+    /**
+     * 界面桥：把「本页有哪些命令、当前看到什么」发布给 agent。
+     *
+     * 动作表直接来自 commands（CommandBar 的命令项），**不另维护一份描述** ——
+     * 命令 ID 就是 CommandItem.key，与页面上的按钮一一对应，权限过滤也已经由 CommandBar 做过。
+     */
+    useUIBridgeHost({
+        snapshot: () => ({
+            view,
+            title: '计划管理 > 预订单 > 预订单管理',
+            mode: 'list',
+            actions: [
+                ...commands.map((item) => ({
+                    id: item.key,
+                    label: item.label,
+                    group: 'toolbar' as const,
+                    danger: item.danger,
+                    disabled: item.disabled,
+                    // 本页命令的 disabled 几乎都来自「没有选中行」，写清原因省得模型反复试错
+                    disabledReason: item.disabled ? '需要先选择一行' : undefined,
+                })),
+                {
+                    // 改筛选条件本身也是一条命令。只发 filters 不发命令，模型就只能干猜
+                    id: 'filter.set',
+                    label: '设置筛选条件',
+                    group: 'filter' as const,
+                    params: snapshotFilters.map((field) => ({
+                        name: field.id,
+                        type: field.type,
+                        hint: field.label,
+                    })),
+                },
+            ],
+            filters: snapshotFilters,
+            selection: {
+                count: activeRowCount,
+                activeRowId: activeRow?.ID ?? null,
+                rowIds: activeRow ? [activeRow.ID] : [],
+            },
+            data: {
+                total,
+                loaded: dataSource.length,
+                shown: snapshotRows.length,
+                truncated: snapshotRows.length < dataSource.length,
+                columns: SNAPSHOT_COLUMNS,
+                rows: snapshotRows,
+                active: activeRow ? snapshotRow(activeRow) : undefined,
+            },
+            form: null,
+        }),
+        handlers: {
+            refresh: () => reload(),
+            /**
+             * 语义命令：改查询条件并按新条件重新加载。
+             *
+             * 这里等查询真的返回再回执：否则回执里那份快照还是旧数据，
+             * 模型会以为筛选没生效（页面的 useEffect 也会因 query 变化再拉一次，
+             * 两个请求内容一致，真实实现应收敛成一条加载路径）。
+             */
+            'filter.set': async (params) => {
+                const next = {...query, ...toQueryPatch(params)};
+                setQuery(next);
+                await loadData(next);
+                return `已按 ${JSON.stringify(params)} 重新查询`;
+            },
+        },
+    });
 
     return (
         <>

@@ -9,12 +9,14 @@ import type { AgentConnectionStatus } from '../types';
 import type { AgentEnvelope, HistoryMode, SessionHistoryResult, TurnReplayResult } from '../protocol';
 import {
   SYSTEM_TYPE,
+  UI_TYPE,
   buildChatCancel,
   buildChatSend,
   buildPing,
   buildSessionHistory,
   buildSessionList,
   buildTurnReplay,
+  buildUIResponse,
   conversationIdOf,
   mapAgentEnvelope,
   mapEnvelopeAttachments,
@@ -22,11 +24,12 @@ import {
   parseError,
   parseHello,
   parseSessionList,
+  parseUIRequest,
   toHistoryEvent,
   toReplayEvent,
 } from '../protocol';
-import type { AgentSessionPage } from '../protocol';
-import type { AgentHello, AgentTransport } from './types';
+import type { AgentSessionPage, UIResponsePayload } from '../protocol';
+import type { AgentHello, AgentTransport, AgentUIRequest } from './types';
 
 /** 上行请求的类别：决定响应回来时用哪种方式解析 */
 type PendingKind = 'chat' | 'history' | 'replay' | 'sessions';
@@ -46,6 +49,7 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
   const helloListeners = new Set<(hello: AgentHello) => void>();
   const sessionListeners = new Set<(page: AgentSessionPage) => void>();
   const latencyListeners = new Set<(ms: number) => void>();
+  const uiListeners = new Set<(request: AgentUIRequest) => void>();
 
   /** 上行信封 id → 请求上下文（ack / error / 历史 / 回放 靠 replyTo 找回） */
   const pending = new Map<string, { conversationId: string; kind: PendingKind; mode: HistoryMode }>();
@@ -234,9 +238,41 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
     }
   };
 
+  /**
+   * 下行 ui.request：服务端要页面快照，或要执行一条界面命令。
+   *
+   * 没人接的时候必须主动回一条错误：服务端在同步等待回执，不回答就是超时，
+   * 模型只会看到「超时」而不知道为什么（页面没接入 ≠ 页面出错了）。
+   */
+  const handleUI = (envelope: AgentEnvelope) => {
+    if (envelope.type !== UI_TYPE.request) return; // 未知 ui 类型按协议忽略
+    const payload = parseUIRequest(envelope.data);
+    if (!payload) return;
+
+    const respond = (body: UIResponsePayload) => {
+      rawPost(
+        JSON.stringify(
+          buildUIResponse(body, { replyTo: envelope.id, sessionID: envelope.sessionID }),
+        ),
+      );
+    };
+
+    if (uiListeners.size === 0) {
+      respond({ ok: false, error: '当前页面没有接入界面桥，无法被操作' });
+      return;
+    }
+    uiListeners.forEach((listener) =>
+      listener({ id: envelope.id, sessionID: envelope.sessionID, payload, respond }),
+    );
+  };
+
   const handle = (envelope: AgentEnvelope) => {
     if (envelope.kind === 'system') {
       handleSystem(envelope);
+      return;
+    }
+    if (envelope.kind === 'ui') {
+      handleUI(envelope);
       return;
     }
     if (envelope.kind === 'agent') {
@@ -445,6 +481,13 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
       latencyListeners.add(listener);
       return () => {
         latencyListeners.delete(listener);
+      };
+    },
+
+    onUIRequest(listener) {
+      uiListeners.add(listener);
+      return () => {
+        uiListeners.delete(listener);
       };
     },
   };

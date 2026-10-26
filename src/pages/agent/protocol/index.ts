@@ -16,11 +16,29 @@ export {
   KIND,
   PROTOCOL_VERSION,
   SYSTEM_TYPE,
+  UI_TYPE,
   clip,
   conversationIdOf,
   newEnvelope,
   uid,
 } from './envelope';
+
+export { buildUIResponse, parseUIRequest, UI_SNAPSHOT_VERSION } from './ui';
+export type {
+  UIAction,
+  UIActionParam,
+  UIColumn,
+  UIDataSummary,
+  UIField,
+  UIFieldType,
+  UIForm,
+  UIRequestOp,
+  UIRequestPayload,
+  UIResponsePayload,
+  UISelection,
+  UISnapshot,
+  UISnapshotData,
+} from './ui';
 
 export type {
   AckData,
