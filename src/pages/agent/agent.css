@@ -281,7 +281,37 @@
   margin-bottom: 2px;
 }
 
-/* 思考过程：比正文弱一档，默认折叠 */
+/* 工具调用的展开内容：参数 / 输出各一小块，等宽字体、超长可滚 */
+.agent-step-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.agent-step-label {
+  margin-bottom: 4px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.agent-step-code {
+  max-height: 220px;
+  padding: 6px 8px;
+  overflow: auto;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.03);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  color: rgba(0, 0, 0, 0.72);
+  /* 长 JSON 不拆成竖排：能断行的地方断，断不了的（URL/长串）横向滚 */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* 思考过程：比正文弱一档；思考中由组件自动展开，想完自动收起 */
 .agent-think {
   font-size: 13px;
   color: rgba(0, 0, 0, 0.6);

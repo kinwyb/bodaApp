@@ -7,7 +7,7 @@
  * 旧消息没有 timeline 时由 timelineOf 合成一份，退回改造前的顺序。
  */
 
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Alert } from 'antd';
 import { FileCard, Sources, Think } from '@ant-design/x';
 import XMarkdown from '@ant-design/x-markdown';
@@ -94,6 +94,42 @@ function blocksOf(items: AgentTimelineItem[]): TimelineBlock[] {
   return blocks;
 }
 
+/**
+ * 一段思考过程。
+ *
+ * 展开状态是受控的：**正在想的时候自动展开**（能看着字一个个冒出来），
+ * `reasoning_completed` 之后自动收起，把版面让给正文。
+ * 只在「思考中 → 想完了」这个翻转点接管状态，其余时间跟随用户点击，
+ * 否则用户刚手动折叠又会被下一帧的 delta 顶开。
+ */
+const AgentReasoning: React.FC<{
+  item: Extract<AgentTimelineItem, { kind: 'reasoning' }>;
+  streaming: boolean;
+}> = ({ item, streaming }) => {
+  const active = streaming && !item.done;
+  const [expanded, setExpanded] = useState(active);
+  const lastActive = useRef(active);
+
+  useEffect(() => {
+    if (lastActive.current === active) return;
+    lastActive.current = active;
+    setExpanded(active);
+  }, [active]);
+
+  return (
+    <Think
+      className="agent-think"
+      title="思考过程"
+      loading={active}
+      blink={active}
+      expanded={expanded}
+      onExpand={setExpanded}
+    >
+      <div className="agent-reasoning">{item.text}</div>
+    </Think>
+  );
+};
+
 export const AgentAnswer: React.FC<{ content: AgentAssistantContent; streaming: boolean }> = ({
   content,
   streaming,
@@ -136,20 +172,7 @@ export const AgentAnswer: React.FC<{ content: AgentAssistantContent; streaming: 
         }
 
         if (block.kind === 'reasoning') {
-          // 这段思考结束（reasoning_completed）就停转圈，不必等整轮结束
-          const active = streaming && !block.item.done;
-          return (
-            <Think
-              key={block.key}
-              className="agent-think"
-              title="思考过程"
-              loading={active}
-              blink={active}
-              defaultExpanded={false}
-            >
-              <div className="agent-reasoning">{block.item.text}</div>
-            </Think>
-          );
+          return <AgentReasoning key={block.key} item={block.item} streaming={streaming} />;
         }
 
         // 正文：一段回答一块，流式中只有「当前这段」显示打字光标
