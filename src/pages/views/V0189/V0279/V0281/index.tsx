@@ -5,7 +5,7 @@ import {PageBreadcrumb} from "@/components/PageBreadcrumb.tsx";
 import {ReloadOutlined, SearchOutlined} from "@ant-design/icons";
 import {
     FilterTable,
-    type GridTableApi,
+    type FilterTableApi,
     type GridTableCellStyle,
     type GridTableCellStyleInfo,
     type MergeGroupConfig
@@ -66,7 +66,7 @@ const YupaiOrderChangePage: React.FC<ViewPageProps> = ({trail, params}) => {
         startDate: defaultDateRange ? formatDate(defaultDateRange[0]) : undefined,
         endDate: defaultDateRange ? formatDate(defaultDateRange[1]) : undefined,
     });
-    const tableRef = useRef<GridTableApi | null>(null);
+    const tableRef = useRef<FilterTableApi | null>(null);
 
     /**
      * 页签标题跟着订单号走：看哪一单，页签上就显示哪一单。

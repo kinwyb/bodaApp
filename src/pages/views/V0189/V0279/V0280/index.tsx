@@ -1,9 +1,10 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {App} from 'antd';
-import {ApiError, yupaiApi, YupaiMachineSizeHeader, type YupaiOrder, type YupaiOrderQuery} from '@/api';
+import {ApiError, yupaiApi, YupaiMachineSizeHeader, type YupaiOrder} from '@/api';
 import {CommandBar} from '@/components/CommandBar';
 import type {
-    GridTableApi,
+    FilterModel,
+    FilterTableApi,
     GridTableCellStyle,
     GridTableCellStyleHook,
     GridTableExpandableOptions,
@@ -11,13 +12,14 @@ import type {
     GridTableSelectedRowChangeInfo,
 } from '@/components/grid-table';
 import {FilterTable} from '@/components/grid-table';
+import {filterRecordsByColumns} from '@/components/grid-table/filtering';
 import {PageBreadcrumb} from '@/components/PageBreadcrumb';
 import {useUIBridgeHost} from '@/pages/agent/ui-bridge';
 import type {ViewPageProps} from '@/pages/types';
 import {useTabs} from '@/store/tabs';
 import {yupaiService} from '@/services/yupai.ts';
-import {isBlank} from '@/utils';
-import {createYupaiOrderBridge, type YupaiOrderBridgeContext} from './bridged';
+import {isBlank, toStringOrEmpty} from '@/utils';
+import {createYupaiOrderBridge, type YupaiOrderBridgeContext, type YupaiOrderFilter} from './bridged';
 import {buildPreorderColumns} from './columns';
 import YupaiOrderEdit from './models/yupaiOrderEdit';
 import YupaiOrderMasterDetail from './models/yupaiOrderMasterDetail.tsx';
@@ -48,7 +50,7 @@ const YupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
     const {openView} = useTabs();
     const [dataSource, setDataSource] = useState<YupaiOrder[]>([]);
     const [loading, setLoading] = useState(false);
-    const [total, setTotal] = useState(0);
+    const [filters, setFilters] = useState<FilterModel>({});
     /**
      * 界面桥就绪标志：第一次数据加载完成后才置 true。
      * ui_navigate 打开本页后会等它 —— 否则 agent 拿到的是一份空列表，会以为页面没打开。
@@ -61,12 +63,11 @@ const YupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
      * 存成 state 是因为命令项的 disabled 要在渲染时按它算（见 command/changeLog.tsx）。
      */
     const [activeRow, setActiveRow] = useState<YupaiOrder | null>(null);
-    const [query, setQuery] = useState<YupaiOrderQuery>({});
     const [changedCells, setChangedCells] = useState<Record<string, string[]>>({});
     const [formOpen, setFormOpen] = useState(false);
     const [formMode, setFormMode] = useState<FormMode>('add');
     const [editingRecord, setEditingRecord] = useState<YupaiOrder | null>(null);
-    const tableRef = useRef<GridTableApi | null>(null);
+    const tableRef = useRef<FilterTableApi | null>(null);
     const [logOpen, setLogOpen] = useState(false);
     /** 日志弹窗看的是哪一单：打开时记下来，弹窗按它取数据（不是「当前激活行」——两者不该绑定） */
     const [logOrderId, setLogOrderId] = useState('');
@@ -81,16 +82,15 @@ const YupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
     const [settingOrder, setSettingOrder] = useState<YupaiOrder | null>(null);
 
     const loadData = useCallback(
-        async (params: YupaiOrderQuery) => {
+        async () => {
             // 重新加载前先清掉选中：clearSelection 会回调 rowCount 归零，不用自己再置 state
             tableRef.current?.clearSelection();
             setLoading(true);
             try {
                 // 走 services 而不是 yupaiApi.list：派生字段（OrderZQ 等）要在那一层补齐，
                 // http 直返的形状里没有它们
-                const res = await yupaiService.list(params);
+                const res = await yupaiService.list();
                 setDataSource(res.data ?? []);
-                setTotal(res.page?.total ?? 0);
             } catch (error) {
                 void message.error(error instanceof ApiError ? error.message : '加载预订单失败');
             } finally {
@@ -102,8 +102,8 @@ const YupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
     );
 
     useEffect(() => {
-        void loadData(query);
-    }, [loadData, query]);
+        void loadData();
+    }, [loadData]);
 
     useEffect(() => {
         (async () => {
@@ -206,8 +206,8 @@ const YupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
 
     /** 按当前条件重新加载（command/ 里的命令统一走它） */
     const reload = useCallback(async () => {
-        await loadData(query);
-    }, [loadData, query]);
+        await loadData();
+    }, [loadData]);
 
     /** 命令的公共依赖：业务动作全部在 command/ 目录，页面只负责装配状态 */
     const commandContext = useMemo<YupaiOrderCommandContext>(
@@ -218,11 +218,10 @@ const YupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
             getSelectedRows: getActiveRows,
             activeRow,
             hasSelection,
-            query,
             reload,
             openForm,
         }),
-        [message, modal, tableRef, getActiveRows, activeRow, hasSelection, query, reload, openForm],
+        [message, modal, tableRef, getActiveRows, activeRow, hasSelection, reload, openForm],
     );
     /**
      * 变更日志那一组的依赖：在公共 context 之上多一个 openLog。
@@ -365,31 +364,72 @@ const YupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
     }, []);
 
     /**
-     * 用新条件重新查询：先把条件落到 state（页面的 useEffect 会跟着拉一次），
-     * 再显式等这一次查询返回 —— 桥要等结果再回执，否则模型拿到的快照还是旧数据。
+     * 应用桥传来的筛选条件：收敛成 FilterModel 落到 state，表格按它就地过滤。
+     *
+     * 这里是**纯前端筛选**，没有请求可等 —— 保留 async 只是为了让桥那边照常 await 回执；
+     * 条件一旦落到 state，下一次读快照看到的就是新结果。
      */
-    const applyQuery = useCallback(
-        async (next: YupaiOrderQuery) => {
-            setQuery(next);
-            await loadData(next);
+    const applyFilter = useCallback(
+        async (filter: YupaiOrderFilter) => {
+            const next: FilterModel = {};
+            if (filter.WorkPlace) {
+                next.WorkPlace = {values: [filter.WorkPlace]};
+            }
+            if (filter.YPDate) {
+                next.YPDate = {min: filter.YPDate, max: filter.YPDate};
+            }
+            if (filter.OrderCode) {
+                next.OrderCode = {text: filter.OrderCode};
+            }
+            if (filter.Ywy) {
+                next.Ywy = {values: [filter.Ywy]};
+            }
+            setFilters(next);
         },
-        [loadData],
+        [],
     );
+
+    const brigdeFilter = useMemo((): YupaiOrderFilter => {
+        const reg = {
+            WorkPlace: filters.WorkPlace?.values?.[0] ?? '',
+            YPDate: toStringOrEmpty(filters.YPDate?.min),
+            OrderCode: filters.OrderCode?.text ?? '',
+            Ywy: filters.Ywy?.values?.[0] ?? '',
+        }
+        return reg
+    }, [filters])
+
+    /**
+     * 用户**当前看到**的数据 = 筛选后的 dataSource，桥的快照只能用它。
+     *
+     * dataSource 是接口原始数据，用户已经筛掉的行还在里面 —— 拿它拼快照，模型就会
+     * 说出「用户屏幕上根本没有的单据」。判定复用 `filterRecordsByColumns`
+     * （表格内部用的也是同一个函数），两边的条数不会对不上。
+     *
+     * 这里绕了一圈 Set 是因为 `filterRecords` 返回 `Record<string, unknown>[]`，
+     * 而桥的 ctx 要的是 `YupaiOrder[]`；按引用筛回原数组既保住类型，也保住对象本身
+     * （表格里改过值的那一行，桥读到的也是同一份）。
+     */
+    const visibleRecords = useMemo(() => {
+        const visible = new Set(
+            filterRecordsByColumns(dataSource as unknown as Array<Record<string, unknown>>, filters, columns),
+        );
+        return dataSource.filter((record) => visible.has(record as unknown as Record<string, unknown>));
+    }, [dataSource, filters, columns]);
 
     /** 交给桥的状态与能力快照：桥通过取值函数读它，不直接持有 */
     const bridgeContext = useMemo<YupaiOrderBridgeContext>(
         () => ({
             view,
             commands,
-            query,
-            dataSource,
-            total,
+            dataSource: visibleRecords,
             activeRow,
             activeRowCount,
             ready: snapshotReady,
-            applyQuery,
+            filter: brigdeFilter,
+            applyFilter,
         }),
-        [view, commands, query, dataSource, total, activeRow, activeRowCount, snapshotReady, applyQuery],
+        [view, commands, visibleRecords, activeRow, activeRowCount, snapshotReady, applyFilter, brigdeFilter],
     );
 
     /**
@@ -420,15 +460,10 @@ const YupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
                     expandable={expandable}
                     menu={tableMenu}
                     loading={loading}
-                    total={total}
-                    page={query.page ?? 1}
+                    filters={filters}
+                    onFilterChange={setFilters}
                     exportName={'预订单'}
-                    pageSize={query.pageSize ?? 30}
                     searchPlaceholder="关键字"
-                    onPageChange={(page, pageSize) => {
-                        setActiveRowCount(0);
-                        setQuery((prev) => ({...prev, page, pageSize}));
-                    }}
                     onActiveSelectionChange={(info) => setActiveRowCount(info.rowCount)}
                     onSelectedChange={handleSelectedChange}
                     onCellDblClick={(info) => {
@@ -451,9 +486,7 @@ const YupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
                 onSaved={() => {
                     setFormOpen(false);
                     tableRef.current?.clearSelection();
-                    // 新增与复制都落成新记录，回第一页看结果；编辑留在当前页刷新
-                    if (formMode === 'add' || formMode === 'copy') setQuery((prev) => ({...prev, page: 1}));
-                    else void loadData(query);
+                    void loadData();
                 }}
             />
 

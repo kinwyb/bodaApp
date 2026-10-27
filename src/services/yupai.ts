@@ -1,4 +1,4 @@
-import type {ApiResponse, YupaiOrder, YupaiOrderDto, YupaiOrderQuery} from "@/api";
+import type {ApiResponse, YupaiOrder, YupaiOrderDto} from "@/api";
 import {sqlApi, yupaiApi, YupaiMachineSizeHeader} from "@/api";
 import {formatDate, isBlank, isBlankExcept, now, toDayjs, toNumberOrZero, toStringOrEmpty} from "@/utils";
 import {
@@ -154,8 +154,8 @@ export const yupaiService = {
      * 必须在这里过一遍 toYupaiOrder：`http.get<YupaiOrderDto[]>` 的泛型是纯断言，
      * 后端返回里没有 OrderZQ，不补的话页面拿到的是「类型说有、运行时没有」。
      */
-    async list(query: YupaiOrderQuery = {}): Promise<ApiResponse<YupaiOrder[]>> {
-        const res = await yupaiApi.list(query);
+    async list(): Promise<ApiResponse<YupaiOrder[]>> {
+        const res = await yupaiApi.list();
         return {...res, data: res.data?.map(toYupaiOrder)};
     },
 

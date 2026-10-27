@@ -1,5 +1,5 @@
 import {http} from '../request';
-import type {ApiResponse, PageQuery} from '../types';
+import type {ApiResponse} from '../types';
 // 必须从兄弟模块 ./sql 直接引（别引 "@/api" 这个 barrel）：barrel 里 yupai 排在 sql 前面，
 // 会形成 yupai → barrel → yupai 的循环 —— 下面的 YupaiOrderMapping 是顶层常量、
 // 评估时就要读 S / N，此时它们还没初始化：浏览器报
@@ -30,15 +30,6 @@ export const YupaiMachineSizeHeader = [
     '21/1290',
     '21/1904'
 ];
-
-export interface YupaiOrderQuery extends PageQuery {
-    isDel?: number;
-    keyword?: string;
-    salesman?: string;
-    workPlace?: string;
-    /** 自定义筛选条件，JSON 字符串：{ 字段: { values?, min?, max?, text? } } */
-    filters?: string;
-}
 
 /**
  * 预订单记录：**后端接口真实返回的形状**（字段与后端返回一致），不含派生字段。
@@ -364,7 +355,7 @@ export type YupaiOrderChangeDetail = {
 
 export const yupaiApi = {
     /** 列表：返回后端原始形状（不含派生字段）。要业务模型请走 yupaiService.list */
-    list: (query: YupaiOrderQuery = {}) => http.get<YupaiOrderDto[]>('/plan/yupaiOrder/list', {...query, isDel: 0}),
+    list: () => http.get<YupaiOrderDto[]>('/plan/yupaiOrder/list', {isDel: 0}),
     /** 最近发生变化的明细 */
     changes: () => http.get<YupaiOrderChange[]>('/plan/yupaiOrder/list/change'),
     /** 保存预订单。载荷是**后端形态**（日期给字符串），所以用 DTO 而不是业务模型 */

@@ -13,6 +13,7 @@ import {SearchComponent} from '@visactor/vtable-search';
 import {type FilterModel, TableFilter} from './TableFilter';
 import {GridTable} from './GridTable';
 import {collectFilterFields, collectGroupableColumns, type AppColumnDef} from './columnBuilder';
+import {filterRecords} from './filtering';
 // 类型从模块入口取（type-only，不产生运行时依赖，所以不会与 index → FilterTable 形成循环）
 import type {
     EditCellTrigger,
@@ -33,6 +34,41 @@ import type {
 import {formatDate, now, toNumberOrZero, toStringOrEmpty} from "@/utils";
 
 const DEFAULT_PAGE_SIZE = 30;
+
+/** 空筛选条件：模块级常量，保证非受控模式下 state 初值引用稳定 */
+const EMPTY_FILTERS: FilterModel = {};
+
+/**
+ * FilterTable 通过 ref 暴露的方法：GridTable 的全套方法 + 筛选条件读写。
+ *
+ * 页面一般**不需要**用它来设筛选 —— 传受控 `filters` 就是最直接的方式；
+ * 这个入口是给「拿不到 setState 的地方」用的（命令工厂、界面桥的上下文等），
+ * 语义见 setFilters 的注释。
+ */
+export interface FilterTableApi extends GridTableApi {
+    /** 当前生效的筛选条件（受控时就是 `filters` 属性的值） */
+    getFilters: () => FilterModel;
+    /**
+     * 当前**用户看到的那批行**：筛选后喂给表格的数据。
+     *
+     * 与页面 `dataSource` 的区别只有筛选 —— 被筛掉的行在这里不存在（排序 / 分组 / 搜索高亮不影响它，
+     * 那些是表格内部的显示层）。命令、界面桥要拼「页面现在长什么样」的快照时用它，
+     * **别用 dataSource**：那份是接口原始数据，用户已经筛掉的行也在里面，模型会照着它答非所问。
+     *
+     * 没有生效条件时返回的就是 `records` 本身（同一个数组引用，不会复制）。
+     */
+    getFilteredRecords: () => Array<Record<string, unknown>>;
+    /**
+     * 设置筛选条件 —— **等价于用户在筛选面板上点确定**，不是绕过它的后门：
+     *
+     * - 非受控（没传 `filters`）：直接改内部条件，表格立刻刷新；
+     * - 受控（传了 `filters`）：值由外部持有，这里只回调 `onFilterChange(next)`，
+     *   外部把它写回 `filters` 之后才真正生效（受控组件的标准语义）。
+     *
+     * 想「一键清空」传 `{}` 即可。
+     */
+    setFilters: (filters: FilterModel) => void;
+}
 
 export interface FilterTableProps {
     /**
@@ -151,7 +187,27 @@ export interface FilterTableProps {
     /** 搜索框宽度 */
     searchWidth?: number;
 
-    /** 筛选变化回调 */
+    /**
+     * 受控的筛选条件（字段名 -> 条件），形状与 `onFilterChange` 回传的一致。
+     *
+     * **不传 = 非受控**：组件自己管条件，初始就是「没有筛选」。
+     * **传了（哪怕 `{}`）= 完全受控**：筛选面板的改动只走 `onFilterChange`，
+     * 外部把它写回这个属性才生效（不写回则面板点了没反应，受控组件的标准行为）。
+     *
+     * 程序化过滤就走这条路：外部 state 改成 `{状态: {values: ['已审核']}}`，
+     * 表格、条件标签、徽标数量、汇总行会一起变，和用户手点完全一致。
+     *
+     * 要拿「筛完之后还剩哪些行」，三个口子按场景挑：
+     * - 命令 / 界面桥这类**按需取**的：`tableRef.current?.getFilteredRecords()`；
+     * - 渲染期就要用的（页脚条数、导航清单）：`filterRecordsByColumns(records, filters, columns)`
+     *   （见 `./filtering`，与表格内部是同一份判定）；
+     * - 非受控（没传 `filters`）也想取：只能用 `getFilteredRecords()`。
+     *
+     * 注意筛的是**当前这一页的 records**（分页是服务端分页），
+     * 要全量过滤得在 `onFilterChange` 里带条件回后端重新查。
+     */
+    filters?: FilterModel;
+    /** 筛选变化回调（受控时外部必须在这里把条件写回 `filters`，否则改动不生效） */
     onFilterChange?: (filters: FilterModel) => void;
     /** 页码变化回调 */
     onPageChange?: (page: number, pageSize: number) => void;
@@ -172,9 +228,13 @@ export interface FilterTableProps {
  * 复合表格组件：CommandBar + TableFilter + Search + GridTable + Pagination。
  *
  * 搜索使用 @visactor/vtable 官方 SearchComponent，只高亮匹配单元格，不过滤数据行。
- * 通过 ref 可访问 GridTable 实例方法（autoFitColumns / repaint / getSelection）。
+ * 通过 ref 可访问 GridTable 实例方法（autoFitColumns / repaint / getSelection）
+ * 以及筛选条件的读写（getFilters / setFilters）。
+ *
+ * 筛选条件支持两种用法：不传 `filters` 时组件自管（非受控）；传了就完全受控，
+ * 程序化过滤由外部 state 驱动。两种模式不要中途切换。
  */
-export const FilterTable = React.forwardRef<GridTableApi, FilterTableProps>(
+export const FilterTable = React.forwardRef<FilterTableApi, FilterTableProps>(
     (
         {
             columns,
@@ -216,6 +276,7 @@ export const FilterTable = React.forwardRef<GridTableApi, FilterTableProps>(
             showSummary = true,
             searchPlaceholder = '搜索关键字',
             searchWidth = 200,
+            filters,
             onFilterChange,
             onPageChange,
             onActiveSelectionChange,
@@ -229,7 +290,14 @@ export const FilterTable = React.forwardRef<GridTableApi, FilterTableProps>(
         const searchRef = useRef<SearchComponent | null>(null);
         // 导出的 loading / 结果提示（App.useApp 只能组件顶层调，与页面取 message 同一来源）
         const {message} = App.useApp();
-        const [filters, setFilters] = useState<FilterModel>({});
+        /**
+         * 非受控时组件自管的筛选条件。受控（传了 `filters`）时这份 state 不会被读，
+         * 取值一律用 `currentFilters`，别直接读 innerFilters —— 否则受控模式下会读到空条件。
+         */
+        const [innerFilters, setInnerFilters] = useState<FilterModel>(EMPTY_FILTERS);
+        /** 传了 `filters`（哪怕空对象 `{}`）就是受控：值完全由外部决定 */
+        const isFiltersControlled = filters !== undefined;
+        const currentFilters = filters ?? innerFilters;
         /**
          * 选中的行数，只用于底部计数。
          * 取原生选中回传的行数而不是勾选 keys：勾选与点选/框选在表格里已同步成同一套状态，
@@ -267,46 +335,28 @@ export const FilterTable = React.forwardRef<GridTableApi, FilterTableProps>(
             return options;
         }, [filterFields, records]);
 
+        /**
+         * 筛选条件变化的唯一入口（面板点确定 / 清标签 / 清空 / ref.setFilters 都走这里）。
+         *
+         * 受控模式下**不**改内部 state：只把新条件交给外部，等外部写回 `filters` 才生效。
+         * 否则会出现「外部没回写、组件却自己变了」的半受控状态，两边的条件就此分叉。
+         */
         const handleFilterChange = useCallback(
             (next: FilterModel) => {
-                setFilters(next);
+                if (!isFiltersControlled) setInnerFilters(next);
                 onFilterChange?.(next);
             },
-            [onFilterChange],
+            [isFiltersControlled, onFilterChange],
         );
 
-        // 客户端筛选：根据 FilterModel 过滤 records
-        const filteredRecords = useMemo(() => {
-            const activeFilters = Object.entries(filters);
-            if (activeFilters.length === 0 || filterFields.length === 0) return records;
-            const fieldMap = new Map(filterFields.map((f) => [f.field, f.type]));
-            return records.filter((record) =>
-                activeFilters.every(([field, condition]) => {
-                    const type = fieldMap.get(field);
-                    const value = record[field];
-                    if (type === 'enum') {
-                        if (!condition.values?.length) return true;
-                        return condition.values.includes(String(value));
-                    }
-                    if (type === 'text') {
-                        if (!condition.text) return true;
-                        return value != null && String(value).toLowerCase().includes(condition.text.toLowerCase());
-                    }
-                    // date / number: range filter
-                    if (condition.min !== undefined && value != null) {
-                        if (type === 'date') {
-                            if (String(value) < String(condition.min)) return false;
-                        } else if (Number(value) < Number(condition.min)) return false;
-                    }
-                    if (condition.max !== undefined && value != null) {
-                        if (type === 'date') {
-                            if (String(value) > String(condition.max)) return false;
-                        } else if (Number(value) > Number(condition.max)) return false;
-                    }
-                    return true;
-                }),
-            );
-        }, [filters, filterFields, records]);
+        /**
+         * 客户端筛选：**用户当前看到的这批行**（表格、汇总行、底部计数都以它为准）。
+         * 判定逻辑在 `filtering.ts`，与页面 / 界面桥复算时用的是同一份，别在这里另写一套。
+         */
+        const filteredRecords = useMemo(
+            () => filterRecords(records, currentFilters, filterFields),
+            [records, currentFilters, filterFields],
+        );
 
         // 根据过滤后的数据计算汇总
         const resolvedSummary = useMemo(() => {
@@ -472,8 +522,16 @@ export const FilterTable = React.forwardRef<GridTableApi, FilterTableProps>(
                     collapseAllRows: () => tableRef.current?.collapseAllRows(),
                     isRowExpanded: (rowKey: string) =>
                         tableRef.current?.isRowExpanded(rowKey) ?? false,
-                }) satisfies GridTableApi,
-            [],
+                    // 筛选条件读写。setFilters 等价于面板上点确定：受控时只回调 onFilterChange，
+                    // 外部写回 filters 才生效（见 FilterTableApi.setFilters）
+                    getFilters: () => currentFilters,
+                    setFilters: (next: FilterModel) => handleFilterChange(next),
+                    // 用户看到的行（筛选后）：命令 / 界面桥拼快照时用它，别用页面的 dataSource
+                    getFilteredRecords: () => filteredRecords,
+                }) satisfies FilterTableApi,
+            // 依赖带上筛选条件、变更函数与筛选结果：handle 重建只是重新赋值 ref.current，
+            // 表格实例由 tableRef 单独持有，与这里无关，不会重挂载
+            [currentFilters, handleFilterChange, filteredRecords],
         );
 
         const hasFilter = filterFields.length > 0;
@@ -492,7 +550,7 @@ export const FilterTable = React.forwardRef<GridTableApi, FilterTableProps>(
                         <TableFilter
                             fields={filterFields}
                             options={autoOptions}
-                            value={filters}
+                            value={currentFilters}
                             onChange={handleFilterChange}
                             extra={exportButton}
                         />

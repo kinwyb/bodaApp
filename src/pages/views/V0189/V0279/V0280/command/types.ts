@@ -1,5 +1,5 @@
 import type {CommandContext, CommandFactory} from '@/components/commands';
-import type {YupaiOrder, YupaiOrderQuery} from '@/api';
+import type {YupaiOrder} from '@/api';
 
 /**
  * 表单弹窗的模式。
@@ -32,8 +32,6 @@ export interface YupaiOrderCommandDeps {
     activeRow: YupaiOrder | null;
     /** 是否有选中行，驱动按钮 disabled */
     hasSelection: boolean;
-    /** 当前查询条件 */
-    query: YupaiOrderQuery;
     /** 按当前条件重新加载列表 */
     reload: () => Promise<void>;
     /** 打开表单弹窗（mode 语义见 FormMode） */
@@ -50,7 +48,7 @@ export type YupaiOrderCommandContext = CommandContext<YupaiOrderCommandDeps>;
  * 也不必关心「打开日志弹窗」这件事。对应的工厂类型是下面的 YupaiOrderLogCommandFactory。
  */
 export type YupaiOrderLogCommandContext = CommandContext<
-    YupaiOrderCommandDeps & {openLog: (order: YupaiOrder) => void}
+    YupaiOrderCommandDeps & { openLog: (order: YupaiOrder) => void }
 >;
 
 /**
@@ -60,7 +58,7 @@ export type YupaiOrderLogCommandContext = CommandContext<
  * 不进公共依赖，别的命令既拿不到也不必关心。
  */
 export type YupaiOrderBatchCommandContext = CommandContext<
-    YupaiOrderCommandDeps & {openBatch: (order: YupaiOrder) => void}
+    YupaiOrderCommandDeps & { openBatch: (order: YupaiOrder) => void }
 >;
 
 /**
@@ -74,8 +72,8 @@ export type YupaiOrderSettingKind = 'stage' | 'origin' | 'plan';
 
 export type YupaiOrderSettingsCommandContext = CommandContext<
     YupaiOrderCommandDeps & {
-        openSetting: (kind: YupaiOrderSettingKind, order: YupaiOrder) => void;
-    }
+    openSetting: (kind: YupaiOrderSettingKind, order: YupaiOrder) => void;
+}
 >;
 
 /** 共用本页公共依赖的命令工厂 */

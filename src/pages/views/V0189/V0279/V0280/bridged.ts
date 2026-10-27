@@ -12,20 +12,27 @@
  *   命令 ID 就是 `CommandItem.key`，另维护一份清单必然对不上。
  */
 
-import type {YupaiOrder, YupaiOrderQuery} from '@/api';
+import type {YupaiOrder} from '@/api';
 import type {CommandItem} from '@/components/CommandBar';
 import type {UIField, UIGuide, UISnapshotData} from '@/pages/agent/protocol';
 import type {UIBridgeHandler, UIBridgeHost} from '@/pages/agent/ui-bridge';
+
+export interface YupaiOrderFilter {
+    WorkPlace?: string,
+    OrderCode?: string,
+    YPDate?: string,
+    Ywy?: string,
+}
 
 /**
  * 界面桥用的识别列：能让 agent 指认一行的字段，**不是全部列**。
  * 完整列定义给表格用，这里只挑几个够定位的，避免把整张表塞进模型上下文。
  */
 const SNAPSHOT_COLUMNS = [
+    {field: 'WorkPlace', title: '生产产地'},
     {field: 'OrderCode', title: '订单号'},
     {field: 'YPDate', title: '预订日期'},
     {field: 'Ywy', title: '业务员'},
-    {field: 'Qty', title: '总数量'},
 ];
 
 /** 快照一次最多给多少行；超出部分靠筛选缩小范围，而不是全量塞给模型 */
@@ -46,9 +53,7 @@ const PREORDER_GUIDE: UIGuide = {
         '新增 / 编辑 会打开表单弹窗，弹出后快照会切成表单那一层（见它自己的 guide）',
     ],
     terms: {
-        产地: 'workPlace，只可选「越南工厂,义乌工厂」',
-        业务员: 'salesman',
-        关键字: 'keyword',
+        生产产地: 'WorkPlace，只可选「越南工厂,义乌工厂」',
     },
     cautions: ['命令被禁用时先看 disabledReason，不要反复重试'],
 };
@@ -64,12 +69,12 @@ function snapshotRow(record: YupaiOrder): Record<string, unknown> {
 }
 
 /** 把 agent 传来的筛选参数收敛成查询条件：只认已知字段，避免脏值进 state */
-function toQueryPatch(params: Record<string, unknown>): YupaiOrderQuery {
-    const patch: YupaiOrderQuery = {page: 1};
-    if (typeof params.keyword === 'string') patch.keyword = params.keyword;
-    if (typeof params.salesman === 'string') patch.salesman = params.salesman;
-    if (typeof params.workPlace === 'string') patch.workPlace = params.workPlace;
-    if (typeof params.isDel === 'boolean') patch.isDel = params.isDel ? 1 : 0;
+function toQueryPatch(params: Record<string, unknown>): YupaiOrderFilter {
+    const patch: YupaiOrderFilter = {};
+    if (typeof params.Ywy === 'string') patch.Ywy = params.Ywy;
+    if (typeof params.OrderCode === 'string') patch.OrderCode = params.OrderCode;
+    if (typeof params.WorkPlace === 'string') patch.WorkPlace = params.WorkPlace;
+    if (typeof params.YPDate === 'string') patch.YPDate = params.YPDate;
     return patch;
 }
 
@@ -77,12 +82,12 @@ function toQueryPatch(params: Record<string, unknown>): YupaiOrderQuery {
  * 快照里的筛选条件：同一份数据既当「当前值」发布，也当 filter.set 的参数声明 ——
  * 一处维护，不会出现「filters 里有产地、命令里却没有」这种对不上的情况。
  */
-function currentFilters(query: YupaiOrderQuery): UIField[] {
+function currentFilters(filter: YupaiOrderFilter): UIField[] {
     return [
-        {id: 'keyword', label: '关键字', type: 'text', value: query.keyword ?? ''},
-        {id: 'salesman', label: '业务员', type: 'text', value: query.salesman ?? ''},
-        {id: 'workPlace', label: '产地', type: 'text', value: query.workPlace ?? ''},
-        {id: 'isDel', label: '包含已删除', type: 'switch', value: query.isDel === 1},
+        {id: 'OrderCode', label: '订单号', type: 'text', value: filter.OrderCode ?? ''},
+        {id: 'Ywy', label: '业务员', type: 'text', value: filter.Ywy ?? ''},
+        {id: 'WorkPlace', label: '生产产地', type: 'text', value: filter.WorkPlace ?? ''},
+        {id: 'YPDate', label: '预排日期', type: 'text', value: filter.YPDate ?? ''},
     ];
 }
 
@@ -92,20 +97,25 @@ export type YupaiOrderBridgeContext = {
     view: string;
     /** 命令条上的命令项：动作表与页面按钮同源 */
     commands: CommandItem[];
-    /** 当前查询条件 */
-    query: YupaiOrderQuery;
-    /** 当前页数据 */
+    /**
+     * **用户当前看到的数据**（筛选后的那批行），不是接口原始数据。
+     *
+     * 页面对它做了筛选：被筛掉的行不在这里。快照的 total / rows 都以它为准 ——
+     * 换成原始 dataSource 会让模型描述出用户屏幕上没有的行。
+     */
     dataSource: YupaiOrder[];
-    /** 后端总数 */
-    total: number;
     /** 当前激活行 */
     activeRow: YupaiOrder | null;
     /** 选中行数（只驱动 disabled，行数据向表格要） */
     activeRowCount: number;
+    /**
+     * 预订单过滤
+     */
+    filter: YupaiOrderFilter;
     /** 列表是否已加载完成；ui_navigate 打开本页后会等它 */
     ready: boolean;
     /** 用新条件重新查询：页面负责落 state 并拉数据 */
-    applyQuery: (next: YupaiOrderQuery) => Promise<void>;
+    applyFilter: (next: YupaiOrderFilter) => Promise<void>;
 };
 
 /**
@@ -124,7 +134,7 @@ export function createYupaiOrderBridge(read: () => YupaiOrderBridgeContext): UIB
      */
     const snapshot = (): UISnapshotData => {
         const ctx = read();
-        const filters = currentFilters(ctx.query);
+        const filters = currentFilters(ctx.filter);
         const rows = ctx.dataSource.slice(0, SNAPSHOT_ROW_LIMIT).map(snapshotRow);
         return {
             view: ctx.view,
@@ -160,7 +170,7 @@ export function createYupaiOrderBridge(read: () => YupaiOrderBridgeContext): UIB
                 rowIds: ctx.activeRow ? [ctx.activeRow.ID] : [],
             },
             data: {
-                total: ctx.total,
+                total: ctx.dataSource.length,
                 loaded: ctx.dataSource.length,
                 shown: rows.length,
                 truncated: rows.length < ctx.dataSource.length,
@@ -208,8 +218,8 @@ function buildHandlers(read: () => YupaiOrderBridgeContext): Record<string, UIBr
      */
     handlers['filter.set'] = async (params) => {
         const ctx = read();
-        await ctx.applyQuery({...ctx.query, ...toQueryPatch(params)});
-        return `已按 ${JSON.stringify(params)} 重新查询`;
+        await ctx.applyFilter({...ctx.filter, ...toQueryPatch(params)});
+        return `已按 ${JSON.stringify(params)} 重新过滤`;
     };
 
     return handlers;
