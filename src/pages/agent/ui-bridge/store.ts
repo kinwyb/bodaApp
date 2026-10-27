@@ -14,13 +14,16 @@
  * 打开另一个页面跟当前页面的版本本来就没有关系。
  */
 
-import type { UIBridgeHost, UIWorkbenchHost } from './types';
+import type { UIBridgeHost, UIDialogHost, UIWorkbenchHost } from './types';
 
 /** 页面级宿主：view -> getter */
 const pageHosts = new Map<string, () => UIBridgeHost | null>();
 
 /** 工作台级宿主：全局唯一 */
 let workbenchGetter: (() => UIWorkbenchHost | null) | null = null;
+
+/** 弹窗层宿主：view -> getter，只在弹窗打开期间存在 */
+const dialogHosts = new Map<string, () => UIDialogHost | null>();
 
 /** 页面版本（乐观锁），按 view 维护 */
 const revByView = new Map<string, number>();
@@ -51,6 +54,20 @@ export function registerWorkbenchHost(getter: () => UIWorkbenchHost | null): () 
 /** 取工作台级宿主 */
 export function getWorkbenchHost(): UIWorkbenchHost | null {
   return workbenchGetter ? workbenchGetter() : null;
+}
+
+/** 注册弹窗层宿主（弹窗打开时注册，关闭时注销），返回注销函数 */
+export function registerDialogHost(view: string, getter: () => UIDialogHost | null): () => void {
+  dialogHosts.set(view, getter);
+  return () => {
+    if (dialogHosts.get(view) === getter) dialogHosts.delete(view);
+  };
+}
+
+/** 取某个 view 上正在打开的弹窗；没有则返回 null */
+export function getDialogHost(view: string): UIDialogHost | null {
+  const getter = dialogHosts.get(view);
+  return getter ? getter() : null;
 }
 
 /** 某个页面的当前版本 */

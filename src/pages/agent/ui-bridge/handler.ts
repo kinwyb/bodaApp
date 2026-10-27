@@ -13,14 +13,16 @@
 import type { UINavItem, UIRequestPayload, UISnapshot, UISnapshotData } from '../protocol';
 import { UI_SNAPSHOT_VERSION } from '../protocol';
 import type { AgentUIRequest } from '../transport';
-import { bumpRev, currentRev, getPageHost, getWorkbenchHost } from './store';
-import type { UIWorkbenchHost } from './types';
+import { bumpRev, currentRev, getDialogHost, getPageHost, getWorkbenchHost } from './store';
+import type { UIBridgeHost, UIDialogHost, UIWorkbenchHost } from './types';
 
 /** 没有业务页面时快照里的 view 标识（对应 MainLayout 的工作台页签） */
 const HOME_VIEW = 'home';
 
 /** 等目标页面就绪的上限：超时必须明确失败，不能让模型一直挂着 */
 const NAVIGATE_TIMEOUT_MS = 5000;
+/** 操作后等页面就绪的上限：这里等不到不算失败（动作本身已经执行了），只是快照可能不够新 */
+const ACT_READY_TIMEOUT_MS = 3000;
 /** 就绪轮询间隔 */
 const READY_POLL_MS = 50;
 /** observe 一次最多带多少条导航：菜单上百项，每次全量下发纯浪费，完整检索走 ui_navigate 的 query */
@@ -66,7 +68,8 @@ async function answer(request: AgentUIRequest): Promise<void> {
 
     const view = currentViewOf(workbench);
     const pageHost = getPageHost(view);
-    if (!pageHost) {
+    const dialogHost = getDialogHost(view);
+    if (!pageHost && !dialogHost) {
       throw new Error(
         `当前是${view === HOME_VIEW ? '工作台主页' : `页面 ${view}`}，没有可执行的命令；` +
           '请先用 ui_navigate 打开目标页面',
@@ -75,7 +78,14 @@ async function answer(request: AgentUIRequest): Promise<void> {
     const result = await runAction(view, request.payload);
     // 成功操作推进版本：下一次 observe 拿到新 rev，旧快照再拿来操作会被拒
     bumpRev(view);
-    // 等这次操作引起的渲染提交，否则回执里的快照可能还是操作前的视图
+    /*
+     * 等这次操作真正落定再取快照。
+     *
+     * 很多动作是异步的：打开编辑弹窗要先把订单拉回来、改筛选条件要等接口返回。
+     * 不等的话，回执里的快照是「操作刚发出去」的样子 —— 编辑弹窗里字段全空，
+     * 模型会以为这单本来就是空白的。等不到不算失败（动作确实执行了），只是快照未必够新。
+     */
+    await waitForReady(view, ACT_READY_TIMEOUT_MS);
     await settleBeforeSnapshot();
     request.respond({
       ok: true,
@@ -104,27 +114,55 @@ function currentViewOf(workbench: UIWorkbenchHost): string {
  * 而不是再列一遍菜单（token 花在这上面不值）。
  */
 function composeSnapshot(workbench: UIWorkbenchHost, view: string): UISnapshot {
+  const base = baseSnapshot(workbench, view);
+  const dialog = getDialogHost(view);
+  if (!dialog) {
+    return { v: UI_SNAPSHOT_VERSION, rev: currentRev(base.view), ts: Date.now(), ...base };
+  }
+
+  /*
+   * 弹窗打开时，它才是用户此刻的视野：动作、模式、form 段都换成弹窗自己的，
+   * 列表的筛选条件与数据收起（它们被弹窗挡住，发出去只会让模型对着看不见的内容推理）。
+   * 这条覆盖规则写在桥里，所以页面和弹窗都不用各自实现一遍。
+   */
+  return {
+    v: UI_SNAPSHOT_VERSION,
+    rev: currentRev(base.view),
+    ts: Date.now(),
+    view: base.view,
+    title: base.title,
+    mode: 'form',
+    guide: dialog.guide ?? base.guide,
+    actions: dialog.actions(),
+    filters: [],
+    selection: base.selection,
+    data: null,
+    form: dialog.snapshot(),
+  };
+}
+
+/** 页面自己那一段：页面宿主，或工作台主页的两条兜底 */
+function baseSnapshot(workbench: UIWorkbenchHost, view: string): UISnapshotData {
   const pageHost = getPageHost(view);
-  const data: UISnapshotData = pageHost
-    ? pageHost.snapshot()
-    : view === HOME_VIEW
-      ? {
-          view: HOME_VIEW,
-          title: '工作台',
-          actions: [],
-          data: null,
-          navigation: workbench.navigation().slice(0, NAVIGATION_LIMIT),
-        }
-      : {
-          // 页面存在但没接入界面桥（例如通用列表页）：如实说明，别伪装成主页，
-          // 否则排查起来会以为是导航出了问题
-          view,
-          title: `${view}（该页面还没接入界面桥）`,
-          actions: [],
-          data: null,
-          navigation: workbench.navigation().slice(0, NAVIGATION_LIMIT),
-        };
-  return { v: UI_SNAPSHOT_VERSION, rev: currentRev(data.view), ts: Date.now(), ...data };
+  if (pageHost) return pageHost.snapshot();
+  if (view === HOME_VIEW) {
+    return {
+      view: HOME_VIEW,
+      title: '工作台',
+      actions: [],
+      data: null,
+      navigation: workbench.navigation().slice(0, NAVIGATION_LIMIT),
+    };
+  }
+  // 页面存在但没接入界面桥（例如通用列表页）：如实说明，别伪装成主页，
+  // 否则排查起来会以为是导航出了问题
+  return {
+    view,
+    title: `${view}（该页面还没接入界面桥）`,
+    actions: [],
+    data: null,
+    navigation: workbench.navigation().slice(0, NAVIGATION_LIMIT),
+  };
 }
 
 /** 执行一条命令；任何不满足的前置条件都抛成模型可读的原因 */
@@ -139,11 +177,14 @@ async function runAction(view: string, payload: UIRequestPayload): Promise<unkno
     );
   }
 
-  const host = getPageHost(view);
-  if (!host) {
+  const dialog = getDialogHost(view);
+  const pageHost = getPageHost(view);
+  if (!dialog && !pageHost) {
     throw new Error('当前页面已经切换，请重新 ui_observe');
   }
-  const action = host.snapshot().actions.find((item) => item.id === cmd);
+  // 动作表与处理函数都跟着「此刻是谁的视野」走：弹窗打开时查弹窗，否则查页面
+  const actions = dialog ? dialog.actions() : (pageHost?.snapshot().actions ?? []);
+  const action = actions.find((item) => item.id === cmd);
   if (!action) {
     throw new Error(`命令不可用：${cmd}。请以最近一次 ui_observe 返回的 actions[].id 为准`);
   }
@@ -151,7 +192,7 @@ async function runAction(view: string, payload: UIRequestPayload): Promise<unkno
     throw new Error(`命令 ${cmd} 当前不可执行：${action.disabledReason ?? '页面状态不允许'}`);
   }
 
-  const run = host.handlers?.[cmd];
+  const run = dialog?.handlers[cmd] ?? pageHost?.handlers?.[cmd];
   if (!run) {
     throw new Error(`命令 ${cmd} 还没有接入处理函数`);
   }
@@ -188,7 +229,11 @@ async function runNavigate(
   }
 
   workbench.openView(view);
-  await waitForPageReady(view);
+  if (!(await waitForReady(view, NAVIGATE_TIMEOUT_MS))) {
+    throw new Error(
+      `打开页面超时（${NAVIGATE_TIMEOUT_MS}ms 内未就绪）：页面可能加载失败，或该页面还没接入界面桥`,
+    );
+  }
   return { view, result: `已打开：${target.title}` };
 }
 
@@ -207,23 +252,26 @@ function searchNavigation(workbench: UIWorkbenchHost, query: string): UINavItem[
 }
 
 /**
- * 等目标页面挂载并就绪。
+ * 等页面自报就绪（`ready()`），超时返回 false。
  *
- * openView 只是「请求打开」：页面是懒加载组件，挂载后还要拉一次数据。
- * 不等就回执，模型紧接着 observe 会拿到一份空列表，然后开始怀疑自己。
+ * 页面是懒加载组件、打开后还要拉数据，弹窗打开后也可能在等接口 ——
+ * 不等就回执，模型拿到的是「刚发出操作」那一刻的空视图，然后开始怀疑自己。
+ * 页面没实现 ready() 视为挂载即就绪。
  */
-async function waitForPageReady(view: string): Promise<void> {
-  const deadline = Date.now() + NAVIGATE_TIMEOUT_MS;
+async function waitForReady(view: string, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
   for (;;) {
-    const host = getPageHost(view);
-    if (host && (host.ready?.() ?? true)) return;
-    if (Date.now() >= deadline) {
-      throw new Error(
-        `打开页面超时（${NAVIGATE_TIMEOUT_MS}ms 内未就绪）：页面可能加载失败，或该页面还没接入界面桥`,
-      );
-    }
+    if (readyNow(view)) return true;
+    if (Date.now() >= deadline) return false;
     await delay(READY_POLL_MS);
   }
+}
+
+/** 此刻该等谁就绪：弹窗打开时是弹窗（编辑要先把数据拉回来），否则是页面 */
+function readyNow(view: string): boolean {
+  const host: UIBridgeHost | UIDialogHost | null = getDialogHost(view) ?? getPageHost(view);
+  if (!host) return false;
+  return host.ready?.() ?? true;
 }
 
 function delay(ms: number): Promise<void> {

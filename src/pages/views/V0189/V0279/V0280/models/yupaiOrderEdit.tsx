@@ -35,6 +35,9 @@ import {
 } from '@/utils';
 import {useAuth} from "@/store/auth-context.ts";
 import {SUPER_ADMIN_USER_ID} from "@/services";
+// 仅类型：字段的取值类型与界面桥的快照结构共用一套字面量，避免两边各写一个枚举后悄悄跑偏
+import type {UIAction, UIFieldType, UIForm, UIGuide} from '@/pages/agent/protocol';
+import {useUIBridgeDialog} from '@/pages/agent/ui-bridge';
 
 /**
  * 右键菜单图标：直接用 antd 图标。
@@ -80,6 +83,107 @@ export interface yupaiOrderFormModalProps {
     disabled?: boolean;
     onCancel: () => void;
     onSaved: () => void;
+    /**
+     * 所属页面的 view（菜单的 View 字段）。
+     *
+     * 界面桥按 view 找「这一页上打开的是哪个弹窗」，所以必须知道自己在哪个页面里。
+     */
+    view: string;
+}
+
+/** 一个表单字段：取值在运行时从 form 实例读，这里只描述「有哪些字段、怎么填」 */
+interface yupaiOrderFormField {
+    /** 字段 id，就是 Form.Item 的 name */
+    id: string;
+    label: string;
+    kind: UIFieldType;
+    value?: unknown;
+    required?: boolean;
+    readOnly?: boolean;
+    options?: string[];
+    errors?: string[];
+}
+
+/**
+ * agent 能看到的字段表。
+ *
+ * 这里的 label / kind / required 与下面 JSX 里的 `<Field label>` 和 `Form.Item rules` 是
+ * 同一份信息的两种表达 —— 属于平行维护。之所以不自动读：本表单用自定义 `Field` 布局，
+ * 没有 antd 的 `label` 可读，反查 DOM 比集中放一处更脆。改字段时记得同步这里。
+ *
+ * 隐藏字段（YwyNo / DepartmentID）不入表：它们由业务员带出来，让 agent 单独填只会填出脏数据。
+ * 详情表格（VTable）也不在表内：按约定 agent 不直接操作表格。
+ */
+const formFields = (workPlaces: string[]): Omit<yupaiOrderFormField, 'value' | 'errors'>[] => [
+    {id: 'OrderCode', label: '订单号', kind: 'text', required: true},
+    {id: 'YPDate', label: '预排日期', kind: 'date', required: true},
+    {id: 'Ywy', label: '业务员', kind: 'text', required: true},
+    {id: 'WorkPlace', label: '产地', kind: 'select', required: true, options: workPlaces},
+    {id: 'JHDate', label: '计划下单日期', kind: 'date', required: true},
+    {id: 'QRDate', label: '确认可下单期', kind: 'date'},
+    {id: 'WCDate', label: '尾货期', kind: 'date'},
+    {id: 'ZHDate', label: '走货期', kind: 'date', required: true},
+    {id: 'YLDate', label: '原料可下单期', kind: 'date', required: true},
+    {id: 'FLDate', label: '缝制辅料可下单期', kind: 'date', required: true},
+    {id: 'BZFLDate', label: '包装辅料提供期', kind: 'date', required: true},
+    {id: 'XDRate', label: '下单把握率', kind: 'text'},
+    {id: 'Qty', label: '总数量', kind: 'number', readOnly: true},
+    {id: 'Memo', label: '备注', kind: 'text'},
+    {id: 'ZQCheckDate', label: '中期检验日期', kind: 'date'},
+    {id: 'ZQCheckMemo', label: '中期检验要求', kind: 'text'},
+];
+
+/** 交给 agent 的取值：日期转成 YYYY-MM-DD 字符串 —— 模型读得懂，也填得回来 */
+function toAgentValue(value: unknown): unknown {
+    if (dayjs.isDayjs(value)) return value.format(DATE_FORMAT);
+    return value ?? null;
+}
+
+/**
+ * 弹窗打开时给 agent 的操作说明，会覆盖页面的 guide。
+ *
+ * 页面那份讲「列表怎么筛」，这份讲「表单怎么填」—— 两者受众相同但阶段不同，
+ * 合在一份里会让模型在填表时还要读一遍列表的事。
+ */
+const FORM_GUIDE: UIGuide = {
+    summary: '预订单表单弹窗：填写单据主信息并保存',
+    steps: [
+        '逐项 form.set（field 取 form.fields[].id），每改一项看回执里的新值',
+        'form.fields[].errors 非空就是这一项没过校验，先把它改对',
+        '填完 form.submit 保存；失败时弹窗不会关，按回执里的原因修',
+        '不打算保存就用 form.cancel 关掉',
+    ],
+    cautions: [
+        '日期一律用 YYYY-MM-DD',
+        'readOnly 的字段改不了（例如总数量由别处算出来）',
+        '字段都填对也不一定保存成功：详情表格（款式/颜色/数量那些行）agent 改不了，但它同样参与校验',
+    ],
+};
+
+/**
+ * 弹窗打开时的动作表：填写 / 保存 / 取消。
+ *
+ * 「改哪个字段」由 field 参数指认，字段清单在 form.fields 里 —— 不在这条 action 的 params 里重复一遍。
+ */
+function formActions(fields: yupaiOrderFormField[]): UIAction[] {
+    return [
+        {
+            id: 'form.set',
+            label: '填写表单字段',
+            group: 'form',
+            params: [
+                {
+                    name: 'field',
+                    type: 'text',
+                    required: true,
+                    hint: `字段 id，见 form.fields[].id${fields.length > 0 ? `，例如 ${fields[0].id}` : ''}`,
+                },
+                {name: 'value', type: 'text', hint: '新值；日期用 YYYY-MM-DD'},
+            ],
+        },
+        {id: 'form.submit', label: '保存', group: 'form'},
+        {id: 'form.cancel', label: '取消', group: 'form'},
+    ];
 }
 
 /**
@@ -222,6 +326,7 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                                                                 disabled = false,
                                                                 onCancel,
                                                                 onSaved,
+                                                                view,
                                                             }) => {
         const {message} = App.useApp();
         const [form] = Form.useForm<yupaiOrderFormValues>();
@@ -246,6 +351,9 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
 
         /** 详情表格实例：校验结果变化后要靠它重绘（cellStyle 是 canvas 渲染时读取的） */
         const tableRef = useRef<GridTableApi>(null);
+
+        /** 上一次保存是否真的落库成功：界面桥要据此如实回答 agent，不能一律说「已保存」 */
+        const savedRef = useRef(false);
 
         const isView = mode === 'view';
         const isEdit = mode === 'edit';
@@ -614,6 +722,17 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
             }
         }, [form, message, isCopy, userInfo]);
 
+        /**
+         * 保存成功后的收尾：先记下「确实成功了」，再通知页面。
+         *
+         * 界面桥要据此如实回答 agent —— 只回一句「已保存」是不够的：
+         * 校验不通过、后端报错都会停在 handleSave 里面，弹窗不会关。
+         */
+        const handleSaved = useCallback(() => {
+            savedRef.current = true;
+            onSaved();
+        }, [onSaved]);
+
         const handleSave = useCallback(async () => {
             // 先全量校验详情表：有错就标红并拦住提交，避免把不合法的数据发给后端
             const errors = toCellErrors(validateYupaiOrderDetailRows(detailRows));
@@ -738,15 +857,127 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
             try {
                 await yupaiApi.save(newDataRows);
                 message.success(isEdit ? '保存成功' : isCopy ? '复制成功' : '新增成功');
-                onSaved();
+                handleSaved();
             } catch (error) {
                 message.error(error instanceof ApiError ? error.message : '保存失败');
             } finally {
                 setSaving(false);
             }
-        }, [detailRows, form, message, onSaved, hideDatas, isEdit, isCopy]);
+        }, [detailRows, form, message, handleSaved, hideDatas, isEdit, isCopy]);
+
+        /** 当前字段与取值：快照和回执都用它，避免两处各读一次表 */
+        const currentFields = useCallback((): yupaiOrderFormField[] => {
+            const values = form.getFieldsValue();
+            const errorMap = new Map<string, string[]>();
+            form.getFieldsError().forEach((item) => {
+                if (item.errors.length === 0) return;
+                errorMap.set(String(item.name), item.errors);
+            });
+            return formFields(workPlaces).map((field) => ({
+                ...field,
+                value: toAgentValue(values[field.id as keyof yupaiOrderFormValues]),
+                errors: errorMap.get(field.id),
+            }));
+        }, [form, workPlaces]);
+
+        /** 填一个字段：日期/数字按类型转，业务员按姓名补齐工号与部门 */
+        const setFormField = useCallback(async (id: string, value: unknown) => {
+            const field = formFields(workPlaces).find((item) => item.id === id);
+            if (!field) {
+                throw new Error(`表单没有字段「${id}」；可用字段见 form.fields[].id`);
+            }
+            if (field.readOnly) {
+                throw new Error(`字段「${field.label}」是只读的，不能直接改`);
+            }
+            // 业务员按姓名补齐工号与部门：只写 Ywy 会留下空工号，保存时后端会拒，
+            // 这也是界面上「快速选择」做的事（见下面的 EmployeeQuickSelect）。
+            if (id === 'Ywy') {
+                const employees = (await employeeApi.list()).data ?? [];
+                const hit = employees.find((item) => item.Employee === String(value).trim());
+                if (!hit) {
+                    throw new Error(`没有叫「${value}」的业务员，请换一个名字`);
+                }
+                form.setFieldsValue({
+                    Ywy: hit.Employee,
+                    YwyNo: hit.EmployeeNo,
+                    DepartmentID: hit.DepartmentID,
+                });
+                return;
+            }
+            if (field.kind === 'date') {
+                const parsed = toDayjs(value);
+                if (!parsed) {
+                    throw new Error(`「${field.label}」需要日期，例如 2026-04-02`);
+                }
+                form.setFieldsValue({[id]: parsed} as unknown as Partial<yupaiOrderFormValues>);
+                return;
+            }
+            if (field.kind === 'number') {
+                const number = Number(value);
+                if (Number.isNaN(number)) {
+                    throw new Error(`「${field.label}」需要数字`);
+                }
+                form.setFieldsValue({[id]: number} as unknown as Partial<yupaiOrderFormValues>);
+                return;
+            }
+            form.setFieldsValue({[id]: value} as unknown as Partial<yupaiOrderFormValues>);
+        }, [form, workPlaces]);
 
         const modalTitle = isView ? '查看预订单' : isEdit ? '编辑预订单' : isCopy ? '复制预订单' : '新增预订单';
+
+        /*
+         * 弹窗自己注册到界面桥：字段、动作、提交语义都留在本文件里，页面不必替它转述。
+         *
+         * 打开期间它会顶掉页面的工具栏动作、列表条件与数据，以及 guide（换成表单这份）；
+         * 关闭后自动让位 —— 覆盖规则由桥统一实现，见 ui-bridge/handler.ts 的 composeSnapshot。
+         */
+        useUIBridgeDialog(view, {
+            snapshot: (): UIForm => ({
+                id: 'yupaiOrderEdit',
+                title: modalTitle,
+                mode,
+                recordId: record?.ID ?? null,
+                fields: currentFields().map((field) => ({
+                    id: field.id,
+                    label: field.label,
+                    type: field.kind,
+                    value: field.value,
+                    options: field.options,
+                    required: field.required,
+                    readOnly: field.readOnly,
+                    errors: field.errors,
+                })),
+                errors: [],
+            }),
+            actions: () => formActions(currentFields()),
+            handlers: {
+                'form.set': async (params) => {
+                    const field = String(params.field ?? '').trim();
+                    if (!field) {
+                        throw new Error('需要 field（字段 id，见 form.fields[].id）与 value');
+                    }
+                    await setFormField(field, params.value);
+                    const current = currentFields().find((item) => item.id === field);
+                    return `已填写：${current?.label ?? field} = ${JSON.stringify(params.value)}`;
+                },
+                'form.submit': async () => {
+                    savedRef.current = false;
+                    await handleSave();
+                    // 必填没过、详情表格有错、后端报错都会停在 handleSave 里（弹窗不关），
+                    // 只有真的落库成功才走 handleSaved —— 如实告诉 agent，别让它以为保存好了
+                    if (!savedRef.current) {
+                        throw new Error('保存未完成：可能是必填未通过或详情表格有错，请看 form.fields[].errors 与页面提示');
+                    }
+                    return '已保存';
+                },
+                'form.cancel': () => {
+                    onCancel();
+                    return '已关闭表单';
+                },
+            },
+            guide: FORM_GUIDE,
+            ready: () => !isLoading && !saving,
+        }, open);
 
         // DatePicker: open={false} 阻止打开, inputReadOnly 阻止输入
         // Select: open={false} 阻止下拉, allowClear=false 阻止清除

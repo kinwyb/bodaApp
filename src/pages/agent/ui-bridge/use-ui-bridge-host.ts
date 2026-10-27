@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
-import { registerPageHost, registerWorkbenchHost } from './store';
-import type { UIBridgeHost, UIWorkbenchHost } from './types';
+import { registerDialogHost, registerPageHost, registerWorkbenchHost } from './store';
+import type { UIBridgeHost, UIDialogHost, UIWorkbenchHost } from './types';
 
 /**
  * 业务页面注册自己：agent 就能观察并操作这一页。
@@ -40,4 +40,24 @@ export function useWorkbenchBridge(host: UIWorkbenchHost): void {
   });
 
   useEffect(() => registerWorkbenchHost(() => ref.current), []);
+}
+
+/**
+ * 弹窗注册自己：**只在打开期间生效**，关闭后页面自己的动作表就回来。
+ *
+ * 弹窗的字段、动作、提交语义都留在弹窗自己的文件里，页面不必替它转述 ——
+ * 否则一个页面上有五个弹窗，页面文件里就得写五份字段映射与处理函数。
+ */
+export function useUIBridgeDialog(view: string, host: UIDialogHost, open: boolean): void {
+  const ref = useRef(host);
+
+  useLayoutEffect(() => {
+    ref.current = host;
+  });
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    // 后注册者生效：同时只该有一个弹窗打开，所以「后」就是「最上面那个」
+    return registerDialogHost(view, () => ref.current);
+  }, [view, open]);
 }

@@ -108,7 +108,8 @@ export type UIForm = {
   recordId: string | null;
   fields: UIField[];
   errors: string[];
-  dirty: boolean;
+  /** 是否有未保存的改动；页面不提供时省略，不要瞎猜成 false */
+  dirty?: boolean;
 };
 
 /**

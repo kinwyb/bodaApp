@@ -5,7 +5,7 @@
  * 「快照长什么样、命令怎么校验、回执怎么发」都在桥这一层，页面不重复实现。
  */
 
-import type { UINavItem, UISnapshotData } from '../protocol';
+import type { UIAction, UIGuide, UIForm, UINavItem, UISnapshotData } from '../protocol';
 
 /** 一条命令的执行函数：参数来自模型，返回值作为 result 回传给模型 */
 export type UIBridgeHandler = (params: Record<string, unknown>) => unknown | Promise<unknown>;
@@ -38,4 +38,28 @@ export type UIWorkbenchHost = {
   navigation: () => UINavItem[];
   /** 打开或激活一个页面，等价于点左侧菜单 */
   openView: (view: string, params?: Record<string, unknown>) => void;
+};
+
+/**
+ * 弹窗层：由弹窗组件自己注册，**只在打开期间生效**。
+ *
+ * 为什么要单独一层而不是让页面转述：弹窗的字段、动作、提交语义都属于弹窗自己。
+ * 让页面代劳的话，一个页面上有五个弹窗，`index.tsx` 里就要写五份字段映射 + 动作表 + 处理函数，
+ * 页面文件变成瓶颈 —— 改弹窗还得回页面里改，且页面被某个弹窗的形状绑死。
+ *
+ * 打开时的覆盖规则在桥里统一实现（页面与弹窗都不用管）：
+ * 弹窗的 actions 顶掉页面工具栏动作、mode 变 form、filters/data 清空（它们被弹窗挡住了）。
+ * 同时只会有一个弹窗打开，所以「后注册的生效」等价于「最上面那个生效」。
+ */
+export type UIDialogHost = {
+  /** 快照里的 form 段：弹窗的标题、模式、字段与取值 */
+  snapshot: () => UIForm;
+  /** 弹窗自己的动作表，打开期间顶掉页面工具栏动作 */
+  actions: () => UIAction[];
+  /** 弹窗自己的命令处理（form.set / form.submit / ...） */
+  handlers: Record<string, UIBridgeHandler>;
+  /** 本弹窗的操作说明；不填则沿用页面的 guide */
+  guide?: UIGuide;
+  /** 是否已就绪（编辑/复制要先把数据拉回来，那之前字段是空的） */
+  ready?: () => boolean;
 };

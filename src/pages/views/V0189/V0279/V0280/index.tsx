@@ -61,10 +61,11 @@ const PREORDER_GUIDE: UIGuide = {
     summary: '预订单管理：按条件查询预订单，并对选中的单据执行编辑、发布、分批、查看变更日志等操作',
     steps: [
         '改条件用 filter.set（参数名见该 action 的 params），等列表变成你要的范围再动单据',
-        '编辑 / 删除 / 发布 / 分批 / 复制 都要求先选中一行：本页还没开放选择命令，需要请用户在表格里点选',
+        '删除 / 发布 / 分批 / 复制 要求先选中一行：本页还没开放选择命令，需要请用户在表格里点选',
+        '新增 / 编辑 会打开表单弹窗，弹出后快照会切成表单那一层（见它自己的 guide）',
     ],
     terms: {
-        产地: 'workPlace，例如「越南」',
+        产地: 'workPlace，只可选「越南工厂,义乌工厂」',
         业务员: 'salesman',
         关键字: 'keyword',
     },
@@ -440,6 +441,12 @@ const YupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
      * 命令 ID 就是 CommandItem.key，与页面上的按钮一一对应，权限过滤也已经由 CommandBar 做过。
      */
     useUIBridgeHost(view, {
+        /*
+         * 页面这一层只描述列表。
+         *
+         * 弹窗打开时的覆盖（动作换成 form.*、列表数据收起、guide 换成表单那份）由桥统一做，
+         * 弹窗自己注册 —— 所以这里没有任何 form 相关的分支，页面也不需要认识弹窗的字段。
+         */
         snapshot: () => ({
             view,
             title: '计划管理 > 预订单 > 预订单管理',
@@ -482,10 +489,26 @@ const YupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
                 rows: snapshotRows,
                 active: activeRow ? snapshotRow(activeRow) : undefined,
             },
-            form: null,
         }),
         handlers: {
-            refresh: () => reload(),
+            /**
+             * 命令条上的每个按钮**直接用它自己的 onClick**，不另写一份实现。
+             *
+             * 抄一份的代价是行为会分叉：按钮改了、agent 那条没改，或者反过来。
+             * 这里只是把它包一层，顺便回一句人话给模型当回执（否则 result 是 null，
+             * 模型只能猜按钮到底按下去没有）。
+             */
+            ...Object.fromEntries(
+                commands
+                    .filter((item) => item.onClick)
+                    .map((item) => [
+                        item.key,
+                        () => {
+                            item.onClick?.();
+                            return `已执行：${item.label}`;
+                        },
+                    ]),
+            ),
             /**
              * 语义命令：改查询条件并按新条件重新加载。
              *
@@ -500,7 +523,7 @@ const YupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
                 return `已按 ${JSON.stringify(params)} 重新查询`;
             },
         },
-        // agent 用 ui_navigate 打开本页时会等它：第一次数据加载完成后才算就绪
+        // 列表加载完成才算就绪。弹窗自己的就绪由弹窗那层报（见 useUIBridgeDialog 的 ready）
         ready: () => snapshotReady,
     });
 
@@ -547,6 +570,7 @@ const YupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
                 mode={formMode}
                 record={formMode !== 'add' ? editingRecord : null}
                 workPlaces={workPlaces}
+                view={view}
                 onCancel={() => setFormOpen(false)}
                 onSaved={() => {
                     setFormOpen(false);
