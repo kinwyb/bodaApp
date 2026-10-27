@@ -64,13 +64,17 @@ export type UIWorkbenchHost = {
  * 打开时的覆盖规则在桥里统一实现（页面与弹窗都不用管）：
  * 弹窗的 actions 顶掉页面工具栏动作、mode 变 form、filters/data 清空（它们被弹窗挡住了）。
  * 同时只会有一个弹窗打开，所以「后注册的生效」等价于「最上面那个生效」。
+ *
+ * **表单类弹窗请提供 `form.setMany`**（一次收一整张 `{字段id: 新值}`），别只给 `form.set`：
+ * 一次 `ui_act` 只能带一条命令，逐字段设的话，16 个字段就是 16 次往返，每次回执还夹一份整页快照 ——
+ * 模型每一轮都要重新读一遍才知道下一个填什么。写入顺序（哪几个字段要先检测/查人）由弹窗自己定。
  */
 export type UIDialogHost = {
   /** 快照里的 form 段：弹窗的标题、模式、字段与取值 */
   snapshot: () => UIForm;
   /** 弹窗自己的动作表，打开期间顶掉页面工具栏动作 */
   actions: () => UIAction[];
-  /** 弹窗自己的命令处理（form.set / form.submit / ...） */
+  /** 弹窗自己的命令处理（form.setMany / form.set / form.submit / ...） */
   handlers: Record<string, UIBridgeHandler>;
   /** 本弹窗的操作说明；不填则沿用页面的 guide */
   guide?: UIGuide;

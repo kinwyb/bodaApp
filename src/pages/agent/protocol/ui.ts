@@ -18,11 +18,19 @@ import { KIND, UI_TYPE, newEnvelope } from './envelope';
 /** 快照版本，结构不兼容变更时递增 */
 export const UI_SNAPSHOT_VERSION = 1;
 
+/**
+ * 命令参数的类型。
+ *
+ * 比 `UIFieldType` 多一个 `object`：批量参数（例如「字段 id → 新值」的一整张表）不是界面控件，
+ * 它只是给模型的形状提示 —— 服务端只透传、不校验，页面自己决定收对象还是它的 JSON 字符串。
+ */
+export type UIActionParamType = UIFieldType | 'object';
+
 /** 命令参数说明：模型据此构造 ui_act 的 params，不用去猜字段名 */
 export type UIActionParam = {
   /** 参数名，就是 ui_act 的 params 里的键 */
   name: string;
-  type: UIFieldType;
+  type: UIActionParamType;
   required?: boolean;
   /** 可选值（下拉类参数） */
   options?: string[];

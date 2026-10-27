@@ -11,38 +11,32 @@
  *   确定不了的**不硬设**，回执里请用户手动设置 —— 硬塞一个错误值只会让保存时更难查；
  * - 明细不逐格设置，而是**整份替换数据源**（detail.get 拿现状 → 改 → detail.set 写回）。
  *
- * 两条写法约束：
+ * 三条写法约束：
  * - 只放常量与纯函数，不导出组件、不调 hook：弹窗把「怎么取当前状态」以取值函数传进来。
  * - 字段表 `formFields` 与弹窗 JSX 里的 `<Field label>` / `Form.Item rules` 是同一份信息的
  *   两种表达（属于平行维护）：本表单用自定义 Field 布局，没有 antd 的 label 可读。
+ * - **通用的那套别抄在这里**：批量解析、锁判断、类型转换、回执拼装都在
+ *   `@/pages/agent/ui-bridge/form`（`createFormWriter`）。本文件只给字段表、锁规则，
+ *   以及两个「写完还有后续动作」的字段（订单号要检测、业务员要查工号）。
  */
 
 import type {FormInstance} from 'antd';
-import dayjs from 'dayjs';
 import {employeeApi} from '@/api';
-import type {UIAction, UIFieldType, UIForm, UIGuide} from '@/pages/agent/protocol';
-import type {UIDialogHost} from '@/pages/agent/ui-bridge';
-import {DATE_FORMAT, toDayjs, toStringOrEmpty} from '@/utils';
+import type {UIAction, UIField, UIFieldType, UIForm, UIGuide} from '@/pages/agent/protocol';
+import {
+    createFormWriteActions,
+    createFormWriteHandlers,
+    createFormWriter,
+    type FieldOutcome,
+    type FormFieldSpec,
+    toAgentValue,
+    toArrayParam,
+    type UIDialogHost,
+} from '@/pages/agent/ui-bridge';
+import {toStringOrEmpty} from '@/utils';
 import type {FormMode} from '../command';
 import {DETAIL_COLUMNS, HD_WORK_OPTIONS, type yupaiOrderDetailRow} from './yupaiOrderEditColumns';
 import type {yupaiOrderFormValues} from './yupaiOrderEdit';
-
-/** 一个表单字段：取值在运行时从 form 实例读，这里只描述「有哪些字段、怎么填」 */
-interface yupaiOrderFormField {
-    /** 字段 id，就是 Form.Item 的 name */
-    id: string;
-    label: string;
-    /**
-     * 控件类型。直接用协议里的 `UIFieldType` 字面量，不另外发明一套枚举 ——
-     * 两边各写一份，迟早会悄悄跑偏。
-     */
-    kind: UIFieldType;
-    value?: unknown;
-    required?: boolean;
-    readOnly?: boolean;
-    options?: string[];
-    errors?: string[];
-}
 
 /**
  * agent 能看到的字段表。
@@ -50,23 +44,29 @@ interface yupaiOrderFormField {
  * 隐藏字段（YwyNo / DepartmentID）不入表：它们由业务员带出来，让 agent 单独填只会填出脏数据。
  * 明细不在这里 —— 它走 detail.get / detail.set，见 DETAIL_FIELDS。
  */
-const formFields = (workPlaces: string[]): Omit<yupaiOrderFormField, 'value' | 'errors'>[] => [
-    {id: 'OrderCode', label: '订单号', kind: 'text', required: true},
-    {id: 'YPDate', label: '预排日期', kind: 'date', required: true},
-    {id: 'Ywy', label: '业务员', kind: 'text', required: true},
-    {id: 'WorkPlace', label: '产地', kind: 'select', required: true, options: workPlaces},
-    {id: 'JHDate', label: '计划下单日期', kind: 'date', required: true},
-    {id: 'QRDate', label: '确认可下单期', kind: 'date'},
-    {id: 'WCDate', label: '尾货期', kind: 'date'},
-    {id: 'ZHDate', label: '走货期', kind: 'date', required: true},
-    {id: 'YLDate', label: '原料可下单期', kind: 'date', required: true},
-    {id: 'FLDate', label: '缝制辅料可下单期', kind: 'date', required: true},
-    {id: 'BZFLDate', label: '包装辅料提供期', kind: 'date', required: true},
-    {id: 'XDRate', label: '下单把握率', kind: 'text'},
-    {id: 'Qty', label: '总数量', kind: 'number', readOnly: true},
-    {id: 'Memo', label: '备注', kind: 'text'},
-    {id: 'ZQCheckDate', label: '中期检验日期', kind: 'date'},
-    {id: 'ZQCheckMemo', label: '中期检验要求', kind: 'text'},
+const formFields = (workPlaces: string[]): FormFieldSpec[] => [
+    {id: 'OrderCode', label: '订单号', type: 'text', required: true},
+    {id: 'YPDate', label: '预排日期', type: 'date', required: true},
+    {id: 'Ywy', label: '业务员', type: 'text', required: true},
+    {id: 'WorkPlace', label: '产地', type: 'select', required: true, options: workPlaces},
+    {id: 'JHDate', label: '计划下单日期', type: 'date', required: true},
+    {id: 'QRDate', label: '确认可下单期', type: 'date'},
+    {id: 'WCDate', label: '尾货期', type: 'date'},
+    {id: 'ZHDate', label: '走货期', type: 'date', required: true},
+    {id: 'YLDate', label: '原料可下单期', type: 'date', required: true},
+    {id: 'FLDate', label: '缝制辅料可下单期', type: 'date', required: true},
+    {id: 'BZFLDate', label: '包装辅料提供期', type: 'date', required: true},
+    {id: 'XDRate', label: '下单把握率', type: 'text'},
+    {
+        id: 'Qty',
+        label: '总数量',
+        type: 'number',
+        readOnly: true,
+        readOnlyReason: '由明细各行的款式数量汇总得出，改明细就会跟着变',
+    },
+    {id: 'Memo', label: '备注', type: 'text'},
+    {id: 'ZQCheckDate', label: '中期检验日期', type: 'date'},
+    {id: 'ZQCheckMemo', label: '中期检验要求', type: 'text'},
 ];
 
 /**
@@ -92,12 +92,6 @@ const DETAIL_NUMERIC_FIELDS = new Set(
     DETAIL_FIELDS.filter((item) => item.type === 'number').map((item) => item.field),
 );
 
-/** 交给 agent 的取值：日期转成 YYYY-MM-DD 字符串 —— 模型读得懂，也填得回来 */
-function toAgentValue(value: unknown): unknown {
-    if (dayjs.isDayjs(value)) return value.format(DATE_FORMAT);
-    return value ?? null;
-}
-
 /**
  * 弹窗打开时给 agent 的操作说明，会覆盖页面的 guide。
  *
@@ -107,8 +101,11 @@ function toAgentValue(value: unknown): unknown {
 const FORM_GUIDE: UIGuide = {
     summary: '预订单表单弹窗：主信息 + 明细行一起保存成一张单据',
     steps: [
-        '新增 / 复制：先 form.set OrderCode。写入后会自动检测——可用才解锁日期与明细；被占用就换号（回执会说被谁用了）',
-        '再逐项 form.set 日期（YYYY-MM-DD）。业务员、产地这类只能从界面选项里选的，取值不确定就问用户，别猜',
+        '主信息**一次填齐**：form.setMany 传一整张 {字段id: 新值}（日期用 YYYY-MM-DD），不要一个字段调一次 —— ' +
+            '一趟就写完，回执会逐项说哪些没设进去以及为什么',
+        '新增 / 复制时可以把订单号与其余字段放在同一批里：会先写订单号并自动检测——可用才解锁日期与明细，' +
+            '被占用就换号（回执会说被谁用了）；也可以先单独 form.set OrderCode 确认可用再填其余',
+        '业务员、产地这类只能从界面选项里选的，取值不确定就问用户，别猜',
         '明细整份写回：detail.get 拿现有行与字段 → 改 → detail.set 把整份 rows 传回去（rowId / YupaiOrderID 原样带回）',
         '填完 form.submit。保存没成时回执里就是具体原因（哪一行哪一格 / 哪个必填项 / 后端原话），按它改完再提交',
         '不打算保存就用 form.cancel 关掉',
@@ -120,7 +117,8 @@ const FORM_GUIDE: UIGuide = {
     cautions: [
         '日期一律用 YYYY-MM-DD',
         '总数量 Qty 只读：改明细的「款式数量」或尺码列，它会自己变',
-        '新增/复制下，订单号没检测通过之前，除订单号与预排日期外的字段都是 readOnly，明细也改不了，别反复重试',
+        '新增/复制下，订单号没检测通过之前，除订单号与预排日期外的字段都是 readOnly，明细也改不了，' +
+            '此时 form.setMany 会整批跳过并说明原因 —— 先把订单号给对，不要反复重试',
         '有些日期会按订单号前缀（HL / HG / FT）自动推算——那只在用户手改时触发，agent 设完要自己逐项核对补齐',
         '明细的校验错误在快照的 form.errors 里（形如「第 2 行（款号 X）后道主工序：不能为空」），' +
             '它们不属于任何表单字段，所以 form.fields[].errors 看不到',
@@ -131,24 +129,12 @@ const FORM_GUIDE: UIGuide = {
 /**
  * 弹窗打开时的动作表：改字段 / 读写明细 / 保存 / 取消。
  *
- * 「改哪个字段」由 field 参数指认，字段清单在 form.fields 里 —— 不在这条 action 的 params 里重复一遍。
+ * 改字段那两条来自桥的通用实现（`createFormWriteActions`）—— 参数声明与写入实现在同一处，
+ * 别的弹窗接桥时也是同一份说法，模型不用为每页重新学一遍。
  */
-function formActions(fields: yupaiOrderFormField[]): UIAction[] {
+function formActions(fields: FormFieldSpec[]): UIAction[] {
     return [
-        {
-            id: 'form.set',
-            label: '设置表单字段',
-            group: 'form',
-            params: [
-                {
-                    name: 'field',
-                    type: 'text',
-                    required: true,
-                    hint: `字段 id，见 form.fields[].id${fields.length > 0 ? `，例如 ${fields[0].id}` : ''}`,
-                },
-                {name: 'value', type: 'text', hint: '新值；日期用 YYYY-MM-DD'},
-            ],
-        },
+        ...createFormWriteActions(fields),
         {id: 'detail.get', label: '读取明细行', group: 'form'},
         {
             id: 'detail.set',
@@ -168,12 +154,12 @@ function formActions(fields: yupaiOrderFormField[]): UIAction[] {
     ];
 }
 
-/** 当前字段与取值：快照和回执都用它，避免两处各读一次表 */
+/** 当前字段与取值：快照与 writer 都读这一份，避免两处各读一次表 */
 function currentFields(
     form: FormInstance<yupaiOrderFormValues>,
     workPlaces: string[],
     fieldLock: (fieldId: string) => string | null,
-): yupaiOrderFormField[] {
+): UIField[] {
     const values = form.getFieldsValue();
     const errorMap = new Map<string, string[]>();
     form.getFieldsError().forEach((item) => {
@@ -190,106 +176,62 @@ function currentFields(
     }));
 }
 
-/** 只读字段的原因：不写的话模型会一直试着改 */
-function readOnlyHint(fieldId: string): string {
-    if (fieldId === 'Qty') return '由明细各行的款式数量汇总得出，改明细就会跟着变';
-    return '当前状态下不可修改';
+/**
+ * 订单号：写完立刻检测（等价于点界面上的「检测」按钮）。
+ *
+ * 不检测就永远是锁定态，模型会卡在「字段都 readOnly」里出不来 —— 所以它是**顺序字段**：
+ * 批量设置时会先走它，成功后再写其余字段（见 createFormWriter 的 sequenced）。
+ */
+async function setOrderCodeField(
+    ctx: YupaiOrderEditBridgeContext,
+    value: unknown,
+): Promise<FieldOutcome> {
+    const code = toStringOrEmpty(value).trim();
+    if (!code) {
+        return {ok: false, message: '未设置订单号：不能为空'};
+    }
+    ctx.form.setFieldValue('OrderCode', code);
+    const outcome = await ctx.checkOrderCode();
+    return {ok: outcome.ok, message: `已写入订单号 ${code}。${outcome.message}`};
 }
 
 /**
- * 设置一个字段，返回**直接回给模型的那句话**（设成了什么 / 没设成的原因与下一步）。
+ * 业务员：按姓名补齐工号与部门（界面上是快速选择做的）。
  *
- * 顺序照界面的真实顺序来：先看锁（订单号没检测通过时详情区是锁着的），再看只读，
- * 最后按类型转换。**设不进去的都不抛错**，只回一句人话说明「为什么」+「该怎么办」——
- * 抛错会让模型当成失败反复重试，而它要做的往往是「请用户手动设置」。
+ * 查不到就请用户手动选，绝不塞一个空工号进去 —— 那样要等到保存时才报错，更难查。
+ * 界面上这个字段只能从人员列表里选，所以它也是顺序字段（要 await 一次接口）。
  */
-async function setFormField(
+async function setEmployeeField(
     ctx: YupaiOrderEditBridgeContext,
-    id: string,
     value: unknown,
-): Promise<string> {
-    const field = formFields(ctx.workPlaces).find((item) => item.id === id);
-    if (!field) {
-        throw new Error(`表单没有字段「${id}」；可用字段见 form.fields[].id`);
-    }
-    const lock = ctx.fieldLock(id);
-    if (lock) {
-        return `未设置「${field.label}」：${lock}`;
-    }
-    if (field.readOnly) {
-        return `未设置「${field.label}」：它是只读的，${readOnlyHint(id)}`;
-    }
-
-    // 订单号：写完立刻检测（等价于点界面上的「检测」按钮）—— 不检测就永远是锁定态，
-    // 模型会卡在「字段都 readOnly」里出不来
-    if (id === 'OrderCode') {
-        const code = toStringOrEmpty(value).trim();
-        if (!code) {
-            return '未设置订单号：不能为空';
-        }
-        ctx.form.setFieldValue('OrderCode', code);
-        const outcome = await ctx.checkOrderCode();
-        return `已写入订单号 ${code}。${outcome.message}`;
-    }
-
-    // 业务员按姓名补齐工号与部门（界面上是快速选择做的）。查不到就请用户手动选，
-    // 绝不塞一个空工号进去 —— 那样要等到保存时才报错，更难查
-    if (id === 'Ywy') {
-        const name = toStringOrEmpty(value).trim();
-        const employees = (await employeeApi.list()).data ?? [];
-        const hit = employees.find((item) => item.Employee === name);
-        if (!hit) {
-            const similar = employees
-                .filter((item) => String(item.Employee ?? '').includes(name))
-                .slice(0, 5)
-                .map((item) => item.Employee);
-            const candidates = (similar.length > 0
-                ? similar
-                : employees.slice(0, 8).map((item) => item.Employee)
-            )
-                .filter(Boolean)
-                .join('、');
-            return (
+): Promise<FieldOutcome> {
+    const name = toStringOrEmpty(value).trim();
+    const employees = (await employeeApi.list()).data ?? [];
+    const hit = employees.find((item) => item.Employee === name);
+    if (!hit) {
+        const similar = employees
+            .filter((item) => String(item.Employee ?? '').includes(name))
+            .slice(0, 5)
+            .map((item) => item.Employee);
+        const candidates = (similar.length > 0
+            ? similar
+            : employees.slice(0, 8).map((item) => item.Employee)
+        )
+            .filter(Boolean)
+            .join('、');
+        return {
+            ok: false,
+            message:
                 `未设置业务员「${name}」：查不到这个人，交给用户在界面上手动选择（业务员右边的「...」按钮）` +
-                (candidates ? `。可选例如：${candidates}` : '')
-            );
-        }
-        ctx.form.setFieldsValue({
-            Ywy: hit.Employee,
-            YwyNo: hit.EmployeeNo,
-            DepartmentID: hit.DepartmentID,
-        });
-        return `已设置业务员 = ${hit.Employee}（工号 ${hit.EmployeeNo} 一并带出）`;
+                (candidates ? `。可选例如：${candidates}` : ''),
+        };
     }
-
-    // 枚举字段：值必须来自界面给出的候选，否则请用户选 —— 硬塞一个不存在的产地保存不了
-    if (field.kind === 'select' && field.options && !field.options.includes(toStringOrEmpty(value))) {
-        return (
-            `未设置「${field.label}」= ${toStringOrEmpty(value)}：只能是 ` +
-            `${field.options.join(' / ') || '（当前没有可选值）'}，请让用户手动选择`
-        );
-    }
-
-    if (field.kind === 'date') {
-        const parsed = toDayjs(value);
-        if (!parsed) {
-            return `未设置「${field.label}」：${JSON.stringify(value)} 不是日期，格式要 YYYY-MM-DD`;
-        }
-        ctx.form.setFieldsValue({[id]: parsed} as unknown as Partial<yupaiOrderFormValues>);
-        return `已设置「${field.label}」= ${parsed.format(DATE_FORMAT)}`;
-    }
-
-    if (field.kind === 'number') {
-        const number = Number(value);
-        if (Number.isNaN(number)) {
-            return `未设置「${field.label}」：${JSON.stringify(value)} 不是数字`;
-        }
-        ctx.form.setFieldsValue({[id]: number} as unknown as Partial<yupaiOrderFormValues>);
-        return `已设置「${field.label}」= ${number}`;
-    }
-
-    ctx.form.setFieldsValue({[id]: value} as unknown as Partial<yupaiOrderFormValues>);
-    return `已设置「${field.label}」= ${toStringOrEmpty(value)}`;
+    ctx.form.setFieldsValue({
+        Ywy: hit.Employee,
+        YwyNo: hit.EmployeeNo,
+        DepartmentID: hit.DepartmentID,
+    });
+    return {ok: true, message: `已设置业务员 = ${hit.Employee}（工号 ${hit.EmployeeNo} 一并带出）`};
 }
 
 /** 明细写入结果 */
@@ -301,25 +243,6 @@ export type DetailApplyResult = {
     /** 校验没通过的提示（空数组 = 全部通过） */
     errors: string[];
 };
-
-/**
- * 明细行的入参形态：数组，或数组的 JSON 字符串。
- *
- * 参数在协议里只有标量类型，模型常把结构化数据序列化成字符串再传 —— 两种都认，
- * 免得它按格式报错反复重试。
- */
-function toRowArray(input: unknown): unknown[] | null {
-    if (Array.isArray(input)) return input;
-    if (typeof input === 'string') {
-        try {
-            const parsed: unknown = JSON.parse(input);
-            return Array.isArray(parsed) ? parsed : null;
-        } catch {
-            return null;
-        }
-    }
-    return null;
-}
 
 /** 把模型传来的明细行收敛成一份「只含已知字段」的数据源 */
 function normalizeDetailRows(input: unknown[]): Array<Partial<yupaiOrderDetailRow>> {
@@ -440,6 +363,25 @@ export type YupaiOrderEditBridgeContext = {
  * 所以宿主对象不必跟着每次渲染重建，读到的也永远是最新的表单内容。
  */
 export function createYupaiOrderEditBridge(read: () => YupaiOrderEditBridgeContext): UIDialogHost {
+    /*
+     * 写入引擎：通用的那些（批量解析、锁判断、类型转换、回执）在桥里，
+     * 这里只交出本表单的字段表、锁规则，以及两个顺序字段。
+     *
+     * 传的都是取值函数：宿主对象不必跟着每次渲染重建，读到的永远是最新的字段表与锁。
+     */
+    const writer = createFormWriter({
+        fields: () => formFields(read().workPlaces),
+        fieldLock: (fieldId) => read().fieldLock(fieldId),
+        write: (patch) =>
+            read().form.setFieldsValue(patch as unknown as Partial<yupaiOrderFormValues>),
+        sequenced: [
+            // 订单号：写完要检测，检测通过后其余字段才解锁 —— 所以它「解锁别人」
+            {id: 'OrderCode', unlocksOthers: true, run: (value) => setOrderCodeField(read(), value)},
+            // 业务员：要按姓名查工号与部门（没法只把名字写进去）
+            {id: 'Ywy', run: (value) => setEmployeeField(read(), value)},
+        ],
+    });
+
     return {
         snapshot: (): UIForm => {
             const ctx = read();
@@ -448,16 +390,8 @@ export function createYupaiOrderEditBridge(read: () => YupaiOrderEditBridgeConte
                 title: ctx.title,
                 mode: ctx.mode,
                 recordId: ctx.recordId,
-                fields: currentFields(ctx.form, ctx.workPlaces, ctx.fieldLock).map((field) => ({
-                    id: field.id,
-                    label: field.label,
-                    type: field.kind,
-                    value: field.value,
-                    options: field.options,
-                    required: field.required,
-                    readOnly: field.readOnly,
-                    errors: field.errors,
-                })),
+                // 字段表与 writer 读的是同一份描述（id / label / type / options / 锁）
+                fields: currentFields(ctx.form, ctx.workPlaces, ctx.fieldLock),
                 /*
                  * 明细的校验错误放这里（表单级），不放 fields[]：它们不属于任何一个表单字段。
                  * 界面上这些提示只画在 canvas 红格和悬停浮层里 —— 不写进快照，模型永远看不到，
@@ -471,15 +405,8 @@ export function createYupaiOrderEditBridge(read: () => YupaiOrderEditBridgeConte
             return formActions(currentFields(ctx.form, ctx.workPlaces, ctx.fieldLock));
         },
         handlers: {
-            'form.set': async (params) => {
-                const ctx = read();
-                const field = String(params.field ?? '').trim();
-                if (!field) {
-                    throw new Error('需要 field（字段 id，见 form.fields[].id）与 value');
-                }
-                // 回执直接用人话：设进去了说清设成什么，没设进去说清为什么、下一步该谁做
-                return await setFormField(ctx, field, params.value);
-            },
+            // 改字段的两条命令由桥的通用实现接管：参数解析、锁判断、回执都在那一层
+            ...createFormWriteHandlers(writer),
             'detail.get': () => {
                 const ctx = read();
                 return {
@@ -492,7 +419,7 @@ export function createYupaiOrderEditBridge(read: () => YupaiOrderEditBridgeConte
             },
             'detail.set': (params) => {
                 const ctx = read();
-                const rows = toRowArray(params.rows);
+                const rows = toArrayParam(params.rows);
                 if (!rows) {
                     throw new Error(
                         '需要 rows（明细行数组）；可以直接传数组，也可以传数组的 JSON 字符串。' +
