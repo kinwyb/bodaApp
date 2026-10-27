@@ -127,6 +127,18 @@ export interface GridTableApi {
    */
   clearSelection: () => void;
   /**
+   * 按**行主键**选中整行（编程式选中：界面桥、外部「定位到某一行」等）。
+   *
+   * 传多个主键即多选，已有选中被整份替换（不是追加）；不传/全部未命中时清空选中。
+   * 返回实际命中的行数 —— 主键不在当前显示数据里（被筛掉 / 键写错）会被忽略，
+   * 调用方据此判断「我指的是不是一行都没选上」，不用再自己比对一遍。
+   *
+   * 主键而不是行号：行号随排序 / 筛选变化，主键不会（与 expandRow 同一个理由）。
+   * 选中会顺带把第一行滚进视口，并把它的 cellPos 置为激活行 ——
+   * 否则页面 `onSelectedChange` 拿不到「当前激活行」，依赖它的命令仍然 disabled。
+   */
+  selectRowsByKeys: (keys: string[]) => number;
+  /**
    * 导出 Excel（走 @visactor/vtable-plugins 的 TableExportPlugin，默认直接下载文件）。
    * 传 fileName 会覆盖 exportOptions 里配的文件名；返回插件的原始结果（配了 downloadFile: false 时是文件内容）。
    */
@@ -1619,6 +1631,38 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
     [hasGroup, isSummaryRow, rowKey],
   );
 
+  /**
+   * 按行主键选中整行（见 GridTableApi.selectRowsByKeys）。
+   *
+   * 主键 → 显示行号必须**现算**：`rowKeyByIndexRef` 装的是「渲染用的那份数据」
+   * （已按列头排序、统计行追加在末尾），所以用它反查自然跟随排序；
+   * 页面手上那份 records 的下标在这里是错的（排序一变就串行）。
+   *
+   * 分组模式下「显示第几行」与顶层数组下标不对应（组行、收起的明细都不占下标），
+   * 只能逐行向表格要记录；收起的行拿不到记录 → 自然被忽略。
+   */
+  const selectRowsByKeys = useCallback(
+    (keys: string[]): number => {
+      const table = tableRef.current;
+      if (!table) return 0;
+      const wanted = new Set(keys.map((key) => String(key)));
+      const indexes: number[] = [];
+      if (hasGroup) {
+        const headerLevel = table.columnHeaderLevelCount;
+        for (let row = headerLevel; row < table.rowCount; row += 1) {
+          const record = table.getCellOriginRecord(0, row) as Record<string, unknown> | undefined;
+          if (record && wanted.has(String(record[rowKey] ?? ''))) indexes.push(row - headerLevel);
+        }
+      } else {
+        rowKeyByIndexRef.current.forEach((key, index) => {
+          if (wanted.has(key)) indexes.push(index);
+        });
+      }
+      return selection.selectRowIndexes(indexes);
+    },
+    [hasGroup, rowKey, selection],
+  );
+
   useImperativeHandle(
     ref,
     () => ({
@@ -1632,6 +1676,7 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
       exportExcel,
       exportCsv,
       clearSelection: selection.clearSelection,
+      selectRowsByKeys,
       // 行展开的编程式入口（按行主键操作，行号会随排序 / 筛选变化，主键不会）
       expandRow: rowExpander.expand,
       collapseRow: rowExpander.collapse,
@@ -1646,6 +1691,7 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
       rowExpander,
       exportExcel,
       exportCsv,
+      selectRowsByKeys,
     ],
   );
 

@@ -16,6 +16,7 @@ import type {YupaiOrder} from '@/api';
 import type {CommandItem} from '@/components/CommandBar';
 import type {UIField, UIGuide, UISnapshotData} from '@/pages/agent/protocol';
 import type {UIBridgeHandler, UIBridgeHost} from '@/pages/agent/ui-bridge';
+import {toStringOrEmpty} from '@/utils';
 
 export interface YupaiOrderFilter {
     WorkPlace?: string,
@@ -49,13 +50,17 @@ const PREORDER_GUIDE: UIGuide = {
     summary: '预订单管理：按条件查询预订单，并对选中的单据执行编辑、发布、分批、查看变更日志等操作',
     steps: [
         '改条件用 filter.set（参数名见该 action 的 params），等列表变成你要的范围再动单据',
-        '删除 / 发布 / 分批 / 复制 要求先选中一行：本页还没开放选择命令，需要请用户在表格里点选',
+        '删除 / 发布 / 分批 / 复制 / 设置 要求先选中行：用 selection.set 传 rowIds（取快照 data.rows[].rowId）',
         '新增 / 编辑 会打开表单弹窗，弹出后快照会切成表单那一层（见它自己的 guide）',
     ],
     terms: {
         生产产地: 'WorkPlace，只可选「越南工厂,义乌工厂」',
+        rowId: '单据的业务主键（不用行号：排序一变行号就全错）',
     },
-    cautions: ['命令被禁用时先看 disabledReason，不要反复重试'],
+    cautions: [
+        '命令被禁用时先看 disabledReason，不要反复重试',
+        'selection.set 只认当前列表里存在的行：目标被筛掉了就先用 filter.set 放宽条件',
+    ],
 };
 
 /** 取一行的识别列，行 ID 用业务主键（不是行号 —— 排序一变行号就全错） */
@@ -76,6 +81,52 @@ function toQueryPatch(params: Record<string, unknown>): YupaiOrderFilter {
     if (typeof params.WorkPlace === 'string') patch.WorkPlace = params.WorkPlace;
     if (typeof params.YPDate === 'string') patch.YPDate = params.YPDate;
     return patch;
+}
+
+/**
+ * 解析 rowIds：模型可能给数组、JSON 字符串、逗号分隔的一串，或者干脆只给一个。
+ *
+ * 这几种都实测出现过（服务端只透传不校验），所以统一收口在这里 ——
+ * handler 里再挨个 `typeof` 判一遍的话，每个需要多值的命令都要抄一份。
+ */
+function toRowIdList(value: unknown): string[] {
+    const single = (item: unknown): string => (item == null ? '' : String(item).trim());
+    if (Array.isArray(value)) return value.map(single).filter(Boolean);
+    if (typeof value === 'string') {
+        const text = value.trim();
+        // JSON 数组字符串（模型序列化过一遍）
+        if (text.startsWith('[')) {
+            try {
+                const parsed: unknown = JSON.parse(text);
+                if (Array.isArray(parsed)) return parsed.map(single).filter(Boolean);
+            } catch {
+                // 不是合法 JSON 就按分隔符处理，下面接着走
+            }
+        }
+        return text.split(/[,，;；\s]+/).map(single).filter(Boolean);
+    }
+    const one = single(value);
+    return one ? [one] : [];
+}
+
+/**
+ * 等页面把选中态落回 state。
+ *
+ * `selectRows` 只把选中写进表格实例，页面的 `activeRow` / `activeRowCount` 是表格回调驱动的
+ * React state，要到下一次渲染才更新。立刻回执的话快照里 selection 仍是空的，
+ * 模型会以为没选中，接着再调一次 —— 轮询比「等一帧」稳（并发渲染可能推迟几帧）。
+ */
+async function waitForActiveRow(
+    read: () => YupaiOrderBridgeContext,
+    rowId: string,
+    timeoutMs = 800,
+): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        if (toStringOrEmpty(read().activeRow?.ID) === rowId) return true;
+        await new Promise((resolve) => setTimeout(resolve, 16));
+    }
+    return false;
 }
 
 /**
@@ -116,6 +167,13 @@ export type YupaiOrderBridgeContext = {
     ready: boolean;
     /** 用新条件重新查询：页面负责落 state 并拉数据 */
     applyFilter: (next: YupaiOrderFilter) => Promise<void>;
+    /**
+     * 按行主键选中行（整行替换，不是追加），返回实际命中的行数。
+     *
+     * 页面负责「写进表格」这件事（`tableRef.current.selectRowsByKeys`），
+     * 桥只管把 rowId 翻成调用 —— 行主键 → 显示行号的换算只有表格自己知道（排序/分组）。
+     */
+    selectRows: (rowIds: string[]) => number;
 };
 
 /**
@@ -149,7 +207,7 @@ export function createYupaiOrderBridge(read: () => YupaiOrderBridgeContext): UIB
                     danger: item.danger,
                     disabled: item.disabled,
                     // 本页命令的 disabled 几乎都来自「没有选中行」，写清原因省得模型反复试错
-                    disabledReason: item.disabled ? '需要先选择一行' : undefined,
+                    disabledReason: item.disabled ? '需要先选中一行：用 selection.set 传 rowIds' : undefined,
                 })),
                 {
                     // 改筛选条件本身也是一条命令。只发 filters 不发命令，模型就只能干猜
@@ -161,6 +219,21 @@ export function createYupaiOrderBridge(read: () => YupaiOrderBridgeContext): UIB
                         type: field.type,
                         hint: field.label,
                     })),
+                },
+                {
+                    // 选中行也是一条命令：selection 段只说明「当前选中了什么」，
+                    // 不发命令的话模型只能请用户手动点 —— 而「选中后执行命令」正是本页的主流程
+                    id: 'selection.set',
+                    label: '选中行',
+                    group: 'row' as const,
+                    params: [
+                        {
+                            name: 'rowIds',
+                            type: 'text' as const,
+                            required: true,
+                            hint: '要选中的行 rowId，多个用逗号分隔（取快照 data.rows[].rowId）',
+                        },
+                    ],
                 },
             ],
             filters,
@@ -220,6 +293,44 @@ function buildHandlers(read: () => YupaiOrderBridgeContext): Record<string, UIBr
         const ctx = read();
         await ctx.applyFilter({...ctx.filter, ...toQueryPatch(params)});
         return `已按 ${JSON.stringify(params)} 重新过滤`;
+    };
+
+    /**
+     * 语义命令：选中行（整份替换）。
+     *
+     * 只认**当前列表里存在**的行 —— 被筛掉的行在表格里没有显示行号，选不中。
+     * 静默忽略最危险：模型以为选上了，接着点删除就会删错单，所以这里点名回报。
+     */
+    handlers['selection.set'] = async (params) => {
+        const rowIds = toRowIdList(params.rowIds ?? params.rowId);
+        if (rowIds.length === 0) {
+            throw new Error(
+                'selection.set 需要 rowIds：从快照 data.rows[].rowId 里取，多个用逗号分隔',
+            );
+        }
+        const visible = new Set(read().dataSource.map((record) => toStringOrEmpty(record.ID)));
+        const hits = rowIds.filter((id) => visible.has(id));
+        const missing = rowIds.filter((id) => !visible.has(id));
+        if (hits.length === 0) {
+            throw new Error(
+                `rowId 都不在当前列表里（${missing.join('、')}）：可能被筛选掉了，` +
+                '先用 filter.set 放宽条件，或从最新快照的 data.rows 里取 rowId',
+            );
+        }
+        const selected = read().selectRows(hits);
+        // 选中写进表格后，页面的 activeRow 要等下一次渲染才有 —— 不等的话回执里的快照还是空的
+        const landed = await waitForActiveRow(read, hits[0]);
+        const parts = [`已选中 ${selected} 行（rowId：${hits.join('、')}）`];
+        if (selected < hits.length) {
+            parts.push(`其中 ${hits.length - selected} 行没选中（不在表格里，可能在分组里被收起了）`);
+        }
+        if (missing.length > 0) {
+            parts.push(`未找到 ${missing.join('、')}（可能被筛掉或主键写错）`);
+        }
+        if (!landed) {
+            parts.push('界面还没回传选中态，稍后 observe 一次再确认');
+        }
+        return parts.join('；');
     };
 
     return handlers;

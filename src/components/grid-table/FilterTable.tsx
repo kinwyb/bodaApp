@@ -516,6 +516,10 @@ export const FilterTable = React.forwardRef<FilterTableApi, FilterTableProps>(
                     exportCsv: (fileName?: string) =>
                         tableRef.current?.exportCsv(fileName) ?? Promise.resolve(undefined),
                     clearSelection: () => tableRef.current?.clearSelection(),
+                    // 编程式选中（按行主键，界面桥用它实现 selection.set）；
+                    // 表格还没建好时返回 0 —— 形状与 GridTable 一致，satisfies 会盯住返回值
+                    selectRowsByKeys: (keys: string[]) =>
+                        tableRef.current?.selectRowsByKeys(keys) ?? 0,
                     // 行展开：透传到 GridTable（没配 expandable 时这些方法是空转）
                     expandRow: (rowKey: string) => tableRef.current?.expandRow(rowKey),
                     collapseRow: (rowKey: string) => tableRef.current?.collapseRow(rowKey),

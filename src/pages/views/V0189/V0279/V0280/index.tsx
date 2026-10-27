@@ -417,6 +417,17 @@ const YupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
         return dataSource.filter((record) => visible.has(record as unknown as Record<string, unknown>));
     }, [dataSource, filters, columns]);
 
+    /**
+     * 编程式选中行（界面桥的 selection.set 用它）。
+     *
+     * 只把 rowId 交给表格 —— 「主键 → 显示行号」的换算只有表格自己知道（排序、分组、
+     * 被收起的分组行都不在页面能算的范围内）。返回实际选中的行数，桥靠它识别无效 rowId。
+     */
+    const selectRows = useCallback(
+        (rowIds: string[]) => tableRef.current?.selectRowsByKeys(rowIds) ?? 0,
+        [],
+    );
+
     /** 交给桥的状态与能力快照：桥通过取值函数读它，不直接持有 */
     const bridgeContext = useMemo<YupaiOrderBridgeContext>(
         () => ({
@@ -428,8 +439,9 @@ const YupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
             ready: snapshotReady,
             filter: brigdeFilter,
             applyFilter,
+            selectRows,
         }),
-        [view, commands, visibleRecords, activeRow, activeRowCount, snapshotReady, applyFilter, brigdeFilter],
+        [view, commands, visibleRecords, activeRow, activeRowCount, snapshotReady, applyFilter, brigdeFilter, selectRows],
     );
 
     /**

@@ -157,6 +157,11 @@ export interface SelectionController {
   resolveSelectedRow: () => GridTableSelectedRowChangeInfo;
   /** 把「当前激活行」推给页面；force 用于「换了整批数据但行号主键没变」的场景 */
   emitSelectedRow: (force?: boolean) => void;
+  /**
+   * 按**数据行下标**选中整行（0 起、不含表头、跟随显示顺序），已有选中被整份替换。
+   * 返回实际命中的行数（下标越界 / 落在统计行上会被剔掉）。
+   */
+  selectRowIndexes: (indexes: number[]) => number;
   /** 取当前选中态（行 + 单元格 + 最后点选的那一格） */
   getSelection: () => GridTableSelection;
   /** 清空选中：原生选中范围与铺过的整行底色一起清 */
@@ -311,6 +316,50 @@ export function createSelectionController(deps: SelectionControllerDeps): Select
   };
 
   /**
+   * 直接改写选中范围的宿主角（`selectCells` 不可靠，原因见 applyCtrlToggle 里的长注释）。
+   * 只碰 ranges 与场景图，不派发 selected_cell —— 调用方负责补底色 / 行数 / 激活行。
+   */
+  type SelectHost = {
+    stateManager: {
+      select: {
+        ranges: Array<{ start: { col: number; row: number }; end: { col: number; row: number } }>;
+        cellPos: { col: number; row: number };
+        isSelectAll?: boolean;
+      };
+    };
+    scenegraph: {
+      recreateAllSelectRangeComponents?: () => void;
+      updateNextFrame?: () => void;
+    };
+  };
+
+  /**
+   * 把「表格行号（含表头）」写成整行选中范围。
+   *
+   * 不走 table.selectCells()：它会把每个多格 range 拆成两步（先 push 起点格，再靠 grabing
+   * 分支把端点拖过去），第二步一旦没生效，范围就只剩起点那一格。只改 ranges、不动
+   * interactionState，pointerup 的 endSelectCells() 照常收尾。
+   */
+  const commitRowRanges = (tableRows: number[]) => {
+    const table = deps.getTable();
+    if (!table) return;
+    const host = table as unknown as SelectHost;
+    host.stateManager.select.ranges = toContinuousSegments(tableRows).map((seg) => ({
+      start: { col: 0, row: seg.from },
+      end: { col: table.colCount - 1, row: seg.to },
+    }));
+    /**
+     * 按新 ranges 重建选中边框。不能自己 forEach 调 updateCellSelectBorder：
+     * 它每次进来都会清空「选择中」的边框集合，多段时会互相抹掉，最后只剩最后一段有线。
+     * recreateAllSelectRangeComponents 是 @visactor/vtable 自己的做法 ——
+     * 清空全部 → 逐段 updateCellSelectBorder → 立刻固化到「已选中」集合，
+     * 这样每段都不会被下一段清掉。
+     */
+    host.scenegraph.recreateAllSelectRangeComponents?.();
+    host.scenegraph.updateNextFrame?.();
+  };
+
+  /**
    * 执行一次 Ctrl 点击的整行 toggle（已选中的取消、未选中的加入）。
    *
    * 必须自己接管 —— @visactor/vtable 原生在 Ctrl 点击时只会「把点中的那一格追加进选中范围」，
@@ -328,39 +377,7 @@ export function createSelectionController(deps: SelectionControllerDeps): Select
     if (selected.has(row)) selected.delete(row);
     else selected.add(row);
 
-    const nextRanges = toContinuousSegments(Array.from(selected)).map((seg) => ({
-      start: { col: 0, row: seg.from },
-      end: { col: table.colCount - 1, row: seg.to },
-    }));
-    /**
-     * 直接把选中范围写成目标形状，不走 table.selectCells()。
-     *
-     * selectCells 会把每个「多格 range」拆成两步：先 push 起点那一格，再靠 grabing 分支
-     * 把端点拖过去（BaseTable.js 的 selectCells 里，多格走 `updateSelectPos(start)` →
-     * `updateInteractionState(grabing)` → `updateSelectPos(end)`）。第二步一旦没生效，
-     * 范围就停在起点那一格 —— 对单行 range 看不出来（起终点同一行，行号仍然对），
-     * 但对跨行 range 就是灾难：Ctrl+A 后取消一行，剩下两段本该覆盖 1~8 和 10~末行，
-     * 实际只剩第 1 行和第 10 行。
-     *
-     * 只改 ranges、不动 interactionState，pointerup 的 endSelectCells() 照常收尾。
-     */
-    const host = table as unknown as {
-      stateManager: { select: { ranges: typeof nextRanges } };
-      scenegraph: {
-        recreateAllSelectRangeComponents?: () => void;
-        updateNextFrame?: () => void;
-      };
-    };
-    host.stateManager.select.ranges = nextRanges;
-    /**
-     * 按新 ranges 重建选中边框。不能自己 forEach 调 updateCellSelectBorder：
-     * 它每次进来都会清空「选择中」的边框集合，多段时会互相抹掉，最后只剩最后一段有线。
-     * recreateAllSelectRangeComponents 是 @visactor/vtable 自己的做法 ——
-     * 清空全部 → 逐段 updateCellSelectBorder → 立刻固化到「已选中」集合，
-     * 这样每段都不会被下一段清掉。
-     */
-    host.scenegraph.recreateAllSelectRangeComponents?.();
-    host.scenegraph.updateNextFrame?.();
+    commitRowRanges(Array.from(selected));
 
     // 改范围不会派发 selected_cell，整行底色、对外行数与激活行都得自己补一次。
     // 补激活行时若被 toggle 掉的正好是当前激活行，emitSelectedRow 会因为它已不在选中范围里
@@ -368,6 +385,44 @@ export function createSelectionController(deps: SelectionControllerDeps): Select
     paintSelectedRows();
     deps.notifySelectionCount(selected.size);
     emitSelectedRow();
+  };
+
+  /**
+   * 按数据行下标选中整行（编程式选中，给界面桥 / 「定位到某一行」这类场景用）。
+   *
+   * 三件必须一起做的事，少一件就不对：
+   * 1. **写 cellPos** —— 页面侧「当前激活行」是靠 cellPos 判的（`resolveSelectedRow`），
+   *    只改 ranges 的话激活行仍是空，页面 `activeRow` 一直是 null，依赖它的命令照样 disabled；
+   * 2. **复位 isSelectAll** —— Ctrl+A 之后它一直是 true，`resolveSelectedRow` 见它就直接判空；
+   * 3. **滚到视口里** —— 选中的行在屏幕外等于没选，人看不到、agent 也以为没生效。
+   *
+   * 已有选中会被整份替换（不是追加）：说「选中这一行」就是只选这一行。
+   * 统计行会被剔掉（框选能划到它，但那不是一行业务数据）。
+   */
+  const selectRowIndexes = (indexes: number[]): number => {
+    const table = deps.getTable();
+    if (!table) return 0;
+    const headerLevel = table.columnHeaderLevelCount;
+    const lastIndex = table.rowCount - headerLevel - 1;
+    const rows = Array.from(new Set(indexes))
+      .filter((index) => Number.isInteger(index) && index >= 0 && index <= lastIndex)
+      .filter((index) => !deps.isSummaryRow(index + headerLevel))
+      .sort((a, b) => a - b)
+      .map((index) => index + headerLevel);
+    if (rows.length === 0) {
+      clearSelection();
+      return 0;
+    }
+    const host = table as unknown as SelectHost;
+    commitRowRanges(rows);
+    host.stateManager.select.cellPos = { col: 0, row: rows[0] };
+    host.stateManager.select.isSelectAll = false;
+    table.scrollToRow?.(rows[0]);
+    paintSelectedRows();
+    deps.notifySelectionCount(rows.length);
+    // force：重复选中同一行时也要回一次 —— 页面可能刚因为别的原因把 activeRow 清掉了
+    emitSelectedRow(true);
+    return rows.length;
   };
 
   /**
@@ -438,6 +493,7 @@ export function createSelectionController(deps: SelectionControllerDeps): Select
     paintSelectedRows,
     clearPaintedRows,
     applyCtrlToggle,
+    selectRowIndexes,
     resolveSelectedRow,
     emitSelectedRow,
     getSelection,
