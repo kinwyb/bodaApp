@@ -110,7 +110,7 @@ const FORM_GUIDE: UIGuide = {
         '新增 / 复制：先 form.set OrderCode。写入后会自动检测——可用才解锁日期与明细；被占用就换号（回执会说被谁用了）',
         '再逐项 form.set 日期（YYYY-MM-DD）。业务员、产地这类只能从界面选项里选的，取值不确定就问用户，别猜',
         '明细整份写回：detail.get 拿现有行与字段 → 改 → detail.set 把整份 rows 传回去（rowId / YupaiOrderID 原样带回）',
-        '填完 form.submit 保存；失败时弹窗不会关，按回执里的原因修',
+        '填完 form.submit。保存没成时回执里就是具体原因（哪一行哪一格 / 哪个必填项 / 后端原话），按它改完再提交',
         '不打算保存就用 form.cancel 关掉',
     ],
     terms: {
@@ -122,6 +122,8 @@ const FORM_GUIDE: UIGuide = {
         '总数量 Qty 只读：改明细的「款式数量」或尺码列，它会自己变',
         '新增/复制下，订单号没检测通过之前，除订单号与预排日期外的字段都是 readOnly，明细也改不了，别反复重试',
         '有些日期会按订单号前缀（HL / HG / FT）自动推算——那只在用户手改时触发，agent 设完要自己逐项核对补齐',
+        '明细的校验错误在快照的 form.errors 里（形如「第 2 行（款号 X）后道主工序：不能为空」），' +
+            '它们不属于任何表单字段，所以 form.fields[].errors 看不到',
         '明细校验（款号不能重复、数量必填等）在保存和 detail.set 时都会跑，回执里会列出前几条',
     ],
 };
@@ -360,6 +362,28 @@ function toAgentDetailRow(row: yupaiOrderDetailRow): Record<string, unknown> {
     return picked;
 }
 
+/**
+ * 把「行主键#字段 → 提示」翻成人话：「第 2 行（款号 12345）后道主工序：不能为空」。
+ *
+ * 只报「有 3 处错误」没有意义 —— 模型看不到 canvas 里的红格，得给它行号 + 款号 + 字段名，
+ * 它才知道去改哪一格。
+ */
+function describeDetailErrors(
+    cellErrors: Record<string, string>,
+    rows: yupaiOrderDetailRow[],
+): string[] {
+    const labelOf = new Map(DETAIL_FIELDS.map((item) => [item.field, item.label]));
+    return Object.entries(cellErrors).map(([key, message]) => {
+        const [rowKey, field] = key.split('#');
+        const index = rows.findIndex((row) => String(row._id ?? '') === rowKey);
+        const styleCode = index >= 0 ? toStringOrEmpty(rows[index].StyleCode) : '';
+        const where = index >= 0
+            ? `第 ${index + 1} 行${styleCode ? `（款号 ${styleCode}）` : ''} `
+            : '（已删除的行）';
+        return `${where}${labelOf.get(field) ?? field}：${message}`;
+    });
+}
+
 /** 弹窗交给桥的东西：只有状态与能力，没有桥的结构 */
 export type YupaiOrderEditBridgeContext = {
     /** 弹窗标题（按模式变：新增 / 编辑 / 复制 / 查看） */
@@ -389,13 +413,22 @@ export type YupaiOrderEditBridgeContext = {
      * 认得 rowId 的行保留原主键，认不出的当新行；写完顺带重算总数量、跑一次校验。
      */
     applyDetailRows: (rows: Array<Partial<yupaiOrderDetailRow>>) => DetailApplyResult;
+    /**
+     * 明细当前的红格内容：「行主键#字段」→ 提示。
+     *
+     * 这是弹窗里唯一一份「校验没通过」的真相（保存时写进去的），快照的 form.errors 由它生成 ——
+     * 界面上这些提示只画在 canvas 红格和悬停浮层里，模型看不见。
+     */
+    cellErrors: () => Record<string, string>;
     /** 是否已就绪：还在拉数据 / 保存中都不算（那时字段是空的，agent 会以为单据本来空白） */
     isReady: () => boolean;
     /**
-     * 提交保存，返回**是否真的落库成功**。
-     * 必填没过、详情行有错、后端报错都会停在保存流程里（弹窗不关），这里如实返回 false。
+     * 提交保存。`ok=false` 时 `message` 是**可修复的原因**（哪一行哪一格、哪个必填项、后端原话）。
+     *
+     * 页面里校验不过、详情行有错、后端报错都会停在保存流程里（弹窗不关），一律落成
+     * `ok=false` + 具体原因 —— 只说「保存失败」等于什么都没说，agent 只能瞎试。
      */
-    submit: () => Promise<boolean>;
+    submit: () => Promise<{ok: boolean; message: string}>;
     /** 关闭弹窗 */
     close: () => void;
 };
@@ -425,7 +458,12 @@ export function createYupaiOrderEditBridge(read: () => YupaiOrderEditBridgeConte
                     readOnly: field.readOnly,
                     errors: field.errors,
                 })),
-                errors: [],
+                /*
+                 * 明细的校验错误放这里（表单级），不放 fields[]：它们不属于任何一个表单字段。
+                 * 界面上这些提示只画在 canvas 红格和悬停浮层里 —— 不写进快照，模型永远看不到，
+                 * 就会一直觉得「必填都填了，为什么保存不了」。
+                 */
+                errors: describeDetailErrors(ctx.cellErrors(), ctx.detailRows()),
             };
         },
         actions: () => {
@@ -479,11 +517,14 @@ export function createYupaiOrderEditBridge(read: () => YupaiOrderEditBridgeConte
                 return lines.join('；');
             },
             'form.submit': async () => {
-                // 只有真的落库成功才算成功 —— 别让 agent 以为改完就好了
-                if (!(await read().submit())) {
-                    throw new Error(
-                        '保存未完成：可能是必填未通过或详情表格有错，请看 form.fields[].errors 与页面提示',
-                    );
+                const outcome = await read().submit();
+                if (!outcome.ok) {
+                    /*
+                     * 原因原样抛给模型（handler 会把它放进回执的 error 字段）。
+                     * 这里绝不能只说「保存失败」：界面上的失败只有 toast 和红格，模型看不到，
+                     * 一句没头没尾的失败会让它对着快照反复重试。
+                     */
+                    throw new Error(outcome.message || '保存未完成，页面没有给出原因');
                 }
                 return '已保存';
             },

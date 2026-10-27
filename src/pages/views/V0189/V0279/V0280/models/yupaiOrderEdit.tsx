@@ -725,31 +725,47 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
             onSaved();
         }, [onSaved]);
 
-        const handleSave = useCallback(async () => {
+        /**
+         * 保存。**失败时返回「给 agent 看的原因」，成功返回 null。**
+         *
+         * 返回值是必需的：界面上失败只有 toast 和红格，agent 看不到弹窗 —— 不把原因带回去，
+         * 它只会知道「保存没成」，然后对着快照里「字段都填了、errors 为空」反复重试。
+         */
+        const handleSave = useCallback(async (): Promise<string | null> => {
+            // 一行明细的定位描述：行号 + 款号。只给行号时，用户和模型都得自己数行
+            const describeRow = (rowKey: string): string => {
+                const index = detailRows.findIndex((row) => rowKeyOf(row) === rowKey);
+                if (index < 0) return '（已删除的行）';
+                const styleCode = toStringOrEmpty(detailRows[index].StyleCode);
+                return `第 ${index + 1} 行${styleCode ? `（款号 ${styleCode}）` : ''}`;
+            };
+
             // 先全量校验详情表：有错就标红并拦住提交，避免把不合法的数据发给后端
             const errors = toCellErrors(validateYupaiOrderDetailRows(detailRows));
-            const errorCount = Object.keys(errors).length;
-            if (errorCount > 0) {
+            const errorEntries = Object.entries(errors);
+            if (errorEntries.length > 0) {
                 setCellErrors(errors);
                 // 只说「有几处」用户还得满表格找红格 —— 这里把前几条直接列出来，
                 // 其余的靠悬停红格看（cellTooltip 会显示同一份提示文案）
-                const preview = Object.entries(errors).slice(0, 5).map(([key, detail]) => {
+                const preview = errorEntries.slice(0, 5).map(([key, detail]) => {
                     const [rowKey] = key.split('#');
-                    const rowNo = detailRows.findIndex((row) => rowKeyOf(row) === rowKey) + 1;
-                    return `${rowNo > 0 ? `第 ${rowNo} 行：` : ''}${detail}`;
+                    return `${describeRow(rowKey)}：${detail}`;
                 });
-                const rest = errorCount - preview.length;
+                const rest = errorEntries.length - preview.length;
                 void message.error({
                     content: (
                         <div>
-                            <div>有 {errorCount} 处数据需要修正（表格里已标红，鼠标移到红格上可看原因）：</div>
+                            <div>有 {errorEntries.length} 处数据需要修正（表格里已标红，鼠标移到红格上可看原因）：</div>
                             {preview.map((text) => <div key={text}>· {text}</div>)}
                             {rest > 0 ? <div>· 其余 {rest} 处请在表格中查看</div> : null}
                         </div>
                     ),
                     duration: 6,
                 });
-                return;
+                return (
+                    `明细有 ${errorEntries.length} 处校验没通过：${preview.join('；')}` +
+                    (rest > 0 ? `；其余 ${rest} 处见页面红格` : '')
+                );
             }
             setCellErrors({});
 
@@ -764,11 +780,18 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                     }
                     if (values.ZHDate?.isBefore(values.QRDate)) {
                         void message.error("走货期无效");
-                        return;
+                        return '走货期无效：早于确认可下单期，请先改走货期或确认可下单期';
                     }
                 }
-            } catch {
-                return;
+            } catch (errorInfo) {
+                // antd 的字段校验：把没过的字段名与原因列出来，agent 才知道改哪一个
+                const failed = (errorInfo as {errorFields?: Array<{name: (string | number)[]; errors: string[]}>})
+                    .errorFields ?? [];
+                const detail = failed
+                    .slice(0, 6)
+                    .map((item) => `${String(item.name[0] ?? '')}：${item.errors[0] ?? '不合法'}`)
+                    .join('；');
+                return `表单必填项没通过${detail ? `：${detail}` : '（页面上已标红）'}`;
             }
             let newDataRows = detailRows.filter(row => !isBlank(row)).map((row): Partial<YupaiOrderDto> => {
                 return {
@@ -838,7 +861,7 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
             const totalNum = newDataRows.reduce((acc, row) => acc + toNumberOrZero(row.Number), 0);
             if (totalNum < 1) {
                 void message.error("总数量不能为空");
-                return;
+                return '总数量为 0：明细里的款式数量（或尺码数量）都没填';
             }
             newDataRows = newDataRows.map((row) => {
                 row.Qty = totalNum;
@@ -850,8 +873,11 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                 await yupaiApi.save(newDataRows);
                 message.success(isEdit ? '保存成功' : isCopy ? '复制成功' : '新增成功');
                 handleSaved();
+                return null;
             } catch (error) {
-                message.error(error instanceof ApiError ? error.message : '保存失败');
+                const reason = error instanceof ApiError ? error.message : '保存失败';
+                message.error(reason);
+                return `保存失败：${reason}`;
             } finally {
                 setSaving(false);
             }
@@ -878,12 +904,15 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                 checkOrderCode: handleCheck,
                 detailRows: () => detailRows,
                 applyDetailRows,
+                // 明细红格的内容：快照把它放进 form.errors，模型不用去数红格
+                cellErrors: () => cellErrors,
                 isReady: () => !isLoading && !saving,
                 submit: async () => {
-                    // 先归零：只有 handleSave 走到 handleSaved 才算真的落库成功
+                    // 先归零：只有 handleSave 走到 handleSaved 才算真的落库成功；
+                    // failure 是给 agent 看的原因（成功时为 null）
                     savedRef.current = false;
-                    await handleSave();
-                    return savedRef.current;
+                    const failure = await handleSave();
+                    return {ok: savedRef.current, message: failure ?? ''};
                 },
                 close: onCancel,
             }),
@@ -898,6 +927,7 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                 handleCheck,
                 detailRows,
                 applyDetailRows,
+                cellErrors,
                 isLoading,
                 saving,
                 handleSave,

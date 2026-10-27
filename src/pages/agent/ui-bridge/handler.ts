@@ -94,11 +94,27 @@ async function answer(request: AgentUIRequest): Promise<void> {
       snapshot: composeSnapshot(workbench, view),
     });
   } catch (error) {
+    const view = currentViewOf(workbench);
     request.respond({
       ok: false,
       error: error instanceof Error ? error.message : String(error),
-      rev: currentRev(currentViewOf(workbench)),
+      rev: currentRev(view),
+      /*
+       * 失败也带一份快照：错误往往只存在于页面状态里（表单红格、明细校验），
+       * 不回快照的话模型得再 observe 一次才看得到「到底哪里不对」，中间还会自我怀疑。
+       * 取快照本身失败就省略它 —— 回执必须发出去，不能因为附赠信息再炸一次。
+       */
+      snapshot: trySnapshot(workbench, view),
     });
+  }
+}
+
+/** 尽力而为地取快照：任何异常都吞掉，返回 undefined（回执优先） */
+function trySnapshot(workbench: UIWorkbenchHost, view: string): UISnapshot | undefined {
+  try {
+    return composeSnapshot(workbench, view);
+  } catch {
+    return undefined;
   }
 }
 
