@@ -35,9 +35,12 @@ import {
 } from '@/utils';
 import {useAuth} from "@/store/auth-context.ts";
 import {SUPER_ADMIN_USER_ID} from "@/services";
-// 仅类型：字段的取值类型与界面桥的快照结构共用一套字面量，避免两边各写一个枚举后悄悄跑偏
-import type {UIAction, UIFieldType, UIForm, UIGuide} from '@/pages/agent/protocol';
 import {useUIBridgeDialog} from '@/pages/agent/ui-bridge';
+import {
+    createYupaiOrderEditBridge,
+    type DetailApplyResult,
+    type YupaiOrderEditBridgeContext,
+} from './yupaiOrderEditBridge';
 
 /**
  * 右键菜单图标：直接用 antd 图标。
@@ -48,7 +51,8 @@ import {useUIBridgeDialog} from '@/pages/agent/ui-bridge';
  */
 const MENU_ICON_DELETE = toMenuIcon(<DeleteOutlined/>);
 
-interface yupaiOrderFormValues {
+/** 表单取值形状：字段表在桥那边，两边共用这一份类型 */
+export interface yupaiOrderFormValues {
     OrderCode?: string;
     YPDate?: Dayjs;
     Ywy?: string;
@@ -91,100 +95,13 @@ export interface yupaiOrderFormModalProps {
     view: string;
 }
 
-/** 一个表单字段：取值在运行时从 form 实例读，这里只描述「有哪些字段、怎么填」 */
-interface yupaiOrderFormField {
-    /** 字段 id，就是 Form.Item 的 name */
-    id: string;
-    label: string;
-    kind: UIFieldType;
-    value?: unknown;
-    required?: boolean;
-    readOnly?: boolean;
-    options?: string[];
-    errors?: string[];
-}
-
 /**
- * agent 能看到的字段表。
+ * 工具栏上的那两个字段：订单号与预排日期。
  *
- * 这里的 label / kind / required 与下面 JSX 里的 `<Field label>` 和 `Form.Item rules` 是
- * 同一份信息的两种表达 —— 属于平行维护。之所以不自动读：本表单用自定义 `Field` 布局，
- * 没有 antd 的 `label` 可读，反查 DOM 比集中放一处更脆。改字段时记得同步这里。
- *
- * 隐藏字段（YwyNo / DepartmentID）不入表：它们由业务员带出来，让 agent 单独填只会填出脏数据。
- * 详情表格（VTable）也不在表内：按约定 agent 不直接操作表格。
+ * 它们的锁是 `toolbarLocked`（新增 / 复制可改，编辑与查看锁住），而详情区的字段跟 `detailLocked`
+ * （新增 / 复制还要先把订单号检测通过）。两套锁在界面上是分开的，桥要照着分，别混用。
  */
-const formFields = (workPlaces: string[]): Omit<yupaiOrderFormField, 'value' | 'errors'>[] => [
-    {id: 'OrderCode', label: '订单号', kind: 'text', required: true},
-    {id: 'YPDate', label: '预排日期', kind: 'date', required: true},
-    {id: 'Ywy', label: '业务员', kind: 'text', required: true},
-    {id: 'WorkPlace', label: '产地', kind: 'select', required: true, options: workPlaces},
-    {id: 'JHDate', label: '计划下单日期', kind: 'date', required: true},
-    {id: 'QRDate', label: '确认可下单期', kind: 'date'},
-    {id: 'WCDate', label: '尾货期', kind: 'date'},
-    {id: 'ZHDate', label: '走货期', kind: 'date', required: true},
-    {id: 'YLDate', label: '原料可下单期', kind: 'date', required: true},
-    {id: 'FLDate', label: '缝制辅料可下单期', kind: 'date', required: true},
-    {id: 'BZFLDate', label: '包装辅料提供期', kind: 'date', required: true},
-    {id: 'XDRate', label: '下单把握率', kind: 'text'},
-    {id: 'Qty', label: '总数量', kind: 'number', readOnly: true},
-    {id: 'Memo', label: '备注', kind: 'text'},
-    {id: 'ZQCheckDate', label: '中期检验日期', kind: 'date'},
-    {id: 'ZQCheckMemo', label: '中期检验要求', kind: 'text'},
-];
-
-/** 交给 agent 的取值：日期转成 YYYY-MM-DD 字符串 —— 模型读得懂，也填得回来 */
-function toAgentValue(value: unknown): unknown {
-    if (dayjs.isDayjs(value)) return value.format(DATE_FORMAT);
-    return value ?? null;
-}
-
-/**
- * 弹窗打开时给 agent 的操作说明，会覆盖页面的 guide。
- *
- * 页面那份讲「列表怎么筛」，这份讲「表单怎么填」—— 两者受众相同但阶段不同，
- * 合在一份里会让模型在填表时还要读一遍列表的事。
- */
-const FORM_GUIDE: UIGuide = {
-    summary: '预订单表单弹窗：填写单据主信息并保存',
-    steps: [
-        '逐项 form.set（field 取 form.fields[].id），每改一项看回执里的新值',
-        'form.fields[].errors 非空就是这一项没过校验，先把它改对',
-        '填完 form.submit 保存；失败时弹窗不会关，按回执里的原因修',
-        '不打算保存就用 form.cancel 关掉',
-    ],
-    cautions: [
-        '日期一律用 YYYY-MM-DD',
-        'readOnly 的字段改不了（例如总数量由别处算出来）',
-        '字段都填对也不一定保存成功：详情表格（款式/颜色/数量那些行）agent 改不了，但它同样参与校验',
-    ],
-};
-
-/**
- * 弹窗打开时的动作表：填写 / 保存 / 取消。
- *
- * 「改哪个字段」由 field 参数指认，字段清单在 form.fields 里 —— 不在这条 action 的 params 里重复一遍。
- */
-function formActions(fields: yupaiOrderFormField[]): UIAction[] {
-    return [
-        {
-            id: 'form.set',
-            label: '填写表单字段',
-            group: 'form',
-            params: [
-                {
-                    name: 'field',
-                    type: 'text',
-                    required: true,
-                    hint: `字段 id，见 form.fields[].id${fields.length > 0 ? `，例如 ${fields[0].id}` : ''}`,
-                },
-                {name: 'value', type: 'text', hint: '新值；日期用 YYYY-MM-DD'},
-            ],
-        },
-        {id: 'form.submit', label: '保存', group: 'form'},
-        {id: 'form.cancel', label: '取消', group: 'form'},
-    ];
-}
+const TOOLBAR_FIELDS = new Set(['OrderCode', 'YPDate']);
 
 /**
  * 单元格错误的键：行主键 + 字段。
@@ -667,11 +584,17 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
             tableRef.current?.repaint();
         }, [cellErrors, open]);
 
-        const handleCheck = useCallback(async () => {
+        /**
+         * 检测订单号是否可用 —— 界面上是「检测」按钮，界面桥里是 `form.set OrderCode` 的后续步骤。
+         *
+         * 返回值是给 agent 看的结论：界面上只弹 message，模型看不到弹窗，只能读回执。
+         * 所以每条出口都要有一句「结论 + 下一步」，不能只弹给用户看。
+         */
+        const handleCheck = useCallback(async (): Promise<{ok: boolean; message: string}> => {
             const code = String(form.getFieldValue('OrderCode') ?? '').trim();
             if (!code) {
                 void message.warning('请先输入订单号');
-                return;
+                return {ok: false, message: '订单号是空的，先 form.set OrderCode 再检测'};
             }
             setChecking(true);
             try {
@@ -689,38 +612,107 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                             setDetailRows(buildDetailRows(res.data, true));
                             setCellErrors({});
                             setOrderChecked(true);
-                            return;
+                            return {
+                                ok: true,
+                                message: `该号有一张未发布的单据，已切换成编辑它（表单与明细已重新载入，共 ${res.data.length} 行明细）`,
+                            };
                         }
                     }
                     void message.warning(`订单号 ${code} 已存被${res.data[0].Ywy}使用`);
                     setOrderChecked(false);
-                } else {
-                    void message.success(`订单号 ${code} 可以使用`);
-                    // 加载默认业务员
-                    const ywyResult = await yupaiApi.defaultYwy(code.split('-')[0]);
-                    if (ywyResult.data) {
-                        form.setFieldsValue({
-                            Ywy: ywyResult.data.EmployeeName,
-                            YwyNo: ywyResult.data.EmployeeNo,
-                            DepartmentID: ywyResult.data.DepartmentID
-                        });
-                    } else {
-                        form.setFieldsValue({
-                            Ywy: userInfo?.EmpName ?? '',
-                            YwyNo: userInfo?.EmpID ?? '',
-                            // 这里少部门信息
-                        })
-                    }
-                    setCellErrors({});
-                    setOrderChecked(true);
+                    return {
+                        ok: false,
+                        message:
+                            `订单号 ${code} 已被「${res.data[0].Ywy}」使用，换一个号再 form.set OrderCode ` +
+                            '（日期与明细仍是锁定的）',
+                    };
                 }
+                void message.success(`订单号 ${code} 可以使用`);
+                // 加载默认业务员
+                const ywyResult = await yupaiApi.defaultYwy(code.split('-')[0]);
+                let ywyText: string;
+                if (ywyResult.data) {
+                    form.setFieldsValue({
+                        Ywy: ywyResult.data.EmployeeName,
+                        YwyNo: ywyResult.data.EmployeeNo,
+                        DepartmentID: ywyResult.data.DepartmentID
+                    });
+                    ywyText = `业务员已按订单号带出：${ywyResult.data.EmployeeName}`;
+                } else {
+                    form.setFieldsValue({
+                        Ywy: userInfo?.EmpName ?? '',
+                        YwyNo: userInfo?.EmpID ?? '',
+                        // 这里少部门信息
+                    })
+                    ywyText = `没查到这个前缀的默认业务员，暂用当前登录人「${userInfo?.EmpName ?? ''}」（不对就请用户手动选）`;
+                }
+                setCellErrors({});
+                setOrderChecked(true);
+                return {ok: true, message: `订单号 ${code} 可以使用，日期与明细已解锁。${ywyText}`};
             } catch (error) {
-                void message.error(error instanceof ApiError ? error.message : '检测订单号失败');
+                const reason = error instanceof ApiError ? error.message : '检测订单号失败';
+                void message.error(reason);
                 setOrderChecked(false);
+                return {ok: false, message: `检测失败：${reason}（日期与明细仍是锁定的）`};
             } finally {
                 setChecking(false);
             }
         }, [form, message, isCopy, userInfo]);
+
+        /**
+         * 这个字段此刻为什么改不了（null = 可以改）。
+         *
+         * **锁定规则只写在这里一处**：界面上的 `dpProps / selectProps / readOnly` 与界面桥
+         * 共用它。桥那边再推一遍「新增且未检测则锁定」必然与界面漂移 —— 改一处忘一处，
+         * 表现成「界面上点不动、agent 却能改」。
+         */
+        const fieldLock = useCallback((fieldId: string): string | null => {
+            if (isView) return '查看模式下不能修改';
+            // 工具栏那两个（订单号 / 预排日期）跟 toolbarLocked：新增与复制可改，编辑态锁住
+            if (TOOLBAR_FIELDS.has(fieldId)) {
+                return toolbarLocked ? '编辑已有单据时不可修改' : null;
+            }
+            if (detailLocked) {
+                return '订单号还没检测通过：先 form.set OrderCode（会自动检测），可用后才能设置';
+            }
+            return null;
+        }, [detailLocked, isView, toolbarLocked]);
+
+        /** 明细此刻为什么改不了（null = 可以改），理由同 fieldLock */
+        const detailLock = useCallback((): string | null => {
+            if (isView) return '查看模式下不能修改明细';
+            if (detailLocked) return '订单号还没检测通过：先 form.set OrderCode 并等检测通过，明细才能改';
+            return null;
+        }, [detailLocked, isView]);
+
+        /**
+         * 明细「整份替换数据源」：不逐格改，直接把这批行当成新的 detailRows。
+         *
+         * rowId 对得上的行保留原主键与所属单据（编辑态不能把 YupaiOrderID 弄丢，
+         * 否则保存时会当成新行插进去）；对不上的当新行，补一个草稿主键。
+         * 写完顺带重算总数量、跑一次整表校验 —— 与保存前用的是同一份校验。
+         */
+        const applyDetailRows = useCallback((rows: Array<Partial<yupaiOrderDetailRow>>): DetailApplyResult => {
+            const existing = new Map(detailRows.map((row) => [String(row._id ?? ''), row]));
+            const next = rows.map((row): yupaiOrderDetailRow => {
+                const key = String(row._id ?? '');
+                const hit = key ? existing.get(key) : undefined;
+                const base = hit ?? createDetailRow(nextDraftRowKey());
+                return {
+                    ...base,
+                    ...row,
+                    _id: base._id,
+                    YupaiOrderID: hit?.YupaiOrderID ?? '',
+                };
+            });
+            setDetailRows(next);
+            const errors = toCellErrors(validateYupaiOrderDetailRows(next));
+            setCellErrors(errors);
+            // 总数量 = 各行款式数量之和，与保存时 payload 用的是同一个算法
+            const total = next.reduce((acc, row) => acc + toNumberOrZero(row.Number), 0);
+            form.setFieldsValue({Qty: total});
+            return {count: next.length, total, errors: Object.values(errors)};
+        }, [detailRows, form]);
 
         /**
          * 保存成功后的收尾：先记下「确实成功了」，再通知页面。
@@ -865,119 +857,62 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
             }
         }, [detailRows, form, message, handleSaved, hideDatas, isEdit, isCopy]);
 
-        /** 当前字段与取值：快照和回执都用它，避免两处各读一次表 */
-        const currentFields = useCallback((): yupaiOrderFormField[] => {
-            const values = form.getFieldsValue();
-            const errorMap = new Map<string, string[]>();
-            form.getFieldsError().forEach((item) => {
-                if (item.errors.length === 0) return;
-                errorMap.set(String(item.name), item.errors);
-            });
-            return formFields(workPlaces).map((field) => ({
-                ...field,
-                value: toAgentValue(values[field.id as keyof yupaiOrderFormValues]),
-                errors: errorMap.get(field.id),
-            }));
-        }, [form, workPlaces]);
-
-        /** 填一个字段：日期/数字按类型转，业务员按姓名补齐工号与部门 */
-        const setFormField = useCallback(async (id: string, value: unknown) => {
-            const field = formFields(workPlaces).find((item) => item.id === id);
-            if (!field) {
-                throw new Error(`表单没有字段「${id}」；可用字段见 form.fields[].id`);
-            }
-            if (field.readOnly) {
-                throw new Error(`字段「${field.label}」是只读的，不能直接改`);
-            }
-            // 业务员按姓名补齐工号与部门：只写 Ywy 会留下空工号，保存时后端会拒，
-            // 这也是界面上「快速选择」做的事（见下面的 EmployeeQuickSelect）。
-            if (id === 'Ywy') {
-                const employees = (await employeeApi.list()).data ?? [];
-                const hit = employees.find((item) => item.Employee === String(value).trim());
-                if (!hit) {
-                    throw new Error(`没有叫「${value}」的业务员，请换一个名字`);
-                }
-                form.setFieldsValue({
-                    Ywy: hit.Employee,
-                    YwyNo: hit.EmployeeNo,
-                    DepartmentID: hit.DepartmentID,
-                });
-                return;
-            }
-            if (field.kind === 'date') {
-                const parsed = toDayjs(value);
-                if (!parsed) {
-                    throw new Error(`「${field.label}」需要日期，例如 2026-04-02`);
-                }
-                form.setFieldsValue({[id]: parsed} as unknown as Partial<yupaiOrderFormValues>);
-                return;
-            }
-            if (field.kind === 'number') {
-                const number = Number(value);
-                if (Number.isNaN(number)) {
-                    throw new Error(`「${field.label}」需要数字`);
-                }
-                form.setFieldsValue({[id]: number} as unknown as Partial<yupaiOrderFormValues>);
-                return;
-            }
-            form.setFieldsValue({[id]: value} as unknown as Partial<yupaiOrderFormValues>);
-        }, [form, workPlaces]);
-
         const modalTitle = isView ? '查看预订单' : isEdit ? '编辑预订单' : isCopy ? '复制预订单' : '新增预订单';
 
-        /*
-         * 弹窗自己注册到界面桥：字段、动作、提交语义都留在本文件里，页面不必替它转述。
+        /**
+         * 交给弹窗桥的状态与能力：字段表、动作表、提交语义都在 ./yupaiOrderEditBridge.ts。
          *
-         * 打开期间它会顶掉页面的工具栏动作、列表条件与数据，以及 guide（换成表单这份）；
-         * 关闭后自动让位 —— 覆盖规则由桥统一实现，见 ui-bridge/handler.ts 的 composeSnapshot。
+         * 传取值函数而不是对象本身 —— 桥在 snapshot / 命令执行的那一刻才读，
+         * 所以宿主不必跟着每次渲染重建。
          */
-        useUIBridgeDialog(view, {
-            snapshot: (): UIForm => ({
-                id: 'yupaiOrderEdit',
+        const bridgeContext = useMemo<YupaiOrderEditBridgeContext>(
+            () => ({
                 title: modalTitle,
                 mode,
                 recordId: record?.ID ?? null,
-                fields: currentFields().map((field) => ({
-                    id: field.id,
-                    label: field.label,
-                    type: field.kind,
-                    value: field.value,
-                    options: field.options,
-                    required: field.required,
-                    readOnly: field.readOnly,
-                    errors: field.errors,
-                })),
-                errors: [],
-            }),
-            actions: () => formActions(currentFields()),
-            handlers: {
-                'form.set': async (params) => {
-                    const field = String(params.field ?? '').trim();
-                    if (!field) {
-                        throw new Error('需要 field（字段 id，见 form.fields[].id）与 value');
-                    }
-                    await setFormField(field, params.value);
-                    const current = currentFields().find((item) => item.id === field);
-                    return `已填写：${current?.label ?? field} = ${JSON.stringify(params.value)}`;
-                },
-                'form.submit': async () => {
+                workPlaces,
+                form,
+                // 锁与检测直接复用界面自己的判断，桥不再推一遍（见 fieldLock 的注释）
+                fieldLock,
+                detailLock,
+                checkOrderCode: handleCheck,
+                detailRows: () => detailRows,
+                applyDetailRows,
+                isReady: () => !isLoading && !saving,
+                submit: async () => {
+                    // 先归零：只有 handleSave 走到 handleSaved 才算真的落库成功
                     savedRef.current = false;
                     await handleSave();
-                    // 必填没过、详情表格有错、后端报错都会停在 handleSave 里（弹窗不关），
-                    // 只有真的落库成功才走 handleSaved —— 如实告诉 agent，别让它以为保存好了
-                    if (!savedRef.current) {
-                        throw new Error('保存未完成：可能是必填未通过或详情表格有错，请看 form.fields[].errors 与页面提示');
-                    }
-                    return '已保存';
+                    return savedRef.current;
                 },
-                'form.cancel': () => {
-                    onCancel();
-                    return '已关闭表单';
-                },
-            },
-            guide: FORM_GUIDE,
-            ready: () => !isLoading && !saving,
-        }, open);
+                close: onCancel,
+            }),
+            [
+                modalTitle,
+                mode,
+                record?.ID,
+                workPlaces,
+                form,
+                fieldLock,
+                detailLock,
+                handleCheck,
+                detailRows,
+                applyDetailRows,
+                isLoading,
+                saving,
+                handleSave,
+                onCancel,
+            ],
+        );
+        const dialogBridge = useMemo(
+            () => createYupaiOrderEditBridge(() => bridgeContext),
+            [bridgeContext],
+        );
+        /*
+         * 弹窗自己注册到界面桥：打开期间顶掉页面的工具栏动作、列表条件与数据，以及 guide
+         * （换成表单那份）；关闭后自动让位 —— 覆盖规则由桥统一实现，见 ui-bridge/handler.ts。
+         */
+        useUIBridgeDialog(view, dialogBridge, open);
 
         // DatePicker: open={false} 阻止打开, inputReadOnly 阻止输入
         // Select: open={false} 阻止下拉, allowClear=false 阻止清除
@@ -1107,7 +1042,14 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                             />
                         </Form.Item>
                         {(isAdd || isCopy) && (
-                            <Button loading={checking} disabled={disabled} onClick={handleCheck}>
+                            <Button
+                                loading={checking}
+                                disabled={disabled}
+                                // handleCheck 会返回给 agent 看的结论，界面上不需要它 —— 丢掉返回值
+                                onClick={() => {
+                                    void handleCheck();
+                                }}
+                            >
                                 检测
                             </Button>
                         )}

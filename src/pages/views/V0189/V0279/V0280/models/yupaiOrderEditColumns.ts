@@ -51,9 +51,15 @@ const hdWorkNames = [
 ];
 
 /** 后道主工序的候选值：工序名本身就是值和文案 */
-const HD_WORK_OPTIONS = hdWorkNames.map((name) => ({value: name, label: name}));
+export const HD_WORK_OPTIONS = hdWorkNames.map((name) => ({value: name, label: name}));
 
-const DETAIL_COLUMNS: AppColumnLeafDef[] = [
+/**
+ * 明细行的列定义（可编辑字段的唯一清单）。
+ *
+ * 导出是因为界面桥要据此告诉 agent「明细能填哪些字段、哪几个是数字/枚举」——
+ * 另写一份清单必然与这里的编辑器注册对不上。
+ */
+export const DETAIL_COLUMNS: AppColumnLeafDef[] = [
     {field: 'StyleCode', title: '款号', width: 96},
     {field: 'Number', title: '款式数量', width: 76, dataType: 'int'},
     {field: 'ProduceName', title: '款式描述', width: 130},
