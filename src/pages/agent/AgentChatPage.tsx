@@ -130,14 +130,15 @@ const AgentChatPage: React.FC<AgentChatPageProps> = ({ embedded = false }) => {
         }
 
         if (answer && !streaming) {
-          const turnId = item.turnId;
           base.footer = (
             <AgentMessageFooter
               text={answer.text}
               createdAt={item.createdAt}
+              messageKey={item.key}
+              onRetry={retry}
               truncated={item.truncated}
-              onReplay={turnId ? () => replayTurn(turnId) : undefined}
-              onRetry={() => retry(item.key)}
+              turnId={item.turnId}
+              onReplay={replayTurn}
             />
           );
         }

@@ -30,6 +30,7 @@ import {
 } from '../protocol';
 import type { AgentSessionPage, UIResponsePayload } from '../protocol';
 import type { AgentHello, AgentTransport, AgentUIRequest } from './types';
+import { installFrameTrace, traceIncoming, traceUplink } from './frame-trace';
 
 /** 上行请求的类别：决定响应回来时用哪种方式解析 */
 type PendingKind = 'chat' | 'history' | 'replay' | 'sessions';
@@ -44,6 +45,8 @@ const HANDSHAKE_FAIL_WINDOW = 2_000;
 export type TokenSource = string | (() => string | undefined);
 
 export function createWebSocketTransport(url: string, token?: TokenSource): AgentTransport {
+  if (import.meta.env.DEV) installFrameTrace();
+
   const eventListeners = new Set<(event: import('../protocol').AgentStreamEvent) => void>();
   const statusListeners = new Set<(status: AgentConnectionStatus) => void>();
   const helloListeners = new Set<(hello: AgentHello) => void>();
@@ -250,11 +253,10 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
     if (!payload) return;
 
     const respond = (body: UIResponsePayload) => {
-      rawPost(
-        JSON.stringify(
-          buildUIResponse(body, { replyTo: envelope.id, sessionID: envelope.sessionID }),
-        ),
-      );
+      const reply = buildUIResponse(body, { replyTo: envelope.id, sessionID: envelope.sessionID });
+      // 答了多久：服务端此刻正卡在同步等待里，这段时间不会产生任何下行帧
+      if (import.meta.env.DEV) traceUplink(reply);
+      rawPost(JSON.stringify(reply));
     };
 
     if (uiListeners.size === 0) {
@@ -358,6 +360,11 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
       try {
         envelope = JSON.parse(frame.data) as AgentEnvelope;
       } catch {
+        return;
+      }
+      // 开发期打点：到达 → 同步处理 → 下一次绘制，用来定位「帧到了但界面不动」
+      if (import.meta.env.DEV) {
+        traceIncoming(envelope, frame.data.length, () => handle(envelope));
         return;
       }
       handle(envelope);

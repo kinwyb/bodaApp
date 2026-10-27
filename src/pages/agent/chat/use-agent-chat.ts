@@ -21,6 +21,7 @@ import { createInitialConversations } from '../mock/fixtures';
 import type { AgentChatState } from './actions';
 import { createConversation, nextMessageKey } from './actions';
 import { chatReducer } from './reducer';
+import { createStreamBuffer } from './stream-buffer';
 
 function createInitialState(): AgentChatState {
   // 演示模式给几条带内容的会话；真实模式只留一个空会话，
@@ -103,6 +104,8 @@ export function useAgentChat(): AgentChatApi {
   const stateRef = useRef(state);
   /** send / retry 要读当前 agent，但它们的 useCallback 依赖是空的 */
   const agentRef = useRef(agent);
+  /** 文字增量缓冲：send / retry 会动到「正在生成的那条消息」，动手前先把缓冲落地 */
+  const streamBufferRef = useRef<ReturnType<typeof createStreamBuffer> | null>(null);
   /** 会话列表的复合翻页游标（服务端给什么就原样回传什么） */
   const sessionsCursorRef = useRef<{ beforeLastUpdate?: number; beforeThreadID?: string }>({});
   /** 本次会话列表请求是「整体刷新」还是「翻页追加」，响应回来时要按它合并 */
@@ -120,38 +123,32 @@ export function useAgentChat(): AgentChatApi {
     const transport = createAgentTransport();
     transportRef.current = transport;
 
+    /*
+     * 正文 / 思考的增量按帧合并再进 reducer（chat/stream-buffer.ts）。
+     * 后端 token 帧一秒能到上百条，逐条渲染会让主线程长期满载：
+     * 服务端早就发完了，界面却还在慢慢追，还顺手拖慢 ui.request 的作答。
+     */
+    const streamBuffer = createStreamBuffer((action) => dispatch(action));
+    streamBufferRef.current = streamBuffer;
+
     const offEvent = transport.onEvent((event) => {
       // conversationId 为空的是连接级错误
       if (!event.conversationId) {
         if (event.type === 'error') setLastError(event.message);
         return;
       }
+      if (event.type === 'text' || event.type === 'reasoning') {
+        streamBuffer.push(event);
+        return;
+      }
+      // 其余事件顺序敏感（工具步、审批、一轮结束…）：先把缓冲里的文字落地
+      streamBuffer.flush();
       switch (event.type) {
         case 'reply-start':
           dispatch({
             type: 'replyStart',
             conversationKey: event.conversationId,
             messageKey: nextMessageKey('ai'),
-          });
-          break;
-        case 'text':
-          dispatch({
-            type: 'appendText',
-            conversationKey: event.conversationId,
-            text: event.text,
-            replace: event.replace,
-            eventId: event.eventId,
-            done: event.done,
-          });
-          break;
-        case 'reasoning':
-          dispatch({
-            type: 'appendReasoning',
-            conversationKey: event.conversationId,
-            text: event.text,
-            replace: event.replace,
-            eventId: event.eventId,
-            done: event.done,
           });
           break;
         case 'tool':
@@ -260,6 +257,8 @@ export function useAgentChat(): AgentChatApi {
       offHello();
       offSessions();
       offUI();
+      streamBuffer.cancel();
+      streamBufferRef.current = null;
       transport.disconnect();
       transportRef.current = null;
     };
@@ -336,6 +335,9 @@ export function useAgentChat(): AgentChatApi {
     const question = text.trim();
     if (!question) return;
 
+    // 上一轮还没落屏的文字先落地：否则它会并进这次新插入的占位消息里
+    streamBufferRef.current?.flush();
+
     const conversationKey = stateRef.current.activeKey;
     const createdAt = Date.now();
     const userMessage: AgentMessage = {
@@ -384,6 +386,8 @@ export function useAgentChat(): AgentChatApi {
   /** 重跑某条助手回答：拿它前面最近的一条用户消息重新发一遍 */
   const retry = useCallback((messageKey: string) => {
     const { activeKey, conversations } = stateRef.current;
+    // resetReply 要清空这条回答：缓冲里的旧帧必须在清空之前落地，不能被清进新内容
+    streamBufferRef.current?.flush();
     const conversation = conversations.find((item) => item.key === activeKey);
     if (!conversation) return;
 

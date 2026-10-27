@@ -43,6 +43,14 @@ function fileCardType(type?: string): 'file' | 'image' | 'audio' | 'video' | und
   }
 }
 
+/*
+ * XMarkdown 是 React.memo 的，但 streaming 每次渲染新建对象就会让 memo 失效：
+ * 流式中每个已结束的正文段都要跟着重新解析一遍整段 Markdown，
+ * 一段长回答里片段越多、每帧越贵。这里换成两个常量对象，只有「当前这段」会重解析。
+ */
+const MARKDOWN_STREAMING = { hasNextChunk: true, tail: true };
+const MARKDOWN_IDLE = { hasNextChunk: false, tail: false };
+
 /** 渲染单元：相邻的工具步合成一个链，其余一项一块 */
 type TimelineBlock =
   | { kind: 'reasoning'; key: string; item: Extract<AgentTimelineItem, { kind: 'reasoning' }> }
@@ -152,7 +160,7 @@ export const AgentAnswer: React.FC<{ content: AgentAssistantContent; streaming: 
             className="agent-markdown"
             content={block.item.text}
             openLinksInNewTab
-            streaming={{ hasNextChunk: active, tail: active }}
+            streaming={active ? MARKDOWN_STREAMING : MARKDOWN_IDLE}
           />
         );
       })}
