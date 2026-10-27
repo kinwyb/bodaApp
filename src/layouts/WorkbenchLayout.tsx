@@ -12,7 +12,7 @@
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { Button, Tooltip } from 'antd';
+import { Button, ConfigProvider, Tooltip } from 'antd';
 import { MenuFoldOutlined, MenuUnfoldOutlined, RobotOutlined } from '@ant-design/icons';
 
 import AgentChatPage from '../pages/agent';
@@ -153,59 +153,72 @@ const WorkbenchLayout: React.FC = () => {
   }, []);
 
   return (
-    // 主界面在左、助手在右；助手收起时只留一条 44px 窄轨（图标 + 竖排文字），点一下展开
-    <div className="workbench">
-      <div className="workbench-main">
-        <MainLayout />
-      </div>
+    /*
+     * 关掉弹窗的焦点锁（focus trap）。
+     *
+     * antd 的 Modal 默认会把焦点锁在弹窗内：`@rc-component/util` 的 useLockFocus 挂了一个
+     * window 级 focusin 监听，焦点一旦离开弹窗就立刻被抢回第一个可聚焦元素。
+     * 遮罩虽然只盖左侧了，右侧助手还是点不进输入框 —— 点了、焦点立刻被夺走。
+     *
+     * 关掉之后右键/点击/输入都正常；代价是弹窗内按 Tab 不再循环（会跑到背后页面上），
+     * 键盘用户少了点约束，但换来助手能在弹窗开着时继续用，是这里更想要的行为。
+     * 只包在工作台里：/app、/agent、登录页的弹窗保持 antd 默认。
+     */
+    <ConfigProvider modal={{ focusable: { trap: false } }}>
+      {/* 主界面在左、助手在右；助手收起时只留一条 44px 窄轨（图标 + 竖排文字），点一下展开 */}
+      <div className="workbench">
+        <div className="workbench-main">
+          <MainLayout />
+        </div>
 
-      {/* 分隔条在助手左边：向右收、向左扩 */}
-      {collapsed ? null : (
+        {/* 分隔条在助手左边：向右收、向左扩 */}
+        {collapsed ? null : (
+          <div
+            className="workbench-divider"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="拖动调整助手面板宽度"
+            onPointerDown={handleDragStart}
+            onDoubleClick={handleResetWidth}
+          >
+            <Tooltip title="收起助手" placement="left">
+              {/* 收起按钮放在分隔条上：这里已经有「向右收」的视觉语义，不必再占顶栏位置。
+                  pointerdown 必须拦住，否则按一下就变成开始拖拽。 */}
+              <button
+                type="button"
+                className="workbench-divider-handle"
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={() => setCollapsed(true)}
+              >
+                <MenuUnfoldOutlined />
+              </button>
+            </Tooltip>
+          </div>
+        )}
+
+        {/*
+          收起时用 display:none 而不是卸载组件：AgentChatPage 一旦卸载，ws 连接会断、
+          正在生成的回答和会话列表都会丢，展开后又得重连重拉。
+        */}
         <div
-          className="workbench-divider"
-          role="separator"
-          aria-orientation="vertical"
-          aria-label="拖动调整助手面板宽度"
-          onPointerDown={handleDragStart}
-          onDoubleClick={handleResetWidth}
+          className={`workbench-agent${collapsed ? ' workbench-agent-hidden' : ''}`}
+          style={{ width: agentWidth }}
         >
-          <Tooltip title="收起助手" placement="left">
-            {/* 收起按钮放在分隔条上：这里已经有「向右收」的视觉语义，不必再占顶栏位置。
-                pointerdown 必须拦住，否则按一下就变成开始拖拽。 */}
-            <button
-              type="button"
-              className="workbench-divider-handle"
-              onPointerDown={(event) => event.stopPropagation()}
-              onClick={() => setCollapsed(true)}
-            >
-              <MenuUnfoldOutlined />
-            </button>
-          </Tooltip>
+          <AgentChatPage embedded />
         </div>
-      )}
 
-      {/*
-        收起时用 display:none 而不是卸载组件：AgentChatPage 一旦卸载，ws 连接会断、
-        正在生成的回答和会话列表都会丢，展开后又得重连重拉。
-      */}
-      <div
-        className={`workbench-agent${collapsed ? ' workbench-agent-hidden' : ''}`}
-        style={{ width: agentWidth }}
-      >
-        <AgentChatPage embedded />
+        {collapsed ? (
+          <div className="workbench-rail">
+            <Tooltip title="展开智能助手" placement="left">
+              <Button type="text" icon={<MenuFoldOutlined />} onClick={() => setCollapsed(false)} />
+            </Tooltip>
+            <RobotOutlined className="workbench-rail-icon" />
+            {/* 竖排文字：图标不能塞进这段里（writing-mode 会把它一起转成竖的） */}
+            <span className="workbench-rail-text">智能助手</span>
+          </div>
+        ) : null}
       </div>
-
-      {collapsed ? (
-        <div className="workbench-rail">
-          <Tooltip title="展开智能助手" placement="left">
-            <Button type="text" icon={<MenuFoldOutlined />} onClick={() => setCollapsed(false)} />
-          </Tooltip>
-          <RobotOutlined className="workbench-rail-icon" />
-          {/* 竖排文字：图标不能塞进这段里（writing-mode 会把它一起转成竖的） */}
-          <span className="workbench-rail-text">智能助手</span>
-        </div>
-      ) : null}
-    </div>
+    </ConfigProvider>
   );
 };
 
