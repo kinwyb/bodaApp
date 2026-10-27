@@ -11,5 +11,6 @@
 
 export { createUIRequestHandler } from './handler';
 export { currentRev } from './store';
+export { bridgedViewPaths, isBridgedView } from './bridged';
 export type { UIBridgeHandler, UIBridgeHost, UIDialogHost, UIWorkbenchHost } from './types';
 export { useUIBridgeDialog, useUIBridgeHost, useWorkbenchBridge } from './use-ui-bridge-host';

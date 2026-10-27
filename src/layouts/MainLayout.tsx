@@ -34,7 +34,7 @@ import type {DesktopMenu} from '../api';
 import {isNavigableMenu} from '../services';
 import Dashboard from '../pages/Dashboard';
 import {resolveView} from '../pages/registry';
-import {useWorkbenchBridge} from '../pages/agent/ui-bridge';
+import {isBridgedView, useWorkbenchBridge} from '../pages/agent/ui-bridge';
 import type {UINavItem} from '../pages/agent/protocol';
 import type {ViewTrailItem} from '../pages/types';
 import {isDebugEnv} from "@/utils";
@@ -182,18 +182,23 @@ const MainLayout: React.FC = () => {
     const menuItems = useMemo(() => buildMenuItems(displayTree, 0), [displayTree]);
 
     /**
-     * 界面桥用的导航清单：权限过滤后的菜单，平铺成 {view, title, trail}。
+     * 界面桥用的导航清单：权限过滤后的菜单，**只留已接入界面桥的页面**，平铺成 {view, title, trail}。
      *
      * 用菜单的 View 与名称而不是 URL：模型按业务名称选页面，猜 URL 对它没有意义
      * （页面解析走 `resolveView` 的「精确命中 → 逐级取祖先 → 兜底列表页」规则）。
+     *
+     * 为什么过滤：没接桥的页面（通用列表页 ViewPage 就是）agent 打开后既看不到数据、
+     * 也执行不了任何命令，列出来只会让它白跑一趟。判定依据是页面目录下有没有 `bridged.ts`。
      */
     const navItems = useMemo<UINavItem[]>(
         () =>
-            [...menuMetaMap.entries()].map(([view, meta]) => ({
-                view,
-                title: meta.label,
-                trail: meta.trail.map((item) => item.name),
-            })),
+            [...menuMetaMap.entries()]
+                .filter(([view]) => isBridgedView(view))
+                .map(([view, meta]) => ({
+                    view,
+                    title: meta.label,
+                    trail: meta.trail.map((item) => item.name),
+                })),
         [menuMetaMap],
     );
 
@@ -289,6 +294,8 @@ const MainLayout: React.FC = () => {
     useWorkbenchBridge({
         currentView: () => activeView,
         navigation: () => navItems,
+        // 菜单里有没有这一项（不论接没接桥）：桥用它把 navigate 的失败原因说准
+        canOpen: (view) => menuMetaMap.has(view),
         openView: (view, params) => tabsApi.openView(view, params),
     });
 

@@ -1,4 +1,6 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
+import { isDebugEnv } from '@/utils';
+import { bridgedViewPaths, isBridgedView } from './bridged';
 import { registerDialogHost, registerPageHost, registerWorkbenchHost } from './store';
 import type { UIBridgeHost, UIDialogHost, UIWorkbenchHost } from './types';
 
@@ -23,7 +25,21 @@ export function useUIBridgeHost(view: string, host: UIBridgeHost): void {
   });
 
   // 注册的是 getter 而不是宿主对象本身，所以宿主换了也不用重新注册
-  useEffect(() => registerPageHost(view, () => ref.current), [view]);
+  useEffect(() => {
+    /*
+     * 开发期兜底：页面接了桥，但目录下没建 `bridged.ts`。
+     *
+     * 这种情况下功能全都在，唯独工作台的导航清单里看不到这一页 —— agent 不会自己撞上来，
+     * 人也就不会发现漏了标记。宁可在控制台吵一句。
+     */
+    if (isDebugEnv && !isBridgedView(view)) {
+      console.error(
+        `[ui-bridge] ${view} 注册了界面桥，但它的页面目录下没有 bridged.ts，` +
+          `因此不会出现在 agent 的可导航清单里。已接入的页面：${bridgedViewPaths().join(', ') || '（无）'}`,
+      );
+    }
+    return registerPageHost(view, () => ref.current);
+  }, [view]);
 }
 
 /**

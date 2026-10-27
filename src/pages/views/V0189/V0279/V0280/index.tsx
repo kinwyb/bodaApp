@@ -13,11 +13,11 @@ import type {
 import {FilterTable} from '@/components/grid-table';
 import {PageBreadcrumb} from '@/components/PageBreadcrumb';
 import {useUIBridgeHost} from '@/pages/agent/ui-bridge';
-import type {UIField, UIGuide} from '@/pages/agent/protocol';
 import type {ViewPageProps} from '@/pages/types';
 import {useTabs} from '@/store/tabs';
 import {yupaiService} from '@/services/yupai.ts';
 import {isBlank} from '@/utils';
+import {createYupaiOrderBridge, type YupaiOrderBridgeContext} from './bridged';
 import {buildPreorderColumns} from './columns';
 import YupaiOrderEdit from './models/yupaiOrderEdit';
 import YupaiOrderMasterDetail from './models/yupaiOrderMasterDetail.tsx';
@@ -37,62 +37,12 @@ import {useYupaiOrderCommands} from './command';
 import {YupaiOrderLogModal} from "@/pages/views/V0189/V0279/V0280/models/yupaiOrderLog.tsx";
 
 /**
- * 界面桥用的识别列：能让 agent 指认一行的字段，**不是全部列**。
- * 完整列定义给表格用，这里只挑几个够定位的，避免把整张表塞进模型上下文。
- */
-const SNAPSHOT_COLUMNS = [
-    {field: 'OrderCode', title: '订单号'},
-    {field: 'YPDate', title: '预订日期'},
-    {field: 'Ywy', title: '业务员'},
-    {field: 'Qty', title: '总数量'},
-];
-
-/** 快照一次最多给多少行；超出部分靠筛选缩小范围，而不是全量塞给模型 */
-const SNAPSHOT_ROW_LIMIT = 20;
-
-/**
- * 页面自述：告诉 agent 这一页该怎么操作。
+ * V0189_V0279_V0280 计划管理 > 预订单 > 预订单管理
  *
- * 只写快照里推不出来的东西 —— 操作顺序、前置条件、业务术语、陷阱。
- * 两条禁忌：不写命令清单（命令已经在 actions 里，再写一份就是对不上的平行维护）；
- * 不从页面数据生成（这里是可信内容，data 才是不可信内容）。
+ * 界面桥的声明全在 `./bridged.ts`（guide、快照形状、命令装配）：**那个文件存在本身就是
+ * 「本页接入了界面桥」的标记**，工作台的导航清单靠它判定。所以本文件里没有任何桥的细节，
+ * 只有「把当前状态交出去」这一句。
  */
-const PREORDER_GUIDE: UIGuide = {
-    summary: '预订单管理：按条件查询预订单，并对选中的单据执行编辑、发布、分批、查看变更日志等操作',
-    steps: [
-        '改条件用 filter.set（参数名见该 action 的 params），等列表变成你要的范围再动单据',
-        '删除 / 发布 / 分批 / 复制 要求先选中一行：本页还没开放选择命令，需要请用户在表格里点选',
-        '新增 / 编辑 会打开表单弹窗，弹出后快照会切成表单那一层（见它自己的 guide）',
-    ],
-    terms: {
-        产地: 'workPlace，只可选「越南工厂,义乌工厂」',
-        业务员: 'salesman',
-        关键字: 'keyword',
-    },
-    cautions: ['命令被禁用时先看 disabledReason，不要反复重试'],
-};
-
-/** 取一行的识别列，行 ID 用业务主键（不是行号 —— 排序一变行号就全错） */
-function snapshotRow(record: YupaiOrder): Record<string, unknown> {
-    const source = record as unknown as Record<string, unknown>;
-    const picked: Record<string, unknown> = {rowId: source.ID};
-    SNAPSHOT_COLUMNS.forEach((column) => {
-        picked[column.field] = source[column.field];
-    });
-    return picked;
-}
-
-/** 把 agent 传来的筛选参数收敛成查询条件：只认已知字段，避免脏值进 state */
-function toQueryPatch(params: Record<string, unknown>): YupaiOrderQuery {
-    const patch: YupaiOrderQuery = {page: 1};
-    if (typeof params.keyword === 'string') patch.keyword = params.keyword;
-    if (typeof params.salesman === 'string') patch.salesman = params.salesman;
-    if (typeof params.workPlace === 'string') patch.workPlace = params.workPlace;
-    if (typeof params.isDel === 'boolean') patch.isDel = params.isDel ? 1 : 0;
-    return patch;
-}
-
-/** V0189_V0279_V0280 计划管理 > 预订单 > 预订单管理 */
 const YupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
     const {message, modal} = App.useApp();
     const {openView} = useTabs();
@@ -414,118 +364,44 @@ const YupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
         };
     }, []);
 
-    /** 快照里的列表摘要：识别列 + 前若干行，行 ID 用业务主键 */
-    const snapshotRows = useMemo(
-        () => dataSource.slice(0, SNAPSHOT_ROW_LIMIT).map(snapshotRow),
-        [dataSource],
+    /**
+     * 用新条件重新查询：先把条件落到 state（页面的 useEffect 会跟着拉一次），
+     * 再显式等这一次查询返回 —— 桥要等结果再回执，否则模型拿到的快照还是旧数据。
+     */
+    const applyQuery = useCallback(
+        async (next: YupaiOrderQuery) => {
+            setQuery(next);
+            await loadData(next);
+        },
+        [loadData],
     );
 
-    /**
-     * 快照里的筛选条件：同一份数据既当「当前值」发布，也当 filter.set 的参数声明 ——
-     * 一处维护，不会出现「filters 里有产地、命令里却没有」这种对不上的情况。
-     */
-    const snapshotFilters = useMemo<UIField[]>(
-        () => [
-            {id: 'keyword', label: '关键字', type: 'text', value: query.keyword ?? ''},
-            {id: 'salesman', label: '业务员', type: 'text', value: query.salesman ?? ''},
-            {id: 'workPlace', label: '产地', type: 'text', value: query.workPlace ?? ''},
-            {id: 'isDel', label: '包含已删除', type: 'switch', value: query.isDel === 1},
-        ],
-        [query.keyword, query.salesman, query.workPlace, query.isDel],
+    /** 交给桥的状态与能力快照：桥通过取值函数读它，不直接持有 */
+    const bridgeContext = useMemo<YupaiOrderBridgeContext>(
+        () => ({
+            view,
+            commands,
+            query,
+            dataSource,
+            total,
+            activeRow,
+            activeRowCount,
+            ready: snapshotReady,
+            applyQuery,
+        }),
+        [view, commands, query, dataSource, total, activeRow, activeRowCount, snapshotReady, applyQuery],
     );
 
     /**
      * 界面桥：把「本页有哪些命令、当前看到什么」发布给 agent。
      *
-     * 动作表直接来自 commands（CommandBar 的命令项），**不另维护一份描述** ——
-     * 命令 ID 就是 CommandItem.key，与页面上的按钮一一对应，权限过滤也已经由 CommandBar 做过。
+     * 装配全在 `./bridged.ts`，这里只交出状态与能力（含 applyQuery）。
+     * 传的是取值函数而不是对象本身：桥在 snapshot / 命令执行的那一刻才读，
+     * 所以宿主不必跟着每次渲染重建。
+     * 那个文件的存在即「本页接入了界面桥」的标记，工作台的导航清单靠它判定。
      */
-    useUIBridgeHost(view, {
-        /*
-         * 页面这一层只描述列表。
-         *
-         * 弹窗打开时的覆盖（动作换成 form.*、列表数据收起、guide 换成表单那份）由桥统一做，
-         * 弹窗自己注册 —— 所以这里没有任何 form 相关的分支，页面也不需要认识弹窗的字段。
-         */
-        snapshot: () => ({
-            view,
-            title: '计划管理 > 预订单 > 预订单管理',
-            mode: 'list',
-            guide: PREORDER_GUIDE,
-            actions: [
-                ...commands.map((item) => ({
-                    id: item.key,
-                    label: item.label,
-                    group: 'toolbar' as const,
-                    danger: item.danger,
-                    disabled: item.disabled,
-                    // 本页命令的 disabled 几乎都来自「没有选中行」，写清原因省得模型反复试错
-                    disabledReason: item.disabled ? '需要先选择一行' : undefined,
-                })),
-                {
-                    // 改筛选条件本身也是一条命令。只发 filters 不发命令，模型就只能干猜
-                    id: 'filter.set',
-                    label: '设置筛选条件',
-                    group: 'filter' as const,
-                    params: snapshotFilters.map((field) => ({
-                        name: field.id,
-                        type: field.type,
-                        hint: field.label,
-                    })),
-                },
-            ],
-            filters: snapshotFilters,
-            selection: {
-                count: activeRowCount,
-                activeRowId: activeRow?.ID ?? null,
-                rowIds: activeRow ? [activeRow.ID] : [],
-            },
-            data: {
-                total,
-                loaded: dataSource.length,
-                shown: snapshotRows.length,
-                truncated: snapshotRows.length < dataSource.length,
-                columns: SNAPSHOT_COLUMNS,
-                rows: snapshotRows,
-                active: activeRow ? snapshotRow(activeRow) : undefined,
-            },
-        }),
-        handlers: {
-            /**
-             * 命令条上的每个按钮**直接用它自己的 onClick**，不另写一份实现。
-             *
-             * 抄一份的代价是行为会分叉：按钮改了、agent 那条没改，或者反过来。
-             * 这里只是把它包一层，顺便回一句人话给模型当回执（否则 result 是 null，
-             * 模型只能猜按钮到底按下去没有）。
-             */
-            ...Object.fromEntries(
-                commands
-                    .filter((item) => item.onClick)
-                    .map((item) => [
-                        item.key,
-                        () => {
-                            item.onClick?.();
-                            return `已执行：${item.label}`;
-                        },
-                    ]),
-            ),
-            /**
-             * 语义命令：改查询条件并按新条件重新加载。
-             *
-             * 这里等查询真的返回再回执：否则回执里那份快照还是旧数据，
-             * 模型会以为筛选没生效（页面的 useEffect 也会因 query 变化再拉一次，
-             * 两个请求内容一致，真实实现应收敛成一条加载路径）。
-             */
-            'filter.set': async (params) => {
-                const next = {...query, ...toQueryPatch(params)};
-                setQuery(next);
-                await loadData(next);
-                return `已按 ${JSON.stringify(params)} 重新查询`;
-            },
-        },
-        // 列表加载完成才算就绪。弹窗自己的就绪由弹窗那层报（见 useUIBridgeDialog 的 ready）
-        ready: () => snapshotReady,
-    });
+    const bridge = useMemo(() => createYupaiOrderBridge(() => bridgeContext), [bridgeContext]);
+    useUIBridgeHost(view, bridge);
 
     return (
         <>

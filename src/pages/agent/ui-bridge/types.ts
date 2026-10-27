@@ -34,8 +34,22 @@ export type UIBridgeHost = {
 export type UIWorkbenchHost = {
   /** 当前激活页面的 view；停在主页时为空串 */
   currentView: () => string;
-  /** 可打开的页面清单（权限过滤后的菜单，已平铺成 {view, title, trail}） */
+  /**
+   * 可操作的页面清单（权限过滤后的菜单里，**只保留已接入界面桥的页面**，
+   * 已平铺成 {view, title, trail}）。
+   *
+   * 没接桥的页面 agent 既看不见内容也执行不了命令，列出来只会让它白跑一趟
+   * （navigate 过去再超时）。哪些算「已接入」由目录下的 `bridged.ts` 决定，
+   * 见 `bridged.ts` / `isBridgedView`。
+   */
   navigation: () => UINavItem[];
+  /**
+   * 这个 view 是否在当前账号的菜单里（不论有没有接入桥）。
+   *
+   * 只用于把 navigate 的失败原因说准：菜单里没有 = 没权限，菜单里有 = 这页没接入。
+   * 两种原因的排查方向完全不同，混成一句话会让人去查权限。
+   */
+  canOpen?: (view: string) => boolean;
   /** 打开或激活一个页面，等价于点左侧菜单 */
   openView: (view: string, params?: Record<string, unknown>) => void;
 };

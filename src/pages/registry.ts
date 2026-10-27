@@ -37,18 +37,30 @@ export function registeredViews(): string[] {
 }
 
 /**
+ * 解析 View 会落到哪个**已登记**的路径上（没有登记则为 null）：
+ * 1. 完整 View 精确命中
+ * 2. 逐级向上取最近注册的祖先 View
+ *
+ * 单独暴露它，是因为「这个 view 由哪个组件渲染」与「它接没接界面桥」必须用同一条解析链 ——
+ * 否则给父目录接了桥，子目录自己没接也会被算成已接入（见 agent/ui-bridge/bridged.ts）。
+ */
+export function resolveViewPath(view: string): string | null {
+  if (viewRegistry.has(view)) return view;
+  const segments = view.split('_');
+  for (let i = segments.length - 1; i > 0; i -= 1) {
+    const ancestor = segments.slice(0, i).join('_');
+    if (viewRegistry.has(ancestor)) return ancestor;
+  }
+  return null;
+}
+
+/**
  * 解析 View 对应的页面组件：
  * 1. 完整 View 精确命中
  * 2. 逐级向上取最近注册的祖先 View
  * 3. 回退到通用列表页 ViewPage
  */
 export function resolveView(view: string): ViewComponent {
-  const exact = viewRegistry.get(view);
-  if (exact) return exact;
-  const segments = view.split('_');
-  for (let i = segments.length - 1; i > 0; i -= 1) {
-    const ancestor = viewRegistry.get(segments.slice(0, i).join('_'));
-    if (ancestor) return ancestor;
-  }
-  return ViewPage;
+  const path = resolveViewPath(view);
+  return (path && viewRegistry.get(path)) || ViewPage;
 }

@@ -213,7 +213,10 @@ async function runNavigate(
     }
     const matches = searchNavigation(workbench, query);
     if (matches.length === 0) {
-      throw new Error(`没有匹配「${query}」的页面（名称不存在，或当前账号无权访问）`);
+      throw new Error(
+        `没有匹配「${query}」的页面（名称不存在、当前账号无权访问，或该页面还没接入界面桥 —— ` +
+          '没接入的页面 agent 既看不到内容也执行不了命令，所以不在检索范围里）',
+      );
     }
     return {
       view: currentViewOf(workbench),
@@ -223,15 +226,27 @@ async function runNavigate(
 
   const target = workbench.navigation().find((item) => item.view === view);
   if (!target) {
+    /*
+     * 两种失败原因分开说，排查方向完全不同：
+     * 菜单里没有 = 账号没权限 / View 写错；菜单里有 = 这页没接入界面桥。
+     * 混成一句话，人会跑去查权限，而真正要做的是给那个目录补 bridged.ts。
+     */
+    if (workbench.canOpen && !workbench.canOpen(view)) {
+      throw new Error(
+        `页面不可用：${view}（不在当前账号可见的菜单里）。可以先用 ui_navigate 的 query 搜索页面名`,
+      );
+    }
     throw new Error(
-      `页面不可用：${view}（不在当前账号可见的菜单里）。可以先用 ui_navigate 的 query 搜索页面名`,
+      `页面 ${view} 还没接入界面桥：agent 既看不到它的内容、也执行不了它的命令，` +
+        '所以不会出现在可导航清单里。可以在 ui_navigate 的 query 里搜别的页面名',
     );
   }
 
   workbench.openView(view);
   if (!(await waitForReady(view, NAVIGATE_TIMEOUT_MS))) {
     throw new Error(
-      `打开页面超时（${NAVIGATE_TIMEOUT_MS}ms 内未就绪）：页面可能加载失败，或该页面还没接入界面桥`,
+      `打开页面超时（${NAVIGATE_TIMEOUT_MS}ms 内未就绪）：页面可能加载失败，` +
+        '或它声明了 bridged.ts 却没有真正注册界面桥（useUIBridgeHost 没执行）',
     );
   }
   return { view, result: `已打开：${target.title}` };
