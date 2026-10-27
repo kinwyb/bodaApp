@@ -23,6 +23,18 @@ import './workbench.css';
 const WIDTH_KEY = 'boda_workbench.agent_width';
 const COLLAPSED_KEY = 'boda_workbench.agent_collapsed';
 
+/**
+ * 右边助手实际占掉的宽度，写到 :root 上供 workbench.css 收窄弹窗遮罩用。
+ *
+ * 必须写 :root（html）而不是 .workbench：antd 的 Modal 挂在 body 下，
+ * 不是 .workbench 的后代，读不到局部作用域的 CSS 变量。
+ */
+const OCCUPIED_VAR = '--workbench-right-occupied';
+/** 收起态窄轨宽度（与 .workbench-rail 的 flex-basis 对齐） */
+const RAIL_WIDTH = 44;
+/** 分隔条宽度（与 .workbench-divider 的 flex-basis 对齐） */
+const DIVIDER_WIDTH = 6;
+
 /** 首次进入时的默认宽度（够放下气泡与输入框，又不至于把后台压得太窄） */
 const DEFAULT_WIDTH = 480;
 /** 左侧最小宽度：再窄输入框和顶栏就挤成两行了（实测 360 以内顶栏开始掉行） */
@@ -84,6 +96,23 @@ const WorkbenchLayout: React.FC = () => {
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  /**
+   * 把「助手占掉多宽」广播给全局，让 antd 的弹窗遮罩只盖住左侧后台。
+   *
+   * antd 的 Modal 挂在 body 下、position:fixed 铺满视口，默认会把右侧助手一起盖住 ——
+   * 而助手的价值恰恰是弹窗填到一半时补充说明、指着页面继续操作，被盖住就没法用了。
+   * 宽度跟着拖拽与收起实时变，所以用 CSS 变量而不是写死数值；离开工作台时清掉
+   * （其他路由没有这个变量 → 弹窗照旧盖满全屏）。
+   */
+  useEffect(() => {
+    const root = document.documentElement;
+    const occupied = collapsed ? RAIL_WIDTH : agentWidth + DIVIDER_WIDTH;
+    root.style.setProperty(OCCUPIED_VAR, `${occupied}px`);
+    return () => {
+      root.style.removeProperty(OCCUPIED_VAR);
+    };
+  }, [agentWidth, collapsed]);
 
   /**
    * 拖拽分隔条调宽度。

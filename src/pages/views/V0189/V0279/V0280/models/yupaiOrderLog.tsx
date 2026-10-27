@@ -77,7 +77,7 @@ export const YupaiOrderLogModal: React.FC<yupaiOrderLogModalProps> = ({
         title={"修改日志"}
         width="94vw"
         destroyOnHidden
-        style={{top: 24, maxWidth: 1600}}
+        style={{top: 24}}
         styles={{
             body: {
                 height: 'calc(50vh - 168px)',

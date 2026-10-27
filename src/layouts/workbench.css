@@ -145,3 +145,37 @@ body.workbench-resizing {
   height: 100%;
   overflow: hidden;
 }
+
+/* ---------------- 弹窗只盖住左侧，不遮助手 ---------------- */
+
+/*
+ * antd 的 Modal 默认挂在 body 下、position:fixed 且 inset:0，打开时整屏铺满，
+ * 右侧助手也被盖住 —— 而助手的价值恰恰是弹窗填到一半时补充说明、指着页面继续操作，
+ * 被盖住就完全不能用了。
+ *
+ * 这里按「助手占掉的宽度」把遮罩与包裹层从右边收窄：
+ * 左侧照常被遮住（点空白关闭弹窗的行为不变），右侧助手保持可见可点。
+ * 宽度由 WorkbenchLayout 实时写到 :root（拖拽分隔条、收起助手都跟着变）；
+ * 不在工作台里的页面没有这个变量，兜底 0px → 弹窗照旧盖满全屏。
+ *
+ * 选择器要带上 .ant-modal-root：antd 自己用的是 :where() 包 hash 类的低权重写法，
+ * 少这一层会输给它的 inset:0。
+ */
+body .ant-modal-root .ant-modal-mask,
+body .ant-modal-root .ant-modal-wrap {
+  right: var(--workbench-right-occupied, 0px);
+}
+
+/*
+ * 弹窗自己的宽度也要收住，否则遮罩虽然只盖左边，弹窗本身仍可能按 60vw 撑出去、
+ * 压在助手身上（拖宽助手后尤其明显）。
+ *
+ * 上限 = min(1600px, 视口 - 助手占位 - 32px)：1600 是大屏的封顶（原本各页面写在
+ * style.maxWidth 里），32px 是两侧各留 16px 的呼吸位。
+ *
+ * 必须 !important：页面上的弹窗普遍用 style={{maxWidth: 1600}} 内联写死了上限，
+ * 内联声明压得过普通类选择器。上限从此只在 CSS 这一处维护，别再往 Modal 上写 maxWidth。
+ */
+body .ant-modal-root .ant-modal {
+  max-width: min(1600px, calc(100vw - var(--workbench-right-occupied, 0px) - 32px)) !important;
+}

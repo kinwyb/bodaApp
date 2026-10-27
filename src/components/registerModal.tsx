@@ -125,7 +125,7 @@ export function RegisterInputModal<TRecord, TViewProps extends object = object>(
             width={width}
             height={height}
             destroyOnHidden
-            style={{top: 24, maxWidth: 1600}}
+            style={{top: 24}}
             styles={{
                 body: {
                     height: 'calc(100vh - 168px)',

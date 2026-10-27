@@ -1058,7 +1058,7 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                 // 关闭即销毁内容：详情表格是 canvas 组件，留在隐藏容器里不但占资源，
                 // 下次打开还会带着上一轮的内部状态被 resize（见下面 !open 分支的说明）。
                 destroyOnHidden
-                style={{top: 24, maxWidth: 1600}}
+                style={{top: 24}}
                 styles={{
                     body: {
                         height: 'calc(100vh - 168px)',

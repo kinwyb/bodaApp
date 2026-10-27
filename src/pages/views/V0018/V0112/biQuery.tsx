@@ -160,7 +160,7 @@ export const BIQueryParam: React.FC<BIQueryParamProps> = ({open, node, onClose, 
             open={open}
             title={"查询条件"}
             destroyOnHidden
-            style={{top: 24, maxWidth: 1600}}
+            style={{top: 24}}
             styles={{
                 body: {
                     display: 'flex',
