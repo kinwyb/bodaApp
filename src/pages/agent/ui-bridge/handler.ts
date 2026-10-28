@@ -6,11 +6,17 @@
  *
  * 三个操作：
  * - observe   合成当前快照：工作台给导航，页面给自己的那一段
- * - act       执行当前页面的命令（必须带 rev）
+ * - act       执行当前页面的命令（必须带 rev）；读命令（readOnly）只回 result、不回快照
  * - navigate  打开/切换页面，等目标页就绪再回执；只给 query 则只搜菜单、不导航
  */
 
-import type { UINavItem, UIRequestPayload, UISnapshot, UISnapshotData } from '../protocol';
+import type {
+  UINavItem,
+  UIRequestPayload,
+  UISnapshot,
+  UISnapshotData,
+  UISnapshotPatch,
+} from '../protocol';
 import { UI_SNAPSHOT_VERSION } from '../protocol';
 import type { AgentUIRequest } from '../transport';
 import { bumpRev, currentRev, getDialogHost, getPageHost, getWorkbenchHost } from './store';
@@ -29,6 +35,14 @@ const READY_POLL_MS = 50;
 const NAVIGATION_LIMIT = 50;
 /** 菜单搜索结果上限 */
 const NAVIGATION_MATCH_LIMIT = 20;
+
+/**
+ * 命令的回执形态（由动作表声明，见 UIAction 的 readOnly / lightweight）：
+ * - `read`  纯读：只回 result
+ * - `light` 只改选中态：回 result + patch
+ * - `full`  其他：回 result + 整页快照，并推进 rev
+ */
+type UIActionMode = 'read' | 'light' | 'full';
 
 /** 创建请求处理器，交给 transport.onUIRequest 订阅 */
 export function createUIRequestHandler(): (request: AgentUIRequest) => void {
@@ -75,7 +89,35 @@ async function answer(request: AgentUIRequest): Promise<void> {
           '请先用 ui_navigate 打开目标页面',
       );
     }
-    const result = await runAction(view, request.payload);
+    const outcome = await runAction(view, request.payload);
+    /*
+     * 读命令到此为止：**不推进版本、不回快照**。
+     *
+     * 翻页读数据是 agent 最频繁的动作（一次几十上百条），如果每次带一份整页快照：
+     * - 上下文被同一份「目录」反复冲刷；
+     * - rev 被推进，模型下一次读还得先重新 observe，一条命令变两条。
+     * 产出本来就在 result 里，快照帮不上忙。
+     */
+    if (outcome.mode === 'read') {
+      request.respond({ ok: true, rev: currentRev(view), result: outcome.value ?? null });
+      return;
+    }
+    /*
+     * 轻量命令（选中行）：只回**变化的段**，不回整页快照，也不推 rev。
+     *
+     * 一份完整快照在预订单页约 3 KB（52 列目录 + guide + 动作表 + 参数说明），
+     * 而选中一行真正改变的是 selection（几十字节）和「哪些命令变可用了」。
+     * 快照里其余部分一个字节没变，重发一遍纯属重复计费。
+     */
+    if (outcome.mode === 'light') {
+      request.respond({
+        ok: true,
+        rev: currentRev(view),
+        result: outcome.value ?? null,
+        patch: buildSnapshotPatch(workbench, view),
+      });
+      return;
+    }
     // 成功操作推进版本：下一次 observe 拿到新 rev，旧快照再拿来操作会被拒
     bumpRev(view);
     /*
@@ -90,7 +132,7 @@ async function answer(request: AgentUIRequest): Promise<void> {
     request.respond({
       ok: true,
       rev: currentRev(view),
-      result: result ?? null,
+      result: outcome.value ?? null,
       snapshot: composeSnapshot(workbench, view),
     });
   } catch (error) {
@@ -116,6 +158,23 @@ function trySnapshot(workbench: UIWorkbenchHost, view: string): UISnapshot | und
   } catch {
     return undefined;
   }
+}
+
+/**
+ * 轻量回执的补丁：**只取快照里真正会变的那几段**。
+ *
+ * 这里仍然会生成一份完整快照 —— 那是浏览器侧的计算（不占 token），
+ * selection / 激活行 / 命令可用性都得从它里面取；要发给模型的只有这三样。
+ */
+function buildSnapshotPatch(workbench: UIWorkbenchHost, view: string): UISnapshotPatch {
+  const snapshot = trySnapshot(workbench, view);
+  if (!snapshot) return {};
+  return {
+    selection: snapshot.selection,
+    activeRowIndex: snapshot.data?.activeRowIndex ?? null,
+    // 选中的目的通常就是「让某些命令变可用」，所以这份清单比整张动作表顶用得多
+    enabled: snapshot.actions.filter((item) => !item.disabled).map((item) => item.id),
+  };
 }
 
 /** 当前激活页面的 view；停在主页时归一成 HOME_VIEW，便于按 view 取宿主与版本 */
@@ -182,7 +241,10 @@ function baseSnapshot(workbench: UIWorkbenchHost, view: string): UISnapshotData 
 }
 
 /** 执行一条命令；任何不满足的前置条件都抛成模型可读的原因 */
-async function runAction(view: string, payload: UIRequestPayload): Promise<unknown> {
+async function runAction(
+  view: string,
+  payload: UIRequestPayload,
+): Promise<{ mode: UIActionMode; value: unknown }> {
   const cmd = payload.cmd ?? '';
   if (!cmd) {
     throw new Error('缺少命令 ID');
@@ -212,7 +274,19 @@ async function runAction(view: string, payload: UIRequestPayload): Promise<unkno
   if (!run) {
     throw new Error(`命令 ${cmd} 还没有接入处理函数`);
   }
-  return await run(payload.params ?? {});
+  const value = await run(payload.params ?? {});
+  /*
+   * 三种回执形态，由动作表声明（见 UIAction 的 readOnly / lightweight）：
+   * - read   纯读：只有 result，不推 rev、不回快照
+   * - light  只改选中态：result + patch，不推 rev
+   * - full   其他：result + 整页快照，推 rev
+   */
+  const mode: UIActionMode = action.readOnly
+    ? 'read'
+    : action.lightweight
+      ? 'light'
+      : 'full';
+  return { mode, value };
 }
 
 /** 打开页面（或在只给 query 时搜菜单），返回落点 view 与给模型看的结果 */

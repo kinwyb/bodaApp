@@ -12,7 +12,6 @@ import type {
     GridTableSelectedRowChangeInfo,
 } from '@/components/grid-table';
 import {FilterTable} from '@/components/grid-table';
-import {filterRecordsByColumns} from '@/components/grid-table/filtering';
 import {PageBreadcrumb} from '@/components/PageBreadcrumb';
 import {useUIBridgeHost} from '@/pages/agent/ui-bridge';
 import type {ViewPageProps} from '@/pages/types';
@@ -63,6 +62,8 @@ const YupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
      * 存成 state 是因为命令项的 disabled 要在渲染时按它算（见 command/changeLog.tsx）。
      */
     const [activeRow, setActiveRow] = useState<YupaiOrder | null>(null);
+    /** activeRow 的 ref 副本：命令 handler 在 await 中途要读最新值（state 得等一次渲染） */
+    const activeRowRef = useRef<YupaiOrder | null>(null);
     const [changedCells, setChangedCells] = useState<Record<string, string[]>>({});
     const [formOpen, setFormOpen] = useState(false);
     const [formMode, setFormMode] = useState<FormMode>('add');
@@ -165,11 +166,18 @@ const YupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
         (info: GridTableSelectedRowChangeInfo) => {
             const record = info.record as YupaiOrder | undefined;
             // 统计行、以及不属于当前页数据的行都不算（与 getActiveRows 同一条过滤）
-            if (!record || info.isSummaryRow) {
-                setActiveRow(null);
-                return;
-            }
-            setActiveRow(dataSource.some((d) => d.ID === record.ID) ? record : null);
+            const next =
+                !record || info.isSummaryRow
+                    ? null
+                    : dataSource.some((d) => d.ID === record.ID)
+                        ? record
+                        : null;
+            /*
+             * 同时写一份 ref：桥的 waitSelected 要立刻读到新值。
+             * 读 state 的话，命令 handler 在 await 中途拿到的是启动时的旧闭包（恒为 null）。
+             */
+            activeRowRef.current = next;
+            setActiveRow(next);
         },
         [dataSource],
     );
@@ -400,56 +408,48 @@ const YupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
     }, [filters])
 
     /**
-     * 用户**当前看到**的数据 = 筛选后的 dataSource，桥的快照只能用它。
+     * 把表格实例交给界面桥。
      *
-     * dataSource 是接口原始数据，用户已经筛掉的行还在里面 —— 拿它拼快照，模型就会
-     * 说出「用户屏幕上根本没有的单据」。判定复用 `filterRecordsByColumns`
-     * （表格内部用的也是同一个函数），两边的条数不会对不上。
-     *
-     * 这里绕了一圈 Set 是因为 `filterRecords` 返回 `Record<string, unknown>[]`，
-     * 而桥的 ctx 要的是 `YupaiOrder[]`；按引用筛回原数组既保住类型，也保住对象本身
-     * （表格里改过值的那一行，桥读到的也是同一份）。
+     * 桥按**显示行号**取数据（用户说「第 5 条」就是这里取到的第 5 行）、按主键选中行，
+     * 而行号跟随排序 / 分组 / 统计行 —— 这些状态只存在于表格里，所以给的是取值函数
+     * 而不是一份数据副本。**页面不再自己复算「筛选后有哪些行」**：那份复算与表格真实显示
+     * 很容易不一致（分组收起、统计行都不在页面视野里），有效性判断统一交给表格。
      */
-    const visibleRecords = useMemo(() => {
-        const visible = new Set(
-            filterRecordsByColumns(dataSource as unknown as Array<Record<string, unknown>>, filters, columns),
-        );
-        return dataSource.filter((record) => visible.has(record as unknown as Record<string, unknown>));
-    }, [dataSource, filters, columns]);
+    const readTable = useCallback(() => tableRef.current, []);
 
-    /**
-     * 编程式选中行（界面桥的 selection.set 用它）。
-     *
-     * 只把 rowId 交给表格 —— 「主键 → 显示行号」的换算只有表格自己知道（排序、分组、
-     * 被收起的分组行都不在页面能算的范围内）。返回实际选中的行数，桥靠它识别无效 rowId。
-     */
-    const selectRows = useCallback(
-        (rowIds: string[]) => tableRef.current?.selectRowsByKeys(rowIds) ?? 0,
-        [],
-    );
+    /** 读激活行的最新值（走 ref；与 readTable 同一条「交给桥自己来读」的路子） */
+    const readActiveRow = useCallback(() => activeRowRef.current, []);
 
     /** 交给桥的状态与能力快照：桥通过取值函数读它，不直接持有 */
     const bridgeContext = useMemo<YupaiOrderBridgeContext>(
         () => ({
             view,
             commands,
-            dataSource: visibleRecords,
             activeRow,
             activeRowCount,
             ready: snapshotReady,
             filter: brigdeFilter,
             applyFilter,
-            selectRows,
+            readTable,
+            readActiveRow,
         }),
-        [view, commands, visibleRecords, activeRow, activeRowCount, snapshotReady, applyFilter, brigdeFilter, selectRows],
+        [
+            view,
+            commands,
+            activeRow,
+            activeRowCount,
+            snapshotReady,
+            applyFilter,
+            brigdeFilter,
+            readTable,
+            readActiveRow,
+        ],
     );
 
     /**
      * 界面桥：把「本页有哪些命令、当前看到什么」发布给 agent。
      *
      * 装配全在 `./bridged.ts`，这里只交出状态与能力（含 applyQuery）。
-     * 传的是取值函数而不是对象本身：桥在 snapshot / 命令执行的那一刻才读，
-     * 所以宿主不必跟着每次渲染重建。
      * 那个文件的存在即「本页接入了界面桥」的标记，工作台的导航清单靠它判定。
      */
     const bridge = useMemo(() => createYupaiOrderBridge(() => bridgeContext), [bridgeContext]);

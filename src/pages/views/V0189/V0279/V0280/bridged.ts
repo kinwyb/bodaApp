@@ -5,18 +5,23 @@
  * （见 `src/pages/agent/ui-bridge/bridged.ts`）。删掉它，本页对 agent 立刻隐身 ——
  * 页面功能不受影响，但模型既看不到这一页、也不会把它列进可导航清单。
  *
- * 两条约束：
+ * 三条约束：
  * - 只放常量与纯函数：不导出组件、不调 hook。页面把「怎么取当前状态」以取值函数传进来，
  *   工厂只做装配 —— 在工厂里调 hook 会变成「在页面的 hook 回调里调 hook」。
  * - 不重复描述命令：动作表直接来自页面的 `commands`（就是 CommandBar 的按钮），
  *   命令 ID 就是 `CommandItem.key`，另维护一份清单必然对不上。
+ * - **表格的读能力全部来自 `createTableBridge`**：列目录、行数、排序、按行号取数据都在
+ *   那一层。这里只补业务部分（筛选条件、选中行、命令条）。
  */
 
 import type {YupaiOrder} from '@/api';
 import type {CommandItem} from '@/components/CommandBar';
+import type {FilterTableApi} from '@/components/grid-table';
 import type {UIField, UIGuide, UISnapshotData} from '@/pages/agent/protocol';
+import {createTableBridge} from '@/pages/agent/ui-bridge';
 import type {UIBridgeHandler, UIBridgeHost} from '@/pages/agent/ui-bridge';
 import {toStringOrEmpty} from '@/utils';
+import {COLUMNS} from './columns';
 
 export interface YupaiOrderFilter {
     WorkPlace?: string,
@@ -24,20 +29,6 @@ export interface YupaiOrderFilter {
     YPDate?: string,
     Ywy?: string,
 }
-
-/**
- * 界面桥用的识别列：能让 agent 指认一行的字段，**不是全部列**。
- * 完整列定义给表格用，这里只挑几个够定位的，避免把整张表塞进模型上下文。
- */
-const SNAPSHOT_COLUMNS = [
-    {field: 'WorkPlace', title: '生产产地'},
-    {field: 'OrderCode', title: '订单号'},
-    {field: 'YPDate', title: '预订日期'},
-    {field: 'Ywy', title: '业务员'},
-];
-
-/** 快照一次最多给多少行；超出部分靠筛选缩小范围，而不是全量塞给模型 */
-const SNAPSHOT_ROW_LIMIT = 20;
 
 /**
  * 页面自述：告诉 agent 这一页该怎么操作。
@@ -49,29 +40,24 @@ const SNAPSHOT_ROW_LIMIT = 20;
 const PREORDER_GUIDE: UIGuide = {
     summary: '预订单管理：按条件查询预订单，并对选中的单据执行编辑、发布、分批、查看变更日志等操作',
     steps: [
+        '数据行不在快照里：用 data.page 传 offset / limit 取，offset 0 = 用户屏幕第 1 行（「第 5 条」就传 offset=4）',
+        '要看表格上没显示的字段（主键、分批明细、状态位等）或核对整单：用 data.row 传 rowId 取完整一行',
         '改条件用 filter.set（参数名见该 action 的 params），等列表变成你要的范围再动单据',
-        '删除 / 发布 / 分批 / 复制 / 设置 要求先选中行：用 selection.set 传 rowIds（取快照 data.rows[].rowId）',
+        '删除 / 发布 / 分批 / 复制 / 设置 要求先选中行：用 data.select 传 rowIds（取 data.page 或 data.active 里的 rowId）',
         '新增 / 编辑 会打开表单弹窗，弹出后快照会切成表单那一层（见它自己的 guide）',
     ],
     terms: {
         生产产地: 'WorkPlace，只可选「越南工厂,义乌工厂」',
-        rowId: '单据的业务主键（不用行号：排序一变行号就全错）',
+        rowId: '单据的业务主键（字段名见 data.rowKey，一般是 ID；不用行号：排序一变行号就全错）',
+        第几条: '用户说的「第 N 条」= data.page 的 offset N-1，与屏幕行号一致（排序后）',
     },
     cautions: [
         '命令被禁用时先看 disabledReason，不要反复重试',
-        'selection.set 只认当前列表里存在的行：目标被筛掉了就先用 filter.set 放宽条件',
+        'data.select 只认当前显示里的行：目标被筛掉了就先用 filter.set 放宽条件',
+        'data.total 是屏幕行数：含分组时的组行（isGroupRow）与底部统计行（summaryRow），回答「共几条」时只数明细行',
+        '行号只在当前排序 / 筛选下成立：改条件或用户重新排序后要重新取，别拿旧行号做删除等操作',
     ],
 };
-
-/** 取一行的识别列，行 ID 用业务主键（不是行号 —— 排序一变行号就全错） */
-function snapshotRow(record: YupaiOrder): Record<string, unknown> {
-    const source = record as unknown as Record<string, unknown>;
-    const picked: Record<string, unknown> = {rowId: source.ID};
-    SNAPSHOT_COLUMNS.forEach((column) => {
-        picked[column.field] = source[column.field];
-    });
-    return picked;
-}
 
 /** 把 agent 传来的筛选参数收敛成查询条件：只认已知字段，避免脏值进 state */
 function toQueryPatch(params: Record<string, unknown>): YupaiOrderFilter {
@@ -84,46 +70,22 @@ function toQueryPatch(params: Record<string, unknown>): YupaiOrderFilter {
 }
 
 /**
- * 解析 rowIds：模型可能给数组、JSON 字符串、逗号分隔的一串，或者干脆只给一个。
- *
- * 这几种都实测出现过（服务端只透传不校验），所以统一收口在这里 ——
- * handler 里再挨个 `typeof` 判一遍的话，每个需要多值的命令都要抄一份。
- */
-function toRowIdList(value: unknown): string[] {
-    const single = (item: unknown): string => (item == null ? '' : String(item).trim());
-    if (Array.isArray(value)) return value.map(single).filter(Boolean);
-    if (typeof value === 'string') {
-        const text = value.trim();
-        // JSON 数组字符串（模型序列化过一遍）
-        if (text.startsWith('[')) {
-            try {
-                const parsed: unknown = JSON.parse(text);
-                if (Array.isArray(parsed)) return parsed.map(single).filter(Boolean);
-            } catch {
-                // 不是合法 JSON 就按分隔符处理，下面接着走
-            }
-        }
-        return text.split(/[,，;；\s]+/).map(single).filter(Boolean);
-    }
-    const one = single(value);
-    return one ? [one] : [];
-}
-
-/**
  * 等页面把选中态落回 state。
  *
- * `selectRows` 只把选中写进表格实例，页面的 `activeRow` / `activeRowCount` 是表格回调驱动的
- * React state，要到下一次渲染才更新。立刻回执的话快照里 selection 仍是空的，
- * 模型会以为没选中，接着再调一次 —— 轮询比「等一帧」稳（并发渲染可能推迟几帧）。
+ * `selectRows` 只把选中写进表格实例，页面的 `activeRow` 是表格回调驱动的 React state，
+ * 要到下一次渲染才更新。命令 handler 在这中间 `await`，而它手里的 ctx 是**启动时**的闭包，
+ * 直接读 `ctx.activeRow` 永远是旧值 —— 所以这里走 `readActiveRow()`（页面用 ref 实现）。
+ *
+ * 轮询而不是「等一帧」：并发渲染可能推迟几帧。
  */
 async function waitForActiveRow(
-    read: () => YupaiOrderBridgeContext,
+    readActiveRow: () => YupaiOrder | null,
     rowId: string,
     timeoutMs = 800,
 ): Promise<boolean> {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
-        if (toStringOrEmpty(read().activeRow?.ID) === rowId) return true;
+        if (toStringOrEmpty(readActiveRow()?.ID) === rowId) return true;
         await new Promise((resolve) => setTimeout(resolve, 16));
     }
     return false;
@@ -148,14 +110,7 @@ export type YupaiOrderBridgeContext = {
     view: string;
     /** 命令条上的命令项：动作表与页面按钮同源 */
     commands: CommandItem[];
-    /**
-     * **用户当前看到的数据**（筛选后的那批行），不是接口原始数据。
-     *
-     * 页面对它做了筛选：被筛掉的行不在这里。快照的 total / rows 都以它为准 ——
-     * 换成原始 dataSource 会让模型描述出用户屏幕上没有的行。
-     */
-    dataSource: YupaiOrder[];
-    /** 当前激活行 */
+    /** 当前激活行（命令 disabled 与快照 selection 段都读它） */
     activeRow: YupaiOrder | null;
     /** 选中行数（只驱动 disabled，行数据向表格要） */
     activeRowCount: number;
@@ -168,12 +123,19 @@ export type YupaiOrderBridgeContext = {
     /** 用新条件重新查询：页面负责落 state 并拉数据 */
     applyFilter: (next: YupaiOrderFilter) => Promise<void>;
     /**
-     * 按行主键选中行（整行替换，不是追加），返回实际命中的行数。
+     * 取表格实例（`() => tableRef.current`）。
      *
-     * 页面负责「写进表格」这件事（`tableRef.current.selectRowsByKeys`），
-     * 桥只管把 rowId 翻成调用 —— 行主键 → 显示行号的换算只有表格自己知道（排序/分组）。
+     * 「用户看到的第几行是什么」只有表格知道 —— 排序、分组、统计行都发生在表格里，
+     * 页面 state 里没有这些信息。桥靠它按显示行号取数据、选中行、读行数与排序。
      */
-    selectRows: (rowIds: string[]) => number;
+    readTable: () => FilterTableApi | null;
+    /**
+     * 读「当前激活行」的最新值（页面用 ref 实现，**不是**读 ctx 里的 activeRow）。
+     *
+     * 命令 handler 在 `await` 中途需要知道「选中到底落地没有」，那时它手上的 ctx 是启动时的闭包，
+     * 里面的 `activeRow` 恒为旧值。这个函数每次都读 ref，所以能拿到最新值。
+     */
+    readActiveRow: () => YupaiOrder | null;
 };
 
 /**
@@ -185,6 +147,24 @@ export type YupaiOrderBridgeContext = {
  */
 export function createYupaiOrderBridge(read: () => YupaiOrderBridgeContext): UIBridgeHost {
     /*
+     * 表格那部分交给通用桥：列目录、行数、排序、data.page 全在它那边。
+     * 这里只给「列定义 + 怎么拿表格」—— agent 认识这张表的全部依据就是这份列定义。
+     */
+    const tableBridge = createTableBridge({
+        columns: COLUMNS,
+        // 与 FilterTable 的 rowKey 一致：表格不显示主键，但 agent 得知道 rowId 来自哪个字段
+        rowKey: 'ID',
+        // 每次调用现读：ctx 会随渲染重建，桥持有的必须是最新那个 readTable
+        readTable: () => read().readTable(),
+        columnHints: {
+            WorkPlace: '可选值：越南工厂 / 义乌工厂',
+            YPDate: '预排日期，格式 YYYY-MM-DD',
+        },
+        // 页面工具栏的 disabled 读 activeRow（React state），选中后要等它落地再回执
+        waitSelected: (rowId) => waitForActiveRow(() => read().readActiveRow(), rowId),
+    });
+
+    /*
      * 页面这一层只描述列表。
      *
      * 弹窗打开时的覆盖（动作换成 form.*、列表数据收起、guide 换成表单那份）由桥统一做，
@@ -193,7 +173,6 @@ export function createYupaiOrderBridge(read: () => YupaiOrderBridgeContext): UIB
     const snapshot = (): UISnapshotData => {
         const ctx = read();
         const filters = currentFilters(ctx.filter);
-        const rows = ctx.dataSource.slice(0, SNAPSHOT_ROW_LIMIT).map(snapshotRow);
         return {
             view: ctx.view,
             title: '计划管理 > 预订单 > 预订单管理',
@@ -209,6 +188,8 @@ export function createYupaiOrderBridge(read: () => YupaiOrderBridgeContext): UIB
                     // 本页命令的 disabled 几乎都来自「没有选中行」，写清原因省得模型反复试错
                     disabledReason: item.disabled ? '需要先选中一行：用 selection.set 传 rowIds' : undefined,
                 })),
+                // 取数据（data.page）+ 选中行（data.select）：都与业务无关，全在通用表格桥里
+                ...tableBridge.actions(),
                 {
                     // 改筛选条件本身也是一条命令。只发 filters 不发命令，模型就只能干猜
                     id: 'filter.set',
@@ -220,21 +201,6 @@ export function createYupaiOrderBridge(read: () => YupaiOrderBridgeContext): UIB
                         hint: field.label,
                     })),
                 },
-                {
-                    // 选中行也是一条命令：selection 段只说明「当前选中了什么」，
-                    // 不发命令的话模型只能请用户手动点 —— 而「选中后执行命令」正是本页的主流程
-                    id: 'selection.set',
-                    label: '选中行',
-                    group: 'row' as const,
-                    params: [
-                        {
-                            name: 'rowIds',
-                            type: 'text' as const,
-                            required: true,
-                            hint: '要选中的行 rowId，多个用逗号分隔（取快照 data.rows[].rowId）',
-                        },
-                    ],
-                },
             ],
             filters,
             selection: {
@@ -242,21 +208,17 @@ export function createYupaiOrderBridge(read: () => YupaiOrderBridgeContext): UIB
                 activeRowId: ctx.activeRow?.ID ?? null,
                 rowIds: ctx.activeRow ? [ctx.activeRow.ID] : [],
             },
-            data: {
-                total: ctx.dataSource.length,
-                loaded: ctx.dataSource.length,
-                shown: rows.length,
-                truncated: rows.length < ctx.dataSource.length,
-                columns: SNAPSHOT_COLUMNS,
-                rows,
-                active: ctx.activeRow ? snapshotRow(ctx.activeRow) : undefined,
-            },
+            /*
+             * 数据段 = 目录：列、行数、排序、统计行位置，**没有数据行**。
+             * active 用页面这份（表格判定的激活行未必是业务认可的：点到底部统计行时页面算「没选中」）。
+             */
+            data: tableBridge.data({active: ctx.activeRow}),
         };
     };
 
     return {
         snapshot,
-        handlers: buildHandlers(read),
+        handlers: {...buildHandlers(read), ...tableBridge.handlers},
         // 列表加载完成才算就绪。弹窗自己的就绪由弹窗那层报（见 useUIBridgeDialog 的 ready）
         ready: () => read().ready,
     };
@@ -268,6 +230,8 @@ export function createYupaiOrderBridge(read: () => YupaiOrderBridgeContext): UIB
  * 命令条上的每个按钮**直接用它自己的 onClick**，不另写一份实现 —— 抄一份的代价是行为分叉：
  * 按钮改了、agent 那条没改，或者反过来。这里只包一层，顺便回一句人话给模型当回执
  * （否则 result 是 null，模型只能猜按钮到底按下去没有）。
+ *
+ * 数据读取（data.page）不在这里：它来自 `tableBridge.handlers`，与本页业务无关。
  */
 function buildHandlers(read: () => YupaiOrderBridgeContext): Record<string, UIBridgeHandler> {
     const handlers: Record<string, UIBridgeHandler> = {};
@@ -293,44 +257,6 @@ function buildHandlers(read: () => YupaiOrderBridgeContext): Record<string, UIBr
         const ctx = read();
         await ctx.applyFilter({...ctx.filter, ...toQueryPatch(params)});
         return `已按 ${JSON.stringify(params)} 重新过滤`;
-    };
-
-    /**
-     * 语义命令：选中行（整份替换）。
-     *
-     * 只认**当前列表里存在**的行 —— 被筛掉的行在表格里没有显示行号，选不中。
-     * 静默忽略最危险：模型以为选上了，接着点删除就会删错单，所以这里点名回报。
-     */
-    handlers['selection.set'] = async (params) => {
-        const rowIds = toRowIdList(params.rowIds ?? params.rowId);
-        if (rowIds.length === 0) {
-            throw new Error(
-                'selection.set 需要 rowIds：从快照 data.rows[].rowId 里取，多个用逗号分隔',
-            );
-        }
-        const visible = new Set(read().dataSource.map((record) => toStringOrEmpty(record.ID)));
-        const hits = rowIds.filter((id) => visible.has(id));
-        const missing = rowIds.filter((id) => !visible.has(id));
-        if (hits.length === 0) {
-            throw new Error(
-                `rowId 都不在当前列表里（${missing.join('、')}）：可能被筛选掉了，` +
-                '先用 filter.set 放宽条件，或从最新快照的 data.rows 里取 rowId',
-            );
-        }
-        const selected = read().selectRows(hits);
-        // 选中写进表格后，页面的 activeRow 要等下一次渲染才有 —— 不等的话回执里的快照还是空的
-        const landed = await waitForActiveRow(read, hits[0]);
-        const parts = [`已选中 ${selected} 行（rowId：${hits.join('、')}）`];
-        if (selected < hits.length) {
-            parts.push(`其中 ${hits.length - selected} 行没选中（不在表格里，可能在分组里被收起了）`);
-        }
-        if (missing.length > 0) {
-            parts.push(`未找到 ${missing.join('、')}（可能被筛掉或主键写错）`);
-        }
-        if (!landed) {
-            parts.push('界面还没回传选中态，稍后 observe 一次再确认');
-        }
-        return parts.join('；');
     };
 
     return handlers;

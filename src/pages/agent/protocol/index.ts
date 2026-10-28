@@ -40,6 +40,8 @@ export type {
   UISelection,
   UISnapshot,
   UISnapshotData,
+  UISnapshotPatch,
+  UIWindow,
 } from './ui';
 
 export type {
