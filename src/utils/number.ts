@@ -167,3 +167,30 @@ export function formatPercent(value: unknown, options: FormatPercentOptions = {}
   if (withSign && percent > 0) text = `+${text}`;
   return space ? `${text} %` : `${text}%`;
 }
+
+/**
+ * 字节数 → 人类可读体积（`1536` → `'1.5 KB'`）。
+ *
+ * 按 1024 进位而不是 1000：显示的是用户在「文件属性」里看到的那个数，
+ * 用 1000 进位会出现「这里 2.1 MB、系统里 2.0 MB」的对不上。
+ * 小于 1KB 直接给字节数 —— `0.4 KB` 读不出量级，也没人关心小数。
+ *
+ * 传入空值 / 负数返回空串（由调用方决定要不要显示），不返回 `'NaN B'` 这种噪音。
+ */
+export function formatFileSize(bytes: unknown, fractionDigits = 1): string {
+  const size = toNumberOrNull(bytes);
+  if (size === null || size < 0) return '';
+  if (size < 1024) return `${Math.round(size)} B`;
+
+  const units = ['KB', 'MB', 'GB', 'TB', 'PB'];
+  let value = size / 1024;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  const places = Math.min(Math.max(Math.trunc(fractionDigits), 0), 3);
+  // 1.0 MB → 1 MB：整数体积不必挂个没意义的 .0
+  const text = roundTo(value, places).toFixed(places).replace(/\.0+$/, '');
+  return `${text} ${units[unit]}`;
+}

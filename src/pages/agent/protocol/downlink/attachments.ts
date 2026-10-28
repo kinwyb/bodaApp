@@ -8,7 +8,7 @@
 import type { AgentStreamEvent } from '../events';
 import type { AgentEnvelope } from '../envelope';
 import type { AgentEventData } from '../payloads';
-import type { AgentSource } from '../../types';
+import type { AgentMedia, AgentSource } from '../../types';
 
 /** meta.sources 宽松解析：字段不全的条目直接跳过 */
 export function readSources(meta: Record<string, unknown> | undefined): AgentSource[] {
@@ -36,6 +36,28 @@ export function readSources(meta: Record<string, unknown> | undefined): AgentSou
   return result;
 }
 
+/**
+ * 归一化一条 media。
+ *
+ * 后端的文件名 / 大小 / fileID 都放在 metadata 里（types.Media 本身没有 name 字段），
+ * 直接渲染会导致「文件名变成一串 fileID」。这里提到顶层字段：
+ * - name：优先 metadata.filename，退回落 url 末段；
+ * - size：metadata.size；
+ * - fileId：metadata.fileID（删除、查元信息时用）。
+ */
+export function normalizeMedia(media: AgentMedia): AgentMedia {
+  const meta = media.metadata ?? {};
+  const filename = typeof meta.filename === 'string' ? meta.filename.trim() : '';
+  const size = typeof meta.size === 'number' ? meta.size : undefined;
+  const fileId = typeof meta.fileID === 'string' ? meta.fileID : undefined;
+  return {
+    ...media,
+    name: media.name || filename || undefined,
+    size,
+    fileId,
+  };
+}
+
 export function mapEnvelopeAttachments(
   envelope: AgentEnvelope,
   conversationId: string,
@@ -44,7 +66,11 @@ export function mapEnvelopeAttachments(
   const events: AgentStreamEvent[] = [];
 
   if (data.media && data.media.length > 0) {
-    events.push({ type: 'media', conversationId, media: data.media });
+    events.push({
+      type: 'media',
+      conversationId,
+      media: data.media.map((media) => normalizeMedia(media)),
+    });
   }
 
   const sources = readSources(data.meta);

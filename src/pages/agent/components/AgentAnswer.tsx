@@ -18,6 +18,7 @@ import type {
   AgentToolStep,
 } from '../types';
 import { timelineOf } from '../types';
+import { resolveAgentFileUrl } from '../files';
 import { AgentStepChain } from './AgentStepChain';
 
 /** 后端 media 只给 url 时，从末段取个文件名 */
@@ -193,12 +194,27 @@ export const AgentAnswer: React.FC<{ content: AgentAssistantContent; streaming: 
           className="agent-media"
           size="small"
           overflow="wrap"
-          items={content.media.map((media, index) => ({
-            key: `${media.url ?? media.name ?? 'media'}-${index}`,
-            name: media.name || fileNameOf(media.url) || `附件 ${index + 1}`,
-            type: fileCardType(media.type),
-            src: media.url,
-          }))}
+          items={content.media.map((media, index) => {
+            /*
+             * 下行附件由服务端登记在文件服务里，media.url 是相对地址（/ws/files/<id>），
+             * 必须补上 host 与 token 才能被 <img> / 新窗口直接用。
+             * 不加 ?download=1：让服务端按 MIME 决定内联还是下载（图片/PDF 直接看，
+             * 其余类型它本来就会带 attachment 头）。
+             */
+            const href = resolveAgentFileUrl(media.url);
+            return {
+              key: `${media.url ?? media.name ?? 'media'}-${index}`,
+              name: media.name || fileNameOf(media.url) || `附件 ${index + 1}`,
+              type: fileCardType(media.type),
+              // byte 是字节数，卡片自己格式化成 KB/MB
+              byte: media.size,
+              src: href,
+              onClick: href
+                ? () => window.open(href, '_blank', 'noopener,noreferrer')
+                : undefined,
+              style: href ? ({ cursor: 'pointer' } as React.CSSProperties) : undefined,
+            };
+          })}
         />
       ) : null}
 

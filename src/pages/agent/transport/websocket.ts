@@ -505,6 +505,7 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
           sessionID,
           content: payload.content,
           agent: payload.agent,
+          fileIds: payload.fileIds,
           attachments: payload.attachments,
         }),
         { conversationId: payload.conversationId },

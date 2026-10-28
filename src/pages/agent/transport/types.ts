@@ -22,6 +22,11 @@ export type AgentSendPayload = {
   content: string;
   /** 指定 agent，为空用服务端默认 */
   agent?: string;
+  /**
+   * 已上传文件的 fileID（上传走 HTTP，见 files/client.ts）。
+   * 只传 ID：文件内容不进 ws 帧，服务端按 ID 还原成 media。
+   */
+  fileIds?: string[];
   attachments?: { name: string; size: number }[];
 };
 

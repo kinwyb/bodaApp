@@ -369,6 +369,10 @@ export function useAgentChat(): AgentChatApi {
       sessionId: conversation?.sessionId,
       content: question,
       agent: agentRef.current || undefined,
+      // 只有真正上传成功的附件才有 fileID（演示模式/失败的都是空），服务端按它还原 media
+      fileIds: attachments
+        ?.map((file) => file.fileId)
+        .filter((id): id is string => Boolean(id)),
       attachments: attachments?.map((file) => ({ name: file.name, size: file.size })),
     };
     transportRef.current?.send(payload);
@@ -400,6 +404,11 @@ export function useAgentChat(): AgentChatApi {
     if (!question || typeof question.content !== 'string') return;
 
     dispatch({ type: 'resetReply', conversationKey: activeKey, messageKey });
+    /*
+     * 只重发文本，**不带附件**：服务端在投递时已经把上传的文件移进 agent 工作区，
+     * 原来的 fileID 随即失效（filestore.Get 会因磁盘上找不到而清掉索引），
+     * 再引用只会让整条 chat.send 被判成「文件不可用」。
+     */
     transportRef.current?.send({
       conversationId: activeKey,
       sessionId: conversation.sessionId,

@@ -77,7 +77,43 @@ export type ChatSendData = {
   agent?: string;
   content?: string;
   media?: AgentMedia[];
+  /**
+   * 已上传文件的标识（见 files/client.ts 的上传接口）。
+   * 服务端会把它们还原成 media 追加在 media 之后投递给 agent，
+   * 所以这里只传 ID，帧里不带文件内容。
+   */
+  fileIDs?: string[];
   metadata?: Record<string, unknown>;
+};
+
+/**
+ * protocol.FileInfo：文件元信息。
+ *
+ * 既是上传接口的响应体，也是 chat.send 里 fileIDs 指向的对象。
+ * url 是**相对地址**（形如 `/ws/files/<id>`）：服务端躲在反向代理后面时
+ * 并不知道浏览器实际用的 host，绝对地址交给前端自己拼（见 files/client.ts）。
+ */
+export type FileInfoData = {
+  id: string;
+  name: string;
+  size: number;
+  /** 由文件名后缀推断，取不到时为空 */
+  mime?: string;
+  /** 相对访问地址 */
+  url: string;
+  /** 毫秒时间戳，过期后该 fileID 失效 */
+  expiresAt?: number;
+};
+
+/** protocol.FileListData：GET /ws/files 与上传接口的响应体（一个文件也是数组） */
+export type FileListData = {
+  items: FileInfoData[];
+};
+
+/** 文件端点的错误体：HTTP 4xx/5xx 直接返回 {code,message} */
+export type FileErrorData = {
+  code?: string;
+  message?: string;
 };
 
 /** protocol.ChatCancelData（上行） */

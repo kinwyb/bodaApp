@@ -29,13 +29,27 @@ export type AgentSource = {
   description?: string;
 };
 
-/** 媒体文件，对应后端 types.Media */
+/**
+ * 媒体文件，对应后端 types.Media。
+ *
+ * url 有两种形态：
+ * - `/ws/files/<id>`：下行附件（agent 的 send_file），相对地址，渲染前要拼成可访问地址
+ *   （见 files/client.ts 的 resolveAgentFileUrl）；
+ * - `http(s)://…`：agent 直接给的远程地址，原样使用。
+ */
 export type AgentMedia = {
   type: string;
   url?: string;
   base64?: string;
   mimetype?: string;
+  /** 展示名：由下行映射从 metadata.filename 补上 */
   name?: string;
+  /** 字节数（metadata.size） */
+  size?: number;
+  /** 文件服务里的标识（metadata.fileID），删除/查元信息时用 */
+  fileId?: string;
+  /** 后端原样透传的元数据（filename / fileID / size / caption 等） */
+  metadata?: Record<string, unknown>;
 };
 
 /** 审批请求，对应后端 data.approval */
@@ -44,12 +58,33 @@ export type AgentApproval = {
   content: string;
 };
 
-/** 用户消息里附带的文件（本地选择，暂未上传） */
+/** 附件的上传状态：选完文件就开始传，发送只认 done 的那些 */
+export type AgentAttachmentStatus = 'uploading' | 'done' | 'error';
+
+/**
+ * 用户消息里附带的文件。
+ *
+ * 文件本体不跟着消息走：选中时先 POST 到 `/ws/files` 拿 fileID，
+ * 发送时 chat.send 只带 fileIDs（见 files/client.ts）。
+ */
 export type AgentAttachment = {
   uid: string;
   name: string;
   size: number;
   type?: string;
+  /**
+   * 上传成功后的 fileID。为空有两种情况：
+   * 演示模式（没有真实服务）、或上传失败 —— 失败的附件不会被发送。
+   */
+  fileId?: string;
+  /** 缺省视为 done（历史消息里的老附件没有这个字段） */
+  status?: AgentAttachmentStatus;
+  /** 上传失败的提示文案 */
+  error?: string;
+  /** 上传进度 0-100，仅 uploading 时有意义 */
+  percent?: number;
+  /** 服务端给的可访问地址（相对 /ws/files/<id>），点开预览时用 */
+  url?: string;
 };
 
 /**

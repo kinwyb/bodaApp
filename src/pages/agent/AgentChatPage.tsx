@@ -14,8 +14,10 @@ import { Bubble } from '@ant-design/x';
 import type { BubbleItemType } from '@ant-design/x';
 import { PaperClipOutlined, ReloadOutlined, RobotOutlined, UserOutlined } from '@ant-design/icons';
 
+import { formatFileSize } from '@/utils';
 import type { AgentAssistantContent, AgentConnectionStatus } from './types';
 import { assistantContentOf } from './types';
+import { resolveAgentFileUrl } from './files';
 import { useAgentChat } from './chat/use-agent-chat';
 import { AgentAnswer } from './components/AgentAnswer';
 import { AgentComposer } from './components/AgentComposer';
@@ -148,11 +150,34 @@ const AgentChatPage: React.FC<AgentChatPageProps> = ({ embedded = false }) => {
         if (item.role === 'user' && item.attachments && item.attachments.length > 0) {
           base.header = (
             <div className="agent-user-files">
-              {item.attachments.map((file) => (
-                <Tag key={file.uid} icon={<PaperClipOutlined />} className="agent-file-tag">
-                  {file.name}
-                </Tag>
-              ))}
+              {item.attachments.map((file) => {
+                // 上传成功的附件能被点开（地址由文件服务提供，服务端决定内联还是下载）
+                const href = file.url ? resolveAgentFileUrl(file.url) : undefined;
+                return (
+                  <Tag
+                    key={file.uid}
+                    icon={<PaperClipOutlined />}
+                    className="agent-file-tag"
+                    title={`${file.name}${file.size ? ` · ${formatFileSize(file.size)}` : ''}`}
+                  >
+                    {href ? (
+                      <a
+                        className="agent-file-link"
+                        href={href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        {file.name}
+                      </a>
+                    ) : (
+                      file.name
+                    )}
+                    {file.size > 0 ? (
+                      <span className="agent-file-size">{formatFileSize(file.size)}</span>
+                    ) : null}
+                  </Tag>
+                );
+              })}
             </div>
           );
         }

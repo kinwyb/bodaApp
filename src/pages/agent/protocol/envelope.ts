@@ -109,6 +109,14 @@ export const ERROR_CODE = {
   busy: 'busy',
   tooManyClients: 'too_many_clients',
   internal: 'internal',
+  /** 文件不存在或已过期（文件 HTTP 端点也用它） */
+  fileNotFound: 'file_not_found',
+  /** 超过单文件上限 */
+  fileTooLarge: 'file_too_large',
+  /** 上传写入失败 */
+  uploadFailed: 'upload_failed',
+  /** 上传未带文件字段 */
+  fileRequired: 'file_required',
 } as const;
 
 export function uid(): string {
