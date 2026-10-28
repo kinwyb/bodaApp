@@ -4,7 +4,7 @@
  * 分工：**后端只做透传**，不认识下面的业务结构；快照由页面生产、由模型消费。
  * 所以这个文件是「页面结构与模型之间的契约」，改它等于改模型看到的世界。
  *
- * 四条约定（比字段本身更重要）：
+ * 五条约定（比字段本身更重要）：
  * 1. 快照是**目录**，不是数据：列表给全部列 + 行数 + 排序，**数据行要用 data.page 按需取**。
  *    早先的「前 20 行」既不是用户看到的 20 行（排序在表格内部），也白占上下文。
  * 2. 行标识用**业务主键**（rowId），不要用行号或数组下标 —— 排序一变就全错。
@@ -12,13 +12,20 @@
  * 3. rev 是乐观锁：命令必须带上看快照时的 rev，不匹配就拒绝并要求重新观察。
  * 4. **模型能做的任何事都必须出现在 actions 里**：filters / selection / data 只是「当前是什么」，
  *    不是「怎么改」。只发数据不发命令，模型就只能干猜（筛选条件踩过这个坑）。
+ * 5. **回执默认是补丁，不是整页快照**（v3）：一条命令只回它真正改变的那几段，
+ *    列目录 / guide / 参数说明这些静态段只出现在 observe、navigate 与结构变化的 full 里。
+ *    所以「模型手里那份快照」= 最近一次 full + 之后所有 patch 合并出来的结果。
  */
 
 import type { AgentEnvelope } from './envelope';
 import { KIND, UI_TYPE, newEnvelope } from './envelope';
 
-/** 快照版本，结构不兼容变更时递增（v2：data 段改成目录 + 按需取行） */
-export const UI_SNAPSHOT_VERSION = 2;
+/**
+ * 快照版本，结构不兼容变更时递增。
+ * - v2：data 段改成目录 + 按需取行；
+ * - v3：回执改成 result / patch / full 三档，patch 扩到能独立表达「取值变了」。
+ */
+export const UI_SNAPSHOT_VERSION = 3;
 
 /**
  * 命令参数的类型。
@@ -27,6 +34,21 @@ export const UI_SNAPSHOT_VERSION = 2;
  * 它只是给模型的形状提示 —— 服务端只透传、不校验，页面自己决定收对象还是它的 JSON 字符串。
  */
 export type UIActionParamType = UIFieldType | 'object';
+
+/**
+ * 一条命令的回执形态（由动作表声明，桥按它决定回什么，见 ui-bridge/handler.ts）。
+ *
+ * - `result` 纯读：不改变页面状态，不推 rev，回执只有 `result`。
+ *   再夹一份整页快照是纯浪费 —— 那份快照里的数据行本来就是空的。典型：`data.page`、`data.row`。
+ * - `patch` 默认：取值变了、结构没变。回执带 `patch`（选中、筛选取值、行数与排序、
+ *   表单字段值、可用命令清单），并推 rev。列目录、guide、参数说明一个字节没变，不重发。
+ * - `full` 结构变了才用：换页、打开弹窗（模型第一次见这张表单的字段表）、模式切换。
+ *   整页快照 + 推 rev。
+ *
+ * 判据只有一条：**模型手里那份快照合并完这段变化之后，还差不差它没见过的东西**。
+ * 差（新出现一段结构）就给 full，不差就给 patch。
+ */
+export type UIActionReturn = 'result' | 'patch' | 'full';
 
 /** 命令参数说明：模型据此构造 ui_act 的 params，不用去猜字段名 */
 export type UIActionParam = {
@@ -55,29 +77,13 @@ export type UIAction = {
   /** 需要的参数；不填表示这条命令不需要参数 */
   params?: UIActionParam[];
   /**
-   * **纯读命令**：不改变页面状态。
+   * 回执形态，默认 `patch`（见 `UIActionReturn`）。
    *
-   * 两个后果，都写在桥里统一处理（命令自己不用管）：
-   * - 不推进 rev —— 否则模型每读一次都要重新 observe 才能读下一次；
-   * - 回执**不带快照** —— 读命令的产出就在 `result` 里，再夹一份整页快照是纯浪费，
-   *   而且那份快照里的数据行还是空的（快照本来就不带数据）。
-   *
-   * 典型：按行号取数据（data.page）、按主键取整行（data.row）。
+   * 省略它 = `patch`：绝大多数命令只改取值（改筛选、选中、删单、保存），
+   * 目录和说明书都不用重发。只有会把视野换掉的动作才显式写 `full`：
+   * 打开表单弹窗、切页、切模式。纯读命令写 `result`。
    */
-  readOnly?: boolean;
-  /**
-   * **轻量回执**：只改了选中态这类「快照里一小块」的操作。
-   *
-   * 回执只带 `patch`（selection / activeRowIndex / enabled 命令清单），不回整页快照；
-   * 也不推进 rev —— 选中不影响任何命令的可用性判断（`runAction` 读的是**当前**动作表，
-   * 不是快照里的那份），推 rev 只会逼模型再 observe 一次。
-   *
-   * 什么时候**不能**标它：这个操作还会让列表数据 / 表单内容变（例如选中后去查明细、
-   * 触发重新加载）。那种情况模型需要新的目录或字段，必须走完整快照。
-   *
-   * `readOnly` 优先于它（读命令连 patch 都不给）。
-   */
-  lightweight?: boolean;
+  returns?: UIActionReturn;
 };
 
 /** 界面控件的类型，决定模型怎么填值 */
@@ -272,16 +278,73 @@ export type UISnapshot = UISnapshotData & {
 };
 
 /**
- * 轻量回执的**快照补丁**：只含本次操作真正改变的段（见 `UIAction.lightweight`）。
+ * 表格段的补丁：`UIDataSummary` 里**会变**的那几项。
  *
- * 模型要把它合并进手里那份快照，而不是当成一份新快照 —— 没出现的段表示「没变」。
- * 目前只用于「选中行」：它改的就是 selection、激活行，以及由此变可用的命令。
+ * 故意不带 `columns` 与 `rowKey` —— 它们是这张表的目录，只有换页 / 换表才会变，
+ * 而那属于 `full`（模型没见过这份目录）。
  */
-export type UISnapshotPatch = {
-  selection?: UISelection;
+export type UITablePatch = {
+  /** 哪张表：与快照里的 `data.name` / `tables[].name` 对齐 */
+  name: string;
+  total: number;
+  loaded: number;
+  sorts: { field: string; order: 'asc' | 'desc' }[];
+  grouped: boolean;
+  /** 底部统计行的显示行号；null = 没有统计行 */
+  summaryRow?: number | null;
   /** 激活行的显示行号（0 起，与 `<name>.page` 的 offset 同一套坐标）；null = 没有激活行 */
   activeRowIndex?: number | null;
-  /** 当前**可执行**的命令 ID。没列出来的命令仍然存在，只是 disabled（原因见原快照） */
+  /** 激活行的业务主键；要完整一行用 `<name>.row` 取（补丁不带整条记录） */
+  activeRowId?: string | null;
+};
+
+/** 字段级补丁：只给「值 + 还能不能改 + 报错」，label / type / options 属于目录 */
+export type UIFieldPatch = {
+  id: string;
+  value?: unknown;
+  /** 此刻是否被锁住（新增未检测通过这类），不给表示没变 */
+  readOnly?: boolean;
+  errors?: string[];
+};
+
+/** 表单段的补丁 */
+export type UIFormPatch = {
+  id: string;
+  title?: string;
+  mode?: UIForm['mode'];
+  recordId?: string | null;
+  dirty?: boolean;
+  /** 表单级报错（明细校验这类不属于单个字段的） */
+  errors?: string[];
+  fields?: UIFieldPatch[];
+};
+
+/**
+ * 回执里的**快照补丁**：只含本次操作真正改变的段（见 `UIAction.returns`）。
+ *
+ * 模型要把它合并进手里那份快照，而不是当成一份新快照 —— 没出现的段表示「没变」。
+ * `patch` 默认用在「取值变了、结构没变」的绝大多数命令上：选中、改筛选、删单、保存、填字段。
+ *
+ * 两条合并约定，别搞混：
+ * - `mode` 为 `form` 时，快照里的 `filters` / `data` / `tables` 表示「被弹窗挡住了」，
+ *   与 full 快照把它们置空是同一个意思，不用补丁里再出现一次；
+ * - `enabled` 是**当前可执行**的命令 ID 全集（不是增量）。没列出来的命令仍然存在，
+ *   只是 disabled，原因见原快照的 `disabledReason`。
+ */
+export type UISnapshotPatch = {
+  /** 合并目标：哪个页面的快照 */
+  view: string;
+  mode?: 'list' | 'form';
+  /** 筛选条件的新取值（整段替换；只在列表层给。label / type 在目录里，补丁只带给值与报错） */
+  filters?: UIFieldPatch[];
+  selection?: UISelection;
+  /** 主表（对应快照的 `data` 段） */
+  data?: UITablePatch;
+  /** 主表之外的其他表，按 `name` 合并到快照的 `tables[]` */
+  tables?: UITablePatch[];
+  /** 弹窗打开时的表单段 */
+  form?: UIFormPatch;
+  /** 当前**可执行**的命令 ID 全集 */
   enabled?: string[];
 };
 
@@ -308,9 +371,9 @@ export type UIResponsePayload = {
   /** ok=false 必填：会原样交给模型，所以要说清「为什么」 */
   error?: string;
   rev?: number;
-  /** observe 的返回，或 act 成功后的新快照 */
+  /** observe / navigate 的返回，或 `returns: 'full'` 命令的新快照 */
   snapshot?: UISnapshot;
-  /** 轻量回执：本次只变了这些段（与 snapshot 二选一，不同时出现） */
+  /** 本次只变了这些段（与 snapshot 二选一，不同时出现；绝大多数命令走这条） */
   patch?: UISnapshotPatch;
   /** 命令自身的执行结果 */
   result?: unknown;

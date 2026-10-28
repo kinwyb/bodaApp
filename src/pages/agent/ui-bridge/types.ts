@@ -13,7 +13,10 @@ export type UIBridgeHandler = (params: Record<string, unknown>) => unknown | Pro
 /** 业务页面注册给桥的能力：只描述「本页」 */
 export type UIBridgeHost = {
   /**
-   * 生成当前页面快照；纯读取，不应有副作用。每次 observe / act / navigate 后都会被调用。
+   * 生成当前页面快照；纯读取，不应有副作用。
+   *
+   * observe / navigate 直接把它发给模型；act 之后桥也从这里取，但**默认只发变化的那几段**
+   * （见协议里的 `UIAction.returns`）—— 所以它可以放心地算得细一点，字节数由桥控制。
    * guide 也由这里给出（属于「这一页怎么操作」，与页面描述同源）。
    */
   snapshot: () => UISnapshotData;
@@ -66,7 +69,7 @@ export type UIWorkbenchHost = {
  * 同时只会有一个弹窗打开，所以「后注册的生效」等价于「最上面那个生效」。
  *
  * **表单类弹窗请提供 `form.setMany`**（一次收一整张 `{字段id: 新值}`），别只给 `form.set`：
- * 一次 `ui_act` 只能带一条命令，逐字段设的话，16 个字段就是 16 次往返，每次回执还夹一份整页快照 ——
+ * 一次 `ui_act` 只能带一条命令，逐字段设的话 16 个字段就是 16 次往返、16 段补丁、16 轮推理 ——
  * 模型每一轮都要重新读一遍才知道下一个填什么。写入顺序（哪几个字段要先检测/查人）由弹窗自己定。
  */
 export type UIDialogHost = {

@@ -41,6 +41,7 @@ const PREORDER_GUIDE: UIGuide = {
     summary: '预订单管理：按条件查询预订单，并对选中的单据执行编辑、发布、分批、查看变更日志等操作',
     steps: [
         '数据行不在快照里：用 data.page 传 offset / limit 取，offset 0 = 用户屏幕第 1 行（「第 5 条」就传 offset=4）',
+        'data.page 默认只回关键列（结果里的 fields 会写明给了哪些）：要别的列就传 fields，要全部列传 fields="*"',
         '要看表格上没显示的字段（主键、分批明细、状态位等）或核对整单：用 data.row 传 rowId 取完整一行',
         '改条件用 filter.set（参数名见该 action 的 params），等列表变成你要的范围再动单据',
         '删除 / 发布 / 分批 / 复制 / 设置 要求先选中行：用 data.select 传 rowIds（取 data.page 或 data.active 里的 rowId）',
@@ -139,6 +140,15 @@ export type YupaiOrderBridgeContext = {
 };
 
 /**
+ * 会把视野换成表单弹窗的命令：执行完要回**整页快照**（`returns: 'full'`）。
+ *
+ * 判据只有一条 —— 模型是不是第一次见这段结构。这几条之后快照的 actions 会换成弹窗那一套
+ * （form.* / detail.*），字段表与参数说明它手里没有，只给补丁它就没有可填的字段清单。
+ * 其余命令（改条件、选中、删单、发布、刷新……）都只是取值变，走默认的 patch。
+ */
+const FORM_DIALOG_COMMANDS = new Set(['add', 'edit', 'copy', 'copyOrdered']);
+
+/**
  * 装配本页的界面桥宿主。
  *
  * 吃的是**取值函数**而不是 ctx 对象本身：桥的 snapshot / handler 都在「被调用的那一刻」
@@ -156,6 +166,32 @@ export function createYupaiOrderBridge(read: () => YupaiOrderBridgeContext): UIB
         rowKey: 'ID',
         // 每次调用现读：ctx 会随渲染重建，桥持有的必须是最新那个 readTable
         readTable: () => read().readTable(),
+        /*
+         * 默认投影列：这张表 52 列，一次全给是最贵的一帧。
+         * 给的是「认单 + 看状态 + 看数量」那几列（含五个阶段位，进度判断靠它们）；
+         * 颜色、克重、工时、MCSize 这类要核对时才取 —— 模型传 fields 或 fields="*"。
+         */
+        keyFields: [
+            'OrderCode',
+            'YPDate',
+            'WorkPlace',
+            'Ywy',
+            'Qty',
+            'Number',
+            'StyleCode',
+            'ProduceName',
+            'HDWorkName',
+            'JHDate',
+            'QRDate',
+            'ZHDate',
+            'XDRate',
+            'SSStep',
+            'QMStep',
+            'WaitCustStep',
+            'WaitOrderStep',
+            'OtherStep',
+            'Memo',
+        ],
         columnHints: {
             WorkPlace: '可选值：越南工厂 / 义乌工厂',
             YPDate: '预排日期，格式 YYYY-MM-DD',
@@ -185,8 +221,10 @@ export function createYupaiOrderBridge(read: () => YupaiOrderBridgeContext): UIB
                     group: 'toolbar' as const,
                     danger: item.danger,
                     disabled: item.disabled,
+                    // 只有「模型没见过的新结构」需要整页快照，其余走默认补丁
+                    returns: FORM_DIALOG_COMMANDS.has(item.key) ? ('full' as const) : ('patch' as const),
                     // 本页命令的 disabled 几乎都来自「没有选中行」，写清原因省得模型反复试错
-                    disabledReason: item.disabled ? '需要先选中一行：用 selection.set 传 rowIds' : undefined,
+                    disabledReason: item.disabled ? '需要先选中一行：用 data.select 传 rowIds' : undefined,
                 })),
                 // 取数据（data.page）+ 选中行（data.select）：都与业务无关，全在通用表格桥里
                 ...tableBridge.actions(),
@@ -195,6 +233,8 @@ export function createYupaiOrderBridge(read: () => YupaiOrderBridgeContext): UIB
                     id: 'filter.set',
                     label: '设置筛选条件',
                     group: 'filter' as const,
+                    // 改条件只换筛选取值与结果行数：列目录、guide、动作表都没变，回补丁
+                    returns: 'patch' as const,
                     params: filters.map((field) => ({
                         name: field.id,
                         type: field.type,
@@ -249,7 +289,7 @@ function buildHandlers(read: () => YupaiOrderBridgeContext): Record<string, UIBr
     /**
      * 语义命令：改查询条件并按新条件重新加载。
      *
-     * 这里等查询真的返回再回执：否则回执里那份快照还是旧数据，
+     * 这里等查询真的返回再回执：否则补丁里的 `data.total` 还是旧行数，
      * 模型会以为筛选没生效（页面的 useEffect 也会因 query 变化再拉一次，
      * 两个请求内容一致，真实实现应收敛成一条加载路径）。
      */

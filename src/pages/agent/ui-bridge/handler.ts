@@ -6,16 +6,24 @@
  *
  * 三个操作：
  * - observe   合成当前快照：工作台给导航，页面给自己的那一段
- * - act       执行当前页面的命令（必须带 rev）；读命令（readOnly）只回 result、不回快照
+ * - act       执行当前页面的命令（必须带 rev）；回什么由命令自己声明（`UIAction.returns`），
+ *             默认只回**补丁**，不再重发整页快照
  * - navigate  打开/切换页面，等目标页就绪再回执；只给 query 则只搜菜单、不导航
  */
 
 import type {
+  UIActionReturn,
+  UIDataSummary,
+  UIField,
+  UIFieldPatch,
+  UIForm,
+  UIFormPatch,
   UINavItem,
   UIRequestPayload,
   UISnapshot,
   UISnapshotData,
   UISnapshotPatch,
+  UITablePatch,
 } from '../protocol';
 import { UI_SNAPSHOT_VERSION } from '../protocol';
 import type { AgentUIRequest } from '../transport';
@@ -37,12 +45,15 @@ const NAVIGATION_LIMIT = 50;
 const NAVIGATION_MATCH_LIMIT = 20;
 
 /**
- * 命令的回执形态（由动作表声明，见 UIAction 的 readOnly / lightweight）：
- * - `read`  纯读：只回 result
- * - `light` 只改选中态：回 result + patch
- * - `full`  其他：回 result + 整页快照，并推进 rev
+ * 命令的回执形态就是 `UIAction.returns`（协议里已声明，这里只是别名，读代码时一眼看懂分支）：
+ * - `result` 纯读：只回 result，不推 rev、不回快照
+ * - `patch`  默认：回 result + 变化的那几段，推 rev
+ * - `full`   结构变了：回 result + 整页快照，推 rev
  */
-type UIActionMode = 'read' | 'light' | 'full';
+type UIActionMode = UIActionReturn;
+
+/** 默认回执：命令不声明 `returns` 时走补丁（整页快照只在结构变化时才必要） */
+const DEFAULT_RETURN: UIActionMode = 'patch';
 
 /** 创建请求处理器，交给 transport.onUIRequest 订阅 */
 export function createUIRequestHandler(): (request: AgentUIRequest) => void {
@@ -91,34 +102,19 @@ async function answer(request: AgentUIRequest): Promise<void> {
     }
     const outcome = await runAction(view, request.payload);
     /*
-     * 读命令到此为止：**不推进版本、不回快照**。
+     * 纯读命令到此为止：**不推进版本、不回快照也不回补丁**。
      *
      * 翻页读数据是 agent 最频繁的动作（一次几十上百条），如果每次带一份整页快照：
      * - 上下文被同一份「目录」反复冲刷；
      * - rev 被推进，模型下一次读还得先重新 observe，一条命令变两条。
      * 产出本来就在 result 里，快照帮不上忙。
      */
-    if (outcome.mode === 'read') {
+    if (outcome.mode === 'result') {
       request.respond({ ok: true, rev: currentRev(view), result: outcome.value ?? null });
       return;
     }
-    /*
-     * 轻量命令（选中行）：只回**变化的段**，不回整页快照，也不推 rev。
-     *
-     * 一份完整快照在预订单页约 3 KB（52 列目录 + guide + 动作表 + 参数说明），
-     * 而选中一行真正改变的是 selection（几十字节）和「哪些命令变可用了」。
-     * 快照里其余部分一个字节没变，重发一遍纯属重复计费。
-     */
-    if (outcome.mode === 'light') {
-      request.respond({
-        ok: true,
-        rev: currentRev(view),
-        result: outcome.value ?? null,
-        patch: buildSnapshotPatch(workbench, view),
-      });
-      return;
-    }
-    // 成功操作推进版本：下一次 observe 拿到新 rev，旧快照再拿来操作会被拒
+
+    // 页面状态真的变了才推进版本：下一次拿到新 rev，旧快照再拿来操作会被拒
     bumpRev(view);
     /*
      * 等这次操作真正落定再取快照。
@@ -129,12 +125,24 @@ async function answer(request: AgentUIRequest): Promise<void> {
      */
     await waitForReady(view, ACT_READY_TIMEOUT_MS);
     await settleBeforeSnapshot();
-    request.respond({
-      ok: true,
-      rev: currentRev(view),
-      result: outcome.value ?? null,
-      snapshot: composeSnapshot(workbench, view),
-    });
+    const rev = currentRev(view);
+    const result = outcome.value ?? null;
+
+    /*
+     * `full`：视野换掉了（打开弹窗、切页、切模式），模型要重看一份目录才知道现在能做什么。
+     * 一份完整快照在预订单页约 8–9 KB，其中八成是静态的列目录 + guide + 参数说明，
+     * 所以它是「值得付」的那一次：结构确实变了。
+     */
+    if (outcome.mode === 'full') {
+      request.respond({ ok: true, rev, result, snapshot: composeSnapshot(workbench, view) });
+      return;
+    }
+
+    /*
+     * `patch`（默认）：取值变了、结构没变 —— 选中、改筛选、删单、保存、填字段都是这类。
+     * 目录、guide、命令的参数说明一个字节没变，重发一遍纯属重复计费。
+     */
+    request.respond({ ok: true, rev, result, patch: buildSnapshotPatch(workbench, view) });
   } catch (error) {
     const view = currentViewOf(workbench);
     request.respond({
@@ -142,11 +150,13 @@ async function answer(request: AgentUIRequest): Promise<void> {
       error: error instanceof Error ? error.message : String(error),
       rev: currentRev(view),
       /*
-       * 失败也带一份快照：错误往往只存在于页面状态里（表单红格、明细校验），
-       * 不回快照的话模型得再 observe 一次才看得到「到底哪里不对」，中间还会自我怀疑。
-       * 取快照本身失败就省略它 —— 回执必须发出去，不能因为附赠信息再炸一次。
+       * 失败也带上页面此刻的变化：错误往往只存在于状态里（表单红格、明细校验），
+       * 不回过去的话模型得再 observe 一次才看得到「到底哪里不对」，中间还会自我怀疑。
+       * 但回的是**补丁**：失败时结构不会变（弹窗没开成、页面没切走），
+       * 而一份整页快照恰恰是这条回执里最贵、也最没用的部分。
+       * 取状态本身失败就省略它 —— 回执必须发出去，不能因为附赠信息再炸一次。
        */
-      snapshot: trySnapshot(workbench, view),
+      patch: buildSnapshotPatch(workbench, view),
     });
   }
 }
@@ -161,20 +171,89 @@ function trySnapshot(workbench: UIWorkbenchHost, view: string): UISnapshot | und
 }
 
 /**
- * 轻量回执的补丁：**只取快照里真正会变的那几段**。
+ * 回执补丁：**只取快照里真正会变的那几段**。
  *
  * 这里仍然会生成一份完整快照 —— 那是浏览器侧的计算（不占 token），
- * selection / 激活行 / 命令可用性都得从它里面取；要发给模型的只有这三样。
+ * 取值、行数、排序、字段锁、命令可用性都得从它里面取；发给模型的只有变了的那几段。
  */
-function buildSnapshotPatch(workbench: UIWorkbenchHost, view: string): UISnapshotPatch {
+function buildSnapshotPatch(
+  workbench: UIWorkbenchHost,
+  view: string,
+): UISnapshotPatch | undefined {
   const snapshot = trySnapshot(workbench, view);
-  if (!snapshot) return {};
-  return {
-    selection: snapshot.selection,
-    activeRowIndex: snapshot.data?.activeRowIndex ?? null,
-    // 选中的目的通常就是「让某些命令变可用」，所以这份清单比整张动作表顶用得多
+  return snapshot ? toSnapshotPatch(snapshot) : undefined;
+}
+
+/** 完整快照 → 补丁：目录类内容（columns / guide / params / label / type）一概不带 */
+function toSnapshotPatch(snapshot: UISnapshot): UISnapshotPatch {
+  const patch: UISnapshotPatch = {
+    view: snapshot.view,
+    // 命令可用性跟着状态变（选中了才亮），而它比整张动作表小一个数量级
     enabled: snapshot.actions.filter((item) => !item.disabled).map((item) => item.id),
   };
+  if (snapshot.mode) patch.mode = snapshot.mode;
+  if (snapshot.selection) patch.selection = snapshot.selection;
+
+  /*
+   * 弹窗那一层的补丁就是表单本身：字段值、锁、报错。
+   * 此时 filters / data 被弹窗挡住（full 快照里也是置空的），补丁不重复表达「看不见」。
+   */
+  if (snapshot.form) {
+    patch.form = toFormPatch(snapshot.form);
+    return patch;
+  }
+
+  if (snapshot.filters && snapshot.filters.length > 0) {
+    patch.filters = snapshot.filters.map(toFieldPatch);
+  }
+  if (snapshot.data) patch.data = toTablePatch(snapshot.data, snapshot.selection?.activeRowId ?? null);
+  if (snapshot.tables && snapshot.tables.length > 0) {
+    patch.tables = snapshot.tables.map((table) => toTablePatch(table));
+  }
+  return patch;
+}
+
+/** 表格段里会变的是行数、排序、分组、统计行位置、激活行；列目录不变（它属于 full） */
+function toTablePatch(table: UIDataSummary, activeRowId?: string | null): UITablePatch {
+  const patch: UITablePatch = {
+    name: table.name,
+    total: table.total,
+    loaded: table.loaded,
+    sorts: table.sorts,
+    grouped: table.grouped,
+  };
+  if (table.summaryRow !== undefined) patch.summaryRow = table.summaryRow;
+  /*
+   * 激活行只给「行号 + 主键」，不给整条记录：一份 active 是 52 个键，
+   * 而它变化的那一刻模型往往只想知道「现在选中的是谁」，完整一行用 `<name>.row` 取。
+   */
+  if (table.activeRowIndex !== undefined) {
+    patch.activeRowIndex = table.activeRowIndex;
+    if (activeRowId !== undefined) patch.activeRowId = activeRowId;
+  }
+  return patch;
+}
+
+/** 表单段里会变的是模式、脏标记、报错与每个字段的取值 / 锁 / 报错 */
+function toFormPatch(form: UIForm): UIFormPatch {
+  const patch: UIFormPatch = {
+    id: form.id,
+    title: form.title,
+    mode: form.mode,
+    recordId: form.recordId,
+    fields: form.fields.map(toFieldPatch),
+  };
+  if (form.errors.length > 0) patch.errors = form.errors;
+  if (form.dirty !== undefined) patch.dirty = form.dirty;
+  return patch;
+}
+
+/** 字段 → 补丁形状：只留给值、锁与报错（label / type / options 属于目录） */
+function toFieldPatch(field: UIField): UIFieldPatch {
+  const patch: UIFieldPatch = { id: field.id, value: field.value ?? null };
+  if (field.readOnly !== undefined) patch.readOnly = field.readOnly;
+  if (field.errors && field.errors.length > 0) patch.errors = field.errors;
+  return patch;
 }
 
 /** 当前激活页面的 view；停在主页时归一成 HOME_VIEW，便于按 view 取宿主与版本 */
@@ -276,16 +355,12 @@ async function runAction(
   }
   const value = await run(payload.params ?? {});
   /*
-   * 三种回执形态，由动作表声明（见 UIAction 的 readOnly / lightweight）：
-   * - read   纯读：只有 result，不推 rev、不回快照
-   * - light  只改选中态：result + patch，不推 rev
-   * - full   其他：result + 整页快照，推 rev
+   * 回执形态由动作表自己声明（见 `UIAction.returns`）：
+   * - result：纯读，只有 result，不推 rev、不回快照
+   * - patch（默认）：取值变了、结构没变，result + 变化的那几段
+   * - full：视野换掉了（开弹窗 / 切页 / 切模式），result + 整页快照
    */
-  const mode: UIActionMode = action.readOnly
-    ? 'read'
-    : action.lightweight
-      ? 'light'
-      : 'full';
+  const mode: UIActionMode = action.returns ?? DEFAULT_RETURN;
   return { mode, value };
 }
 

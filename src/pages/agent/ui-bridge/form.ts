@@ -2,7 +2,8 @@
  * 表单类弹窗的写入引擎（界面桥的一部分，与具体业务无关）。
  *
  * 一条 `ui_act` 只能带一条命令，所以「一次改多处」必须做成一条批量命令 —— 否则往返次数
- * 等于条目数，每次回执还夹一份整页快照。这里把这套逻辑固定在桥这一层，弹窗只回答三个问题：
+ * 等于条目数，每次往返都要模型重读一遍手里那份字段表。这里把这套逻辑固定在桥这一层，
+ * 弹窗只回答三个问题：
  *
  * - **有哪些字段**（`fields`，每次调用时取，下拉候选可能随页面数据变）；
  * - **哪个字段此刻为什么不能改**（`fieldLock`，锁的唯一真相在弹窗里，别在这儿再推一遍）；
@@ -388,6 +389,8 @@ export function createFormWriteActions(fields: FormFieldSpec[]): UIAction[] {
       id: 'form.setMany',
       label: '一次性设置多个字段',
       group: 'form',
+      // 填字段变的是字段值、锁与校验报错 —— 字段表本身（label/type/options）没变，回补丁
+      returns: 'patch' as const,
       params: [
         {
           name: 'values',
@@ -405,6 +408,7 @@ export function createFormWriteActions(fields: FormFieldSpec[]): UIAction[] {
       id: 'form.set',
       label: '设置单个字段',
       group: 'form',
+      returns: 'patch' as const,
       params: [
         {
           name: 'field',
