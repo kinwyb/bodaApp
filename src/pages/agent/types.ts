@@ -162,6 +162,8 @@ export type AgentSessionSummary = {
   completed: boolean;
   createdAt: number;
   updatedAt: number;
+  /** 该对话的累计 token 用量（列表接口直接给，列表页可展示消耗） */
+  usage?: AgentTokenUsage;
 };
 
 export type AgentConversation = {
@@ -203,6 +205,13 @@ export type AgentConversation = {
   lastTurnAt?: number;
   /** 历史里存在被截断的过程（可对单轮 replay 拉完整版） */
   framesTruncated?: boolean;
+  /**
+   * 这条会话的 token 用量（输入框下方展示）。
+   *
+   * 三个来源合流：实时 `token_usage` 帧、`session.history` 的线程/轮次级用量、
+   * `session.list` 的列表项累计值 —— 刷新页面后不必等新帧才有数。
+   */
+  usage?: AgentTokenUsage;
 };
 
 export type AgentConnectionStatus = 'idle' | 'connecting' | 'connected' | 'error';
@@ -211,6 +220,56 @@ export type AgentConnectionStatus = 'idle' | 'connecting' | 'connected' | 'error
 export type AgentInfo = {
   name: string;
   description?: string;
+};
+
+/* ------------------------------------------------------------------ */
+/* token 用量（types.TokenUsage）                                       */
+/* ------------------------------------------------------------------ */
+
+/** 一份 token 拆分（累计或单轮），字段齐全，缺失按 0 归一 */
+export type AgentTokenDetail = {
+  totalTokens: number;
+  inputTokens: number;
+  /** 命中缓存的输入 token */
+  cachedInputTokens: number;
+  /** 写入缓存的输入 token */
+  cacheWriteInputTokens: number;
+  outputTokens: number;
+  /** 深度思考消耗的 token（含在 outputTokens 里，不重复相加） */
+  reasoningOutputTokens: number;
+};
+
+/**
+ * 一条会话的 token 用量。
+ *
+ * - `total`：整段对话累计（服务端 session.list / session.history 的线程级用量）
+ * - `last`：最近一次模型调用的消耗（实时帧的轮次级用量）
+ * - `contextWindow`：模型上下文窗口，0 表示上游没给
+ */
+export type AgentTokenUsage = {
+  total: AgentTokenDetail;
+  last: AgentTokenDetail;
+  contextWindow: number;
+};
+
+/**
+ * 这份明细是不是空的（没有真实 token 数）。
+ *
+ * 用来判断「这一路数据有没有给用量」：history 的轮次级只给 last、
+ * 列表只给 total，缺的那一层是全 0 —— 合并时不能拿它去覆盖已有的值。
+ */
+export function isEmptyTokenDetail(detail: AgentTokenDetail): boolean {
+  return detail.totalTokens === 0 && detail.inputTokens === 0 && detail.outputTokens === 0;
+}
+
+/** 空明细（引用稳定，多层合并时省掉一半对象分配） */
+export const EMPTY_TOKEN_DETAIL: AgentTokenDetail = {
+  totalTokens: 0,
+  inputTokens: 0,
+  cachedInputTokens: 0,
+  cacheWriteInputTokens: 0,
+  outputTokens: 0,
+  reasoningOutputTokens: 0,
 };
 
 /* ------------------------------------------------------------------ */
@@ -230,6 +289,11 @@ export type AgentHistoryTurn = {
   /** 毫秒时间戳 */
   createdAt: number;
   completedAt?: number;
+  /**
+   * 本轮 token 用量：只有 `last`（本轮）与 `contextWindow` 有值，`total` 恒为 0。
+   * 对话累计看 AgentHistoryThread.usage；老数据没记录时为 undefined。
+   */
+  usage?: AgentTokenUsage;
 };
 
 /** 一个线程及其轮次（threads 按创建时间升序，turns 按 seq 升序） */
@@ -240,6 +304,8 @@ export type AgentHistoryThread = {
   lastUpdate?: number;
   turns: AgentHistoryTurn[];
   hasMore?: boolean;
+  /** 该对话的累计用量：只有 `total` 有值 */
+  usage?: AgentTokenUsage;
 };
 
 /**

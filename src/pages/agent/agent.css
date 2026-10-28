@@ -679,6 +679,90 @@
   font-size: 12px;
   color: rgba(0, 0, 0, 0.4);
   padding: 2px 2px 0;
+  /* 一行放不下就省略，不换行：多一行会把输入框整体往上顶 */
+  white-space: nowrap;
+}
+
+/* 左侧连接信息：窄面板时先让它出省略号，右侧的用量与字数更重要 */
+.agent-sender-conn {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 右侧：token 用量 + 字数 / 上传状态 */
+.agent-sender-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.agent-sender-hint {
+  flex: 0 0 auto;
+}
+
+/* ---------------- token 用量 ---------------- */
+
+/*
+ * antd 的 Tooltip 固定 max-width: 250px，用量明细会被折成一片。
+ * 组件里已经用 styles.root 内联放宽，这里再兜一次：
+ * 生成样式是 `.css-hash.ant-tooltip`（特异性 0,2,0），所以选择器必须叠够三层。
+ */
+div.ant-tooltip.agent-token-tooltip {
+  max-width: 300px;
+}
+
+.agent-token-meter {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: rgba(0, 0, 0, 0.45);
+  /* 悬停出明细：光标给个提示，但不加下划线（那会让整行看着像链接） */
+  cursor: help;
+}
+
+.agent-token-meter:hover {
+  color: rgba(0, 0, 0, 0.7);
+}
+
+.agent-token-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  /*
+   * 宽度下限 220px：贴着内容收紧（约 190px）会显得挤，之前 300px 又空得慌。
+   * 220 正好让「标签列 + 数值列」之间留出一指宽的呼吸空间。
+   */
+  min-width: 220px;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.agent-token-detail-line {
+  display: flex;
+  align-items: baseline;
+  /* 标签列固定，数值右对齐成一列：比紧挨着好读，也不会像分列两端那样拉出大片空白 */
+  justify-content: space-between;
+  gap: 20px;
+  /* 一行一个指标：折行会让「本对话累\n计」这种断开，读起来像乱码 */
+  white-space: nowrap;
+}
+
+/* Tooltip 是深色气泡：靠透明度分层，别写死颜色 */
+.agent-token-detail-line > span:first-child {
+  flex: 0 0 auto;
+  /* 「本对话累计」5 个中文字 = 60px，固定下来各项数值就能左对齐 */
+  min-width: 62px;
+  opacity: 0.72;
+}
+
+.agent-token-detail-line > span:last-child {
+  flex: 0 0 auto;
+  text-align: right;
 }
 
 /* ---------------- 参数抽屉 ---------------- */

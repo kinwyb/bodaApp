@@ -5,7 +5,22 @@
  * 其它会话返回空数组，保持欢迎页。
  */
 
-import type { AgentHistoryThread, AgentHistoryTurn } from '../types';
+import type { AgentHistoryThread, AgentHistoryTurn, AgentTokenDetail } from '../types';
+
+/** 演示用量：字段得齐全（界面按 0 归一，缺字段反而不像真数据） */
+function detail(input: number, output: number, reasoning = 0): AgentTokenDetail {
+  return {
+    totalTokens: input + output,
+    inputTokens: input,
+    cachedInputTokens: 0,
+    cacheWriteInputTokens: 0,
+    outputTokens: output,
+    reasoningOutputTokens: reasoning,
+  };
+}
+
+/** 空明细：轮次级没有累计、线程级没有本轮，对应层留空 */
+const EMPTY = detail(0, 0);
 
 export function buildMockHistory(conversationId: string): AgentHistoryThread[] {
   if (conversationId !== 'conv-history') return [];
@@ -30,6 +45,8 @@ export function buildMockHistory(conversationId: string): AgentHistoryThread[] {
       completed: true,
       createdAt: now - 1000 * 60 * 60 * 30,
       completedAt: now - 1000 * 60 * 60 * 30 + 12_000,
+      // 轮次级只给「本轮」与上下文窗口（与真实接口一致，累计看线程级）
+      usage: { total: EMPTY, last: detail(3_820, 460, 120), contextWindow: 200_000 },
     },
     {
       seq: 102,
@@ -47,6 +64,7 @@ export function buildMockHistory(conversationId: string): AgentHistoryThread[] {
       completed: true,
       createdAt: now - 1000 * 60 * 60 * 29,
       completedAt: now - 1000 * 60 * 60 * 29 + 9_000,
+      usage: { total: EMPTY, last: detail(5_210, 520, 180), contextWindow: 200_000 },
     },
   ];
 
@@ -58,6 +76,8 @@ export function buildMockHistory(conversationId: string): AgentHistoryThread[] {
       lastUpdate: turns[turns.length - 1].createdAt,
       turns,
       hasMore: false,
+      // 线程级只有累计（界面算上下文占用时用最后一轮的 last）
+      usage: { total: detail(9_030, 980, 300), last: EMPTY, contextWindow: 0 },
     },
   ];
 }

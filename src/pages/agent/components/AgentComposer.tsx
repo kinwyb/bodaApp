@@ -13,9 +13,10 @@ import { App as AntdApp, Button, Tooltip } from 'antd';
 import type { UploadFile } from 'antd';
 import { PaperClipOutlined, ReloadOutlined } from '@ant-design/icons';
 import { Attachments, Sender } from '@ant-design/x';
-import type { AgentAttachment, AgentConnectionStatus } from '../types';
+import type { AgentAttachment, AgentConnectionStatus, AgentTokenUsage } from '../types';
 import { CONNECTION_META } from '../constants';
 import { deleteAgentFile, fileErrorMessage, uploadAgentFile } from '../files';
+import { AgentTokenMeter } from './AgentTokenMeter';
 
 /** 附件项：在 antd 的 UploadFile 上补上传结果（fileID / 可访问地址 / 失败文案） */
 type ComposerFile = UploadFile & {
@@ -40,9 +41,14 @@ export const AgentComposer: React.FC<{
   latency?: number;
   /** 紧凑形态（嵌在工作台左栏时）：面板窄，占位文案要短一档才不会折行 */
   compact?: boolean;
+  /**
+   * 当前会话的 token 用量（服务端 token_usage 帧 / 历史与列表的累计值）。
+   * 没有用量记录（新对话、老数据）时不传，底部就不显示这一项。
+   */
+  usage?: AgentTokenUsage;
   onSend: (text: string, attachments?: AgentAttachment[]) => void;
   onAbort: () => void;
-}> = ({ streaming, mode, connection, latency, compact = false, onSend, onAbort }) => {
+}> = ({ streaming, mode, connection, latency, compact = false, usage, onSend, onAbort }) => {
   const { message } = AntdApp.useApp();
   const [inputValue, setInputValue] = useState('');
   const [fileList, setFileList] = useState<ComposerFile[]>([]);
@@ -230,6 +236,7 @@ export const AgentComposer: React.FC<{
         placeholder={
           compact ? '想让助手做什么？Enter 发送' : '描述你想让助手做的事，Enter 发送，Shift + Enter 换行'
         }
+        allowSpeech={true}
         autoSize={{ minRows: 2, maxRows: 6 }}
         header={
           fileList.length > 0 ? (
@@ -277,15 +284,19 @@ export const AgentComposer: React.FC<{
         }
         footer={
           <div className="agent-sender-footer">
-            <span>{footerText}</span>
-            <span>
-              {uploadingCount > 0
-                ? `${uploadingCount} 个附件上传中`
-                : failedCount > 0
-                  ? `${failedCount} 个附件上传失败`
-                  : inputValue.length > 0
-                    ? `${inputValue.length} 字`
-                    : 'Shift + Enter 换行'}
+            <span className="agent-sender-conn">{footerText}</span>
+            <span className="agent-sender-meta">
+              {/* token 用量：服务端从来没给过数（新对话 / 老数据）就不占位 */}
+              {usage ? <AgentTokenMeter usage={usage} /> : null}
+              <span className="agent-sender-hint">
+                {uploadingCount > 0
+                  ? `${uploadingCount} 个附件上传中`
+                  : failedCount > 0
+                    ? `${failedCount} 个附件上传失败`
+                    : inputValue.length > 0
+                      ? `${inputValue.length} 字`
+                      : 'Shift + Enter 换行'}
+              </span>
             </span>
           </div>
         }

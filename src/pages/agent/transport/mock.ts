@@ -56,6 +56,9 @@ export function createMockTransport(): AgentTransport {
 
   let status: import('../types').AgentConnectionStatus = 'idle';
   let cancelled = false;
+  /** 演示用的累计用量（真实后端由 DB 落库，这里按文本长度估） */
+  let usedInput = 0;
+  let usedOutput = 0;
 
   const emit = (event: AgentStreamEvent) => {
     eventListeners.forEach((listener) => listener(event));
@@ -155,6 +158,34 @@ export function createMockTransport(): AgentTransport {
       { event: AGENT_EVENT.messageCompleted, role: 'assistant', content: script.text, delta: false },
       'mock-message-0',
     );
+
+    /*
+     * token 用量：真实后端在每次模型调用后推一帧，这里按文本长度估一个量级。
+     * 走的是同一条 mapAgentEnvelope 路径，所以能验证「用量只更新面板、不拼正文」。
+     */
+    const lastInput = Math.round((payload.content.length + 420) * 2.4);
+    const lastOutput = Math.round(script.text.length * 1.7);
+    usedInput += lastInput;
+    usedOutput += lastOutput;
+    const detail = (input: number, output: number) => ({
+      totalTokens: input + output,
+      inputTokens: input,
+      cachedInputTokens: 0,
+      cacheWriteInputTokens: 0,
+      outputTokens: output,
+      reasoningOutputTokens: Math.round(output * 0.2),
+    });
+    push(AGENT_EVENT.tokenUsage, {
+      event: AGENT_EVENT.tokenUsage,
+      role: 'assistant',
+      delta: false,
+      usage: {
+        total: detail(usedInput, usedOutput),
+        last: detail(lastInput, lastOutput),
+        modelContextWindow: 200_000,
+      },
+    });
+
     push(AGENT_EVENT.finished, { event: AGENT_EVENT.finished });
   };
 

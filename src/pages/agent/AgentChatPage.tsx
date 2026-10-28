@@ -292,6 +292,7 @@ const AgentChatPage: React.FC<AgentChatPageProps> = ({ embedded = false }) => {
           mode={chat.mode}
           connection={chat.connection}
           latency={chat.latency}
+          usage={chat.usage}
           compact={embedded}
           onSend={chat.send}
           onAbort={chat.abort}

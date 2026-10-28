@@ -5,7 +5,14 @@
  * 页面永远不接触 envelope / kind / type 这些协议概念。
  */
 
-import type { AgentApproval, AgentHistoryThread, AgentMedia, AgentSource, AgentToolStep } from '../types';
+import type {
+  AgentApproval,
+  AgentHistoryThread,
+  AgentMedia,
+  AgentSource,
+  AgentTokenUsage,
+  AgentToolStep,
+} from '../types';
 
 export type AgentStreamEvent =
   /** 一条回答开始（message_start） */
@@ -37,6 +44,13 @@ export type AgentStreamEvent =
   | { type: 'approval'; conversationId: string; approval: AgentApproval }
   | { type: 'media'; conversationId: string; media: AgentMedia[] }
   | { type: 'sources'; conversationId: string; sources: AgentSource[] }
+  /**
+   * token 用量更新（token_usage 帧）。
+   *
+   * 与其他事件不同，它**不影响消息内容**：只更新输入框下方的用量面板。
+   * 同一轮会多次到达（每次模型调用后一次），整体覆盖即可。
+   */
+  | { type: 'usage'; conversationId: string; usage: AgentTokenUsage }
   /**
    * 历史消息：
    * - replace 首次打开整体替换

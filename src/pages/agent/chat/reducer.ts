@@ -3,7 +3,7 @@
  */
 
 import type { AgentChatAction, AgentChatState } from './actions';
-import type { AgentConversation } from '../types';
+import type { AgentConversation, AgentHistoryThread, AgentTokenUsage } from '../types';
 import { hasRenderableContent, timelineOf } from '../types';
 import { DEFAULT_LABEL, createConversation } from './actions';
 import { contentFromFrames, groupFramesByReq, historyMessagesOf, isTruncatedContent } from './frames';
@@ -11,6 +11,7 @@ import {
   appendTimelineText,
   finishStreamingReply,
   mapStreamingReply,
+  mergeTokenUsage,
   upsertTimelineApproval,
   upsertTimelineError,
   upsertTimelineTool,
@@ -21,6 +22,35 @@ import {
 /** 还没落库的会话（本地新建、或刚发出第一轮还没拿到 sessionID） */
 function isDraft(conversation: AgentConversation): boolean {
   return !conversation.threadId;
+}
+
+/**
+ * 从历史线程里取用量。
+ *
+ * 一个会话可能挂多个 thread（换过 agent 就新建一个），本地这条会话对应的是最后更新的那个，
+ * 所以累计取「最新的非空线程用量」，本轮取「最后一轮的用量」（轮次级只给 last + 上下文窗口）。
+ * 老数据没有记录 → 返回 undefined，界面不显示用量。
+ */
+function usageFromHistory(
+  threads: AgentHistoryThread[],
+  current: AgentTokenUsage | undefined,
+): AgentTokenUsage | undefined {
+  let threadUsage: AgentTokenUsage | undefined;
+  let turnUsage: AgentTokenUsage | undefined;
+
+  for (const thread of threads) {
+    if (thread.usage) threadUsage = thread.usage;
+    // turns 已由 downlink/history.ts 补成数组（协议里可能缺省）
+    const tail = thread.turns[thread.turns.length - 1];
+    if (tail?.usage) turnUsage = tail.usage;
+  }
+  if (!threadUsage && !turnUsage) return current;
+
+  return mergeTokenUsage(current, {
+    total: threadUsage?.total,
+    last: turnUsage?.last,
+    contextWindow: turnUsage?.contextWindow,
+  });
 }
 
 export function chatReducer(state: AgentChatState, action: AgentChatAction): AgentChatState {
@@ -123,6 +153,8 @@ export function chatReducer(state: AgentChatState, action: AgentChatAction): Age
           preview: item.preview || undefined,
           turns: item.turns,
           updatedAt: Math.max(base.updatedAt, item.updatedAt),
+          // 列表只给累计用量：刷新页面后不必等实时帧，输入框下方立刻有数
+          usage: mergeTokenUsage(base.usage, item.usage ? { total: item.usage.total } : undefined),
         };
       });
 
@@ -238,6 +270,19 @@ export function chatReducer(state: AgentChatState, action: AgentChatAction): Age
         mapStreamingReply(conversation, (content) => ({ ...content, sources: action.sources })),
       );
 
+    /*
+     * token 用量（token_usage 帧）。
+     *
+     * 只更新会话级用量，不碰消息内容；也不碰 streaming 状态与 updatedAt ——
+     * 用量帧在一轮里会来好几次，不该被当成「有内容进展」的信号。
+     */
+    case 'usage':
+      return withConversation(state, action.conversationKey, (conversation) => {
+        const usage = mergeTokenUsage(conversation.usage, action.usage);
+        if (usage === conversation.usage) return conversation;
+        return { ...conversation, usage };
+      });
+
     case 'historyStart':
       return withConversation(state, action.conversationKey, (conversation) => ({
         ...conversation,
@@ -253,10 +298,23 @@ export function chatReducer(state: AgentChatState, action: AgentChatAction): Age
           .sort((a, b) => a.seq - b.seq);
         const hasMore = threads.some((thread) => thread.hasMore);
 
+        /*
+         * 用量单独算，且不受下面「没有轮次就早退」的影响：
+         * 空会话也可能有累计用量（此前的轮次被清过、或这一页没带回轮次），
+         * 这条数据来自线程级 usage，和 turns 有没有内容无关。
+         */
+        const usage = usageFromHistory(threads, conversation.usage);
+
         // 后端没有更多数据：保持本地内容不动，但要把「还有更早」关掉，
         // 否则「加载更早」按钮会一直挂在那里，点了没反应
         if (turns.length === 0) {
-          return { ...conversation, historyLoaded: true, historyLoading: false, hasMore: false };
+          return {
+            ...conversation,
+            usage,
+            historyLoaded: true,
+            historyLoading: false,
+            hasMore: false,
+          };
         }
 
         // 增量补发的游标：服务端按 turn 的 CreateTime 过滤
@@ -270,6 +328,7 @@ export function chatReducer(state: AgentChatState, action: AgentChatAction): Age
           return {
             ...conversation,
             messages: [...incoming, ...conversation.messages],
+            usage,
             historyLoaded: true,
             historyLoading: false,
             hasMore,
@@ -287,6 +346,7 @@ export function chatReducer(state: AgentChatState, action: AgentChatAction): Age
               ...conversation.messages,
               ...incoming.filter((message) => !known.has(message.key)),
             ],
+            usage,
             historyLoaded: true,
             historyLoading: false,
             lastTurnAt,
@@ -298,6 +358,7 @@ export function chatReducer(state: AgentChatState, action: AgentChatAction): Age
         return {
           ...conversation,
           messages: [...incoming, ...streaming],
+          usage,
           historyLoaded: true,
           historyLoading: false,
           hasMore,

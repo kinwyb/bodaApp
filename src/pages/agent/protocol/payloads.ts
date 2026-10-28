@@ -4,8 +4,30 @@
  * 只声明前端会读写的字段，其余忽略即可。
  */
 
-import type { AgentHistoryThread, AgentInfo, AgentMedia } from '../types';
+import type { AgentHistoryThread, AgentHistoryTurn, AgentInfo, AgentMedia } from '../types';
 import type { AgentEnvelope } from './envelope';
+
+/** types.TokenDetail：单轮或累计的 token 拆分 */
+export type TokenDetailData = {
+  totalTokens?: number;
+  inputTokens?: number;
+  cachedInputTokens?: number;
+  cacheWriteInputTokens?: number;
+  outputTokens?: number;
+  reasoningOutputTokens?: number;
+};
+
+/**
+ * types.TokenUsage：token 用量。
+ *
+ * total 是整段对话的累计，last 是最近一次模型调用（本轮）的消耗，
+ * modelContextWindow 是模型上下文窗口，0 表示上游没给。
+ */
+export type TokenUsageData = {
+  total?: TokenDetailData;
+  last?: TokenDetailData;
+  modelContextWindow?: number;
+};
 
 /** protocol.AgentData：kind=agent 的 data */
 export type AgentEventData = {
@@ -19,6 +41,8 @@ export type AgentEventData = {
   toolCalls?: AgentToolCall[];
   media?: AgentMedia[];
   approval?: { id?: string; content?: string; extra?: Record<string, unknown> };
+  /** token 用量，仅 token_usage 事件携带；同一轮会多次推送，按帧覆盖即可 */
+  usage?: TokenUsageData;
   error?: { code?: string; message?: string; detail?: string };
   meta?: Record<string, unknown>;
 };
@@ -149,6 +173,8 @@ export type SessionListItem = {
   completed?: boolean;
   createdAt?: number;
   lastUpdate?: number;
+  /** 该对话的累计用量（只有 total 有值），刷新列表不用拉详情就能显示消耗 */
+  usage?: TokenUsageData;
 };
 
 /** protocol.SessionListResult（下行） */
@@ -174,10 +200,22 @@ export type SessionHistoryData = {
   includeFrames?: boolean;
 };
 
+/**
+ * protocol.HistoryTurn / HistoryThread：字段与领域类型一致，
+ * 只有 `usage` 是协议形态（含 modelContextWindow），由 downlink/history.ts 归一化。
+ * `turns` 在协议里可能缺省。
+ */
+export type HistoryTurnData = Omit<AgentHistoryTurn, 'usage'> & { usage?: TokenUsageData };
+
+export type HistoryThreadData = Omit<AgentHistoryThread, 'usage' | 'turns'> & {
+  turns?: HistoryTurnData[];
+  usage?: TokenUsageData;
+};
+
 /** protocol.SessionHistoryResult（下行） */
 export type SessionHistoryResult = {
   sessionID?: string;
-  threads?: AgentHistoryThread[];
+  threads?: HistoryThreadData[];
   /** 按「线程顺序 + 轮次顺序」铺平的 agent 信封，与实时流同构；同轮共享 reqID */
   frames?: AgentEnvelope[];
   /** 是否有轮次的过程被条数/体积上限截断 */

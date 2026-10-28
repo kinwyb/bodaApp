@@ -5,10 +5,27 @@
  * 所以由传输层处理完 pending 后调用这里生成语义事件。
  */
 
+import type { AgentHistoryThread } from '../../types';
 import type { AgentStreamEvent } from '../events';
-import type { SessionHistoryResult, TurnReplayResult } from '../payloads';
+import type { HistoryThreadData, SessionHistoryResult, TurnReplayResult } from '../payloads';
+import { toTokenUsage } from './usage';
 
 export type HistoryMode = 'replace' | 'prepend' | 'append';
+
+/**
+ * 历史线程 → 领域结构。
+ *
+ * 必须在这里转一次：协议里的用量是 `{total,last,modelContextWindow}`，
+ * 领域类型要求字段齐全、且窗口字段叫 `contextWindow`，直接透传界面会读到 undefined。
+ * 老数据没有用量时保持 undefined（界面不显示，而不是显示 0）。
+ */
+function threadOf(raw: HistoryThreadData): AgentHistoryThread {
+  return {
+    ...raw,
+    turns: (raw.turns ?? []).map((turn) => ({ ...turn, usage: toTokenUsage(turn.usage) })),
+    usage: toTokenUsage(raw.usage),
+  };
+}
 
 export function toHistoryEvent(
   result: SessionHistoryResult,
@@ -18,7 +35,7 @@ export function toHistoryEvent(
   return {
     type: 'history',
     conversationId,
-    threads: Array.isArray(result.threads) ? result.threads : [],
+    threads: Array.isArray(result.threads) ? result.threads.map(threadOf) : [],
     // 逐帧过程：与实时流同构，交给状态层按 reqID 归组还原
     frames: Array.isArray(result.frames) ? result.frames : [],
     framesTruncated: Boolean(result.framesTruncated),

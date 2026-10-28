@@ -18,12 +18,14 @@ import { mapLifecycleEvent } from './lifecycle';
 import { mapMessageEvent } from './message';
 import { mapReasoningEvent } from './reasoning';
 import { mapToolEvent } from './tool';
+import { mapUsageEvent } from './usage';
 
 const handlers: AgentEventHandler[] = [
   mapMessageEvent,
   mapReasoningEvent,
   mapToolEvent,
   mapApprovalEvent,
+  mapUsageEvent,
   mapLifecycleEvent,
 ];
 
@@ -43,6 +45,7 @@ export function mapAgentEnvelope(
 }
 
 export { mapEnvelopeAttachments, readSources } from './attachments';
+export { toTokenUsage } from './usage';
 export { toHistoryEvent, toReplayEvent } from './history';
 export { parseSessionList } from './session-list';
 export type { AgentSessionPage } from './session-list';

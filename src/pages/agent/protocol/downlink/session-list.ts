@@ -7,6 +7,7 @@
 
 import type { AgentSessionSummary } from '../../types';
 import type { SessionListResult } from '../payloads';
+import { toTokenUsage } from './usage';
 
 export type AgentSessionPage = {
   items: AgentSessionSummary[];
@@ -29,6 +30,8 @@ export function parseSessionList(data: unknown): AgentSessionPage {
       completed: item.completed !== false,
       createdAt: item.createdAt ?? 0,
       updatedAt: item.lastUpdate ?? 0,
+      // 列表只给累计（total），没有 last 与上下文窗口
+      usage: toTokenUsage(item.usage),
     }))
     // 没有 threadID 的条目没法用来拉历史，直接丢掉
     .filter((item) => item.threadId);

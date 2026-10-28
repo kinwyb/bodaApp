@@ -13,6 +13,7 @@ import type {
   AgentConversation,
   AgentInfo,
   AgentMessage,
+  AgentTokenUsage,
 } from '../types';
 import type { AgentSendPayload } from '../transport';
 import { agentTransportMode, createAgentTransport } from '../transport';
@@ -46,6 +47,13 @@ export type AgentChatApi = {
   streaming: boolean;
   /** 当前会话是否还有更早的历史（决定要不要显示「加载更早」） */
   hasMore: boolean;
+  /**
+   * 当前会话的 token 用量（输入框下方展示）。
+   *
+   * 实时 `token_usage` 帧、`session.history` 与 `session.list` 三路合流；
+   * 从来没产生过用量时（新对话 / 老数据没记录）为 undefined。
+   */
+  usage?: AgentTokenUsage;
   /** 历史请求进行中 */
   historyLoading: boolean;
   /** 后端 hello 下发的 agent 列表 */
@@ -177,6 +185,14 @@ export function useAgentChat(): AgentChatApi {
             type: 'setSources',
             conversationKey: event.conversationId,
             sources: event.sources,
+          });
+          break;
+        case 'usage':
+          // 用量只更新面板：不影响正文、不结束流式
+          dispatch({
+            type: 'usage',
+            conversationKey: event.conversationId,
+            usage: event.usage,
           });
           break;
         case 'history':
@@ -508,6 +524,7 @@ export function useAgentChat(): AgentChatApi {
     mode,
     streaming,
     hasMore: Boolean(activeConversation.hasMore),
+    usage: activeConversation.usage,
     historyLoading: Boolean(activeConversation.historyLoading),
     agents,
     userId,

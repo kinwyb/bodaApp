@@ -13,6 +13,7 @@ import type {
   AgentMedia,
   AgentMessage,
   AgentSource,
+  AgentTokenUsage,
   AgentToolStep,
 } from '../types';
 
@@ -89,6 +90,13 @@ export type AgentChatAction =
   | { type: 'setApproval'; conversationKey: string; approval: AgentAssistantContent['approval'] }
   | { type: 'setMedia'; conversationKey: string; media: AgentMedia[] }
   | { type: 'setSources'; conversationKey: string; sources: AgentSource[] }
+  /**
+   * token 用量更新（token_usage 帧）。
+   *
+   * 只动会话级的用量面板，不碰消息内容：同一轮会多次到达（每次模型调用后一次），
+   * 服务端给的就是「累计 + 本轮」的当前事实，合并后覆盖即可。
+   */
+  | { type: 'usage'; conversationKey: string; usage: AgentTokenUsage }
   | {
       type: 'history';
       conversationKey: string;

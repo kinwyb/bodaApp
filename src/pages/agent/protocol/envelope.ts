@@ -92,6 +92,11 @@ export const AGENT_EVENT = {
   messageCompleted: 'message_completed',
   toolStart: 'tool_start',
   toolCompleted: 'tool_completed',
+  /**
+   * token 用量更新：delta 恒为 false、content 恒为空，
+   * 只更新用量面板（同一轮会多次到达，eventID 固定是该轮的 turnID）。
+   */
+  tokenUsage: 'token_usage',
   error: 'error',
   approval: 'approval',
   finished: 'finished',

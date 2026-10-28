@@ -14,9 +14,11 @@ import type {
   AgentApproval,
   AgentConversation,
   AgentTimelineItem,
+  AgentTokenDetail,
+  AgentTokenUsage,
   AgentToolStep,
 } from '../types';
-import { assistantContentOf } from '../types';
+import { assistantContentOf, EMPTY_TOKEN_DETAIL, isEmptyTokenDetail } from '../types';
 import type { AgentChatState } from './actions';
 
 /** 修改某个会话；没命中就原样返回，避免无意义的重渲染 */
@@ -33,6 +35,53 @@ export function withConversation(
     return next;
   });
   return changed ? { ...state, conversations } : state;
+}
+
+/** 用量补丁：三层都可缺省，缺的那层保留原值 */
+export type TokenUsagePatch = {
+  total?: AgentTokenDetail;
+  last?: AgentTokenDetail;
+  contextWindow?: number;
+};
+
+/**
+ * 合并 token 用量：只覆盖「真的有数据」的那一层。
+ *
+ * 三条来源给的东西不一样 —— 实时 `token_usage` 帧三层都有，
+ * `session.list` 只给累计（total），`session.history` 的线程给累计、轮次给本轮 + 窗口。
+ * 整体替换会把另一路刚拿到的值抹成 0，所以缺的那层保留原值；
+ * 两层都没有时用空明细占位（列表只给 total 的那种也要能显示出来）。
+ */
+export function mergeTokenUsage(
+  base: AgentTokenUsage | undefined,
+  patch: TokenUsagePatch | undefined,
+): AgentTokenUsage | undefined {
+  if (!patch) return base;
+
+  const total = patch.total && !isEmptyTokenDetail(patch.total) ? patch.total : base?.total;
+  const last = patch.last && !isEmptyTokenDetail(patch.last) ? patch.last : base?.last;
+  const contextWindow =
+    patch.contextWindow !== undefined && patch.contextWindow > 0
+      ? patch.contextWindow
+      : (base?.contextWindow ?? 0);
+
+  const nextTotal = total ?? EMPTY_TOKEN_DETAIL;
+  const nextLast = last ?? EMPTY_TOKEN_DETAIL;
+
+  // 累计与本轮都没有真实数据：保持原样（不是「0 tokens」）
+  if (isEmptyTokenDetail(nextTotal) && isEmptyTokenDetail(nextLast) && contextWindow === 0) {
+    return base;
+  }
+  // 引用没变就返回原对象：token_usage 帧来得密，白刷引用会带动整块重渲染
+  if (
+    base &&
+    nextTotal === base.total &&
+    nextLast === base.last &&
+    contextWindow === base.contextWindow
+  ) {
+    return base;
+  }
+  return { total: nextTotal, last: nextLast, contextWindow };
 }
 
 /** 找到「正在生成的那条助手消息」并更新它 */
