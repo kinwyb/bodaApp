@@ -12,9 +12,9 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { App as AntdApp, Avatar, Button, Tag } from 'antd';
 import { Bubble } from '@ant-design/x';
 import type { BubbleItemType } from '@ant-design/x';
-import { PaperClipOutlined, RobotOutlined, UserOutlined } from '@ant-design/icons';
+import { PaperClipOutlined, ReloadOutlined, RobotOutlined, UserOutlined } from '@ant-design/icons';
 
-import type { AgentAssistantContent } from './types';
+import type { AgentAssistantContent, AgentConnectionStatus } from './types';
 import { assistantContentOf } from './types';
 import { useAgentChat } from './chat/use-agent-chat';
 import { AgentAnswer } from './components/AgentAnswer';
@@ -64,6 +64,39 @@ const BUBBLE_ROLES = {
     avatar: USER_AVATAR,
     contentRender: (content: unknown) => <div className="agent-user-text">{String(content)}</div>,
   },
+};
+
+/**
+ * 断线横幅：固定在聊天区顶部。
+ *
+ * 为什么不放顶栏：顶栏是 `height: 60px` 的定量容器 + `Space wrap`，
+ * 紧凑形态（480px 面板）再加一个按钮就会换行掉出可视区 —— 重连入口因此常年"看不见"。
+ * 横幅是正常文档流里的第一条，宽度自适应，断线一定在。
+ *
+ * 只在 idle / error 出现。connecting 交给顶栏那个常驻状态标签（点重连后它会立刻变
+ * 「连接中」），这样既点得出反馈，也不会在正常首连时闪一下横幅。
+ */
+const AgentConnectionBanner: React.FC<{
+  connection: AgentConnectionStatus;
+  mode: 'mock' | 'websocket';
+  onReconnect: () => void;
+}> = ({ connection, mode, onReconnect }) => {
+  if (mode !== 'websocket') return null;
+  if (connection === 'connected' || connection === 'connecting') return null;
+
+  const failed = connection === 'error';
+  return (
+    <div className={`agent-conn-banner${failed ? ' agent-conn-banner-error' : ''}`}>
+      <span className="agent-conn-banner-text">
+        {failed
+          ? '连接已断开，正在自动重试（最长 15 秒一次），恢复后自动接上'
+          : '尚未连接到后端服务'}
+      </span>
+      <Button size="small" danger={failed} icon={<ReloadOutlined />} onClick={onReconnect}>
+        立即重连
+      </Button>
+    </div>
+  );
 };
 
 /**
@@ -198,6 +231,11 @@ const AgentChatPage: React.FC<AgentChatPageProps> = ({ embedded = false }) => {
         />
 
         <div className="agent-body">
+          <AgentConnectionBanner
+            connection={chat.connection}
+            mode={chat.mode}
+            onReconnect={chat.reconnect}
+          />
           <div className="agent-chat-surface">
             {chat.hasMore || chat.historyLoading ? (
               <div className="agent-history-bar">

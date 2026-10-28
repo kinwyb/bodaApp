@@ -15,7 +15,7 @@ import {
   SettingOutlined,
 } from '@ant-design/icons';
 import type { AgentConnectionStatus, AgentInfo } from '../types';
-import { CONNECTION_META, FALLBACK_AGENT_OPTIONS } from '../constants';
+import { CONNECTION_HINT, CONNECTION_META, FALLBACK_AGENT_OPTIONS } from '../constants';
 
 const { Text } = Typography;
 
@@ -91,13 +91,19 @@ export const AgentHeader: React.FC<{
       </div>
 
       <Space size={8} wrap>
-        <Tag color={statusTag.color} className="agent-status-tag">
-          {statusTag.text}
-        </Tag>
+        {/* 状态标签：断线时说明会自动重试，避免用户以为必须刷新页面 */}
+        <Tooltip title={mode === 'mock' ? '当前是本地演示数据' : CONNECTION_HINT[connection]}>
+          <Tag color={statusTag.color} className="agent-status-tag">
+            {statusTag.text}
+          </Tag>
+        </Tooltip>
         {/* 会话记录入口（新建 / 历史），由 AgentConversationPanel 提供 */}
         {conversationSlot}
-        {/* 鉴权失败 / 断线时给一个手动重连入口（重连会重新读 token） */}
-        {mode === 'websocket' && connection === 'error' ? (
+        {/*
+          断线的重连入口只在宽形态放这里 —— 紧凑形态（480px 面板）顶栏是固定 60px，
+          再加一个按钮就会换行掉出可视区，那时入口由聊天区的断线横幅承担。
+        */}
+        {mode === 'websocket' && connection === 'error' && !compact ? (
           <Button size="small" danger icon={<ReloadOutlined />} onClick={onReconnect}>
             重连
           </Button>

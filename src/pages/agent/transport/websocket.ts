@@ -35,11 +35,24 @@ import { installFrameTrace, traceIncoming, traceUplink } from './frame-trace';
 /** 上行请求的类别：决定响应回来时用哪种方式解析 */
 type PendingKind = 'chat' | 'history' | 'replay' | 'sessions';
 
-/** 断线重连上限与退避上限 */
-const MAX_RECONNECT = 5;
+/**
+ * 重连退避：1s → 2s → 4s → 8s → 15s（封顶），**一直重试，不设次数上限**。
+ *
+ * 不设上限是有意的：后端重启是最常见的断线原因，前端必须能自己连回去。
+ * 一味重试的代价只是每 15 秒一条连接日志，而「停止重试」的代价是
+ * 用户以为界面坏了、必须手动刷新 —— 后者严重得多。
+ */
 const MAX_BACKOFF = 15_000;
-/** 握手成功前就被关闭、且耗时短于这个值 → 判定为鉴权/地址问题，不再重连 */
+/** 连续失败达到这个次数就把状态亮成「连接异常」（重连按钮随之出现），后台仍然继续重试 */
+const VISIBLE_FAIL_ATTEMPTS = 2;
+/**
+ * 握手成功前就被关闭、且耗时短于这个值 → 判定为「秒失败」。
+ * 注意：浏览器在 upgrade 阶段不会告诉我们是 401 还是 ECONNREFUSED，
+ * 所以这个值**只能用来决定提示文案，绝不能用来停止重连**。
+ */
 const HANDSHAKE_FAIL_WINDOW = 2_000;
+/** 连续这么多个心跳周期都没收到 pong → 判定连接假死，主动断开触发重连 */
+const MISSED_PONG_LIMIT = 2;
 
 /** token 可以是固定值，也可以是每次（重）连都求值的函数（接登录态刷新） */
 export type TokenSource = string | (() => string | undefined);
@@ -72,8 +85,24 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
   let handshaked = false;
   /** 本次连接开始时间，用于识别「刚连上就被拒」 */
   let connectAt = 0;
-  /** 鉴权失败只提示一次，避免重试时刷屏 */
+  /** 鉴权失败提示只发一次，避免每次重试都刷屏 */
   let authFailed = false;
+  /** 连续「秒失败」次数：够 2 次才提示，避免一次网络抖动就吓人 */
+  let quickFailCount = 0;
+  /** 是否曾经握手成功过（区分「首连没起来」与「用着用着断了」） */
+  let everConnected = false;
+  /** 连续没收到 pong 的心跳轮数（假死检测） */
+  let missedPongs = 0;
+  /**
+   * 本次连接是否真的收到过 pong。
+   *
+   * 假死检测只在「这条连接曾经回过 pong」时启用：万一服务端根本没实现 pong
+   * （或实现有偏差），按「没有响应就断开」处理会变成每两个心跳周期断一次、
+   * 无限重连 —— 那比原来的静默卡住严重得多。宁可测不准，也不要误杀。
+   */
+  let pongSeen = false;
+  /** 页面可见性监听器的卸载函数（connect 时装、disconnect 时卸） */
+  let detachVisibility: (() => void) | undefined;
   /** token 解析出的身份，用于把 sessionID 反解回会话（{channel}_{userId}_{chatId}） */
   let identity: { userId: string } = { userId: '' };
 
@@ -117,12 +146,30 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
       clearInterval(heartbeatTimer);
       heartbeatTimer = undefined;
     }
+    pingSentAt = 0;
+    missedPongs = 0;
   };
 
+  /**
+   * 心跳：既测延迟，也负责发现「假死连接」。
+   *
+   * 后端进程被 kill -9、网线拔掉、机器休眠这几种情况，TCP 不会正常 FIN，
+   * 浏览器的 onclose 可能几分钟都不触发，界面就一直停在「已连接」而实际收不到任何东西。
+   * 所以这里数连着几个周期没有 pong —— 达到上限就主动 close，把控制权交回 onclose 的重连分支。
+   */
   const startHeartbeat = (seconds: number) => {
     stopHeartbeat();
     const interval = Math.max(5, seconds || 30) * 1000;
     heartbeatTimer = setInterval(() => {
+      if (pongSeen && pingSentAt > 0) {
+        missedPongs += 1;
+        if (missedPongs >= MISSED_PONG_LIMIT) {
+          stopHeartbeat();
+          // 主动断开：onclose 里 manualClose 仍是 false，会照常走重连
+          socket?.close();
+          return;
+        }
+      }
       pingSentAt = Date.now();
       rawPost(JSON.stringify(buildPing(pingSentAt)));
     }, interval);
@@ -136,6 +183,9 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
         const hello = parseHello(envelope.data);
         handshaked = true;
         authFailed = false;
+        quickFailCount = 0;
+        missedPongs = 0;
+        everConnected = true;
         // hello 里的 userID 是 token 解析出来的身份，会话键 = {channel}_<userId>_<chatId>
         identity = { userId: hello.userId };
         setStatus('connected');
@@ -213,6 +263,9 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
           pingSentAt = 0;
           latencyListeners.forEach((listener) => listener(elapsed));
         }
+        // 收到任何 pong 都说明链路是活的（回过的连接才允许做假死判定）
+        pongSeen = true;
+        missedPongs = 0;
         break;
       }
 
@@ -288,11 +341,35 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
 
   /* ---------------- 连接生命周期 ---------------- */
 
+  /**
+   * 页面长时间不可见时浏览器会把定时器节流到分钟级，退避重连可能迟迟不触发，
+   * 用户切回来看到的就是「一直断线」。重新可见时立刻补一次连接尝试。
+   */
+  const installVisibilityWatch = () => {
+    if (detachVisibility || typeof document === 'undefined') return;
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (manualClose || status === 'connected') return;
+      if (reconnectTimer !== undefined) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = undefined;
+      }
+      openSocket();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    detachVisibility = () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      detachVisibility = undefined;
+    };
+  };
+
   const openSocket = () => {
     if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
       return;
     }
-    setStatus('connecting');
+    // error / connecting 状态保持不动：重试期间每失败一次就盖一次状态，
+    // 顶栏的「连接异常」和重连按钮会跟着一直闪。只有从 idle 起来才需要点亮「连接中」。
+    if (status === 'idle') setStatus('connecting');
 
     // token 每次都重新求值：登录态刷新 / 重新登录后重连能带上新凭证
     const rawToken = typeof token === 'function' ? token() : token;
@@ -301,6 +378,7 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
       : url;
 
     handshaked = false;
+    pongSeen = false;
     connectAt = Date.now();
 
     const ws = new WebSocket(target);
@@ -313,37 +391,45 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
     };
 
     ws.onclose = () => {
+      // 只认「当前这条」socket 的关闭：手动重连或假死自愈时会先关旧 socket，
+      // 旧 socket 的 onclose 是异步到达的，若继续往下走会清掉新连接的心跳、
+      // 并和新连接抢 socket。
+      if (socket !== ws) return;
       stopHeartbeat();
       socket = null;
       if (manualClose) {
         setStatus('idle');
         return;
       }
-      setStatus('idle');
 
-      // 鉴权在 upgrade 之前完成：token 无效时连接被直接拒绝，浏览器只给 onerror/onclose。
-      // 这种「刚连上就被关且从未握手」的情况重连也没用，直接给出可读的错误。
-      if (!handshaked && Date.now() - connectAt < HANDSHAKE_FAIL_WINDOW) {
-        manualClose = true;
-        setStatus('error');
-        if (!authFailed) {
-          authFailed = true;
-          emit({
-            type: 'error',
-            conversationId: '',
-            message: '连接被拒绝：鉴权失败或服务地址不可达（检查 token 与 VITE_AGENT_WS_URL）',
-          });
-        }
-        return;
+      /*
+       * 「刚连上就被关」= 快速失败。这种情况浏览器在 upgrade 阶段不区分
+       * 401 和 ECONNREFUSED，两者表现完全一样（onerror + 立即 close）。
+       * 所以它只能影响提示文案，**不能**用来决定是否继续重连 ——
+       * 早期版本正是在这里 manualClose = true，导致后端一停就永久断线。
+       */
+      const quickFail = !handshaked && Date.now() - connectAt < HANDSHAKE_FAIL_WINDOW;
+      quickFailCount = quickFail ? quickFailCount + 1 : 0;
+      if (quickFailCount >= 2 && !authFailed) {
+        authFailed = true;
+        emit({
+          type: 'error',
+          conversationId: '',
+          message: '无法连接服务：鉴权失败或后端未启动（检查 token 与 VITE_AGENT_WS_URL），正在自动重试',
+        });
       }
 
-      if (reconnectAttempt >= MAX_RECONNECT) {
-        setStatus('error');
-        return;
-      }
-      const delay = Math.min(1000 * 2 ** reconnectAttempt, MAX_BACKOFF);
+      // 退避重试，永不停止：连上后 hello 会把 reconnectAttempt 归零
       reconnectAttempt += 1;
-      setStatus('connecting');
+      const delay = Math.min(1000 * 2 ** (reconnectAttempt - 1), MAX_BACKOFF);
+      /*
+       * 什么时候把状态亮成「连接异常」（横幅与重连按钮据此出现）：
+       * - 刚用着用着断了：第一次重试失败就亮，用户不该盯着「连接中」干等；
+       * - 一进来就没连上：给 2 次机会（约 3 秒），避免服务启动慢一点就报错吓人。
+       * 无论哪种，后台都继续重试 —— 状态只影响「让不让人看见」。
+       */
+      const failThreshold = everConnected ? 1 : VISIBLE_FAIL_ATTEMPTS;
+      setStatus(reconnectAttempt >= failThreshold ? 'error' : 'connecting');
       reconnectTimer = setTimeout(() => {
         reconnectTimer = undefined;
         openSocket();
@@ -351,8 +437,8 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
     };
 
     ws.onerror = () => {
-      // onclose 紧随其后，重连统一在 onclose 里处理
-      setStatus('error');
+      // onclose 总会紧随其后，状态与重连统一在 onclose 里处理。
+      // 这里不要再 setStatus('error')：会先闪一下「连接异常」再被 onclose 覆盖。
     };
 
     ws.onmessage = (frame: MessageEvent<string>) => {
@@ -377,12 +463,27 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
     connect() {
       manualClose = false;
       authFailed = false;
+      quickFailCount = 0;
+      // 手动重连要重置计数：否则之前用尽的次数会让这次刚失败就直接判死
+      reconnectAttempt = 0;
+      if (reconnectTimer !== undefined) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = undefined;
+      }
+      // 可能连着一条假死/半开的连接：先摘掉再关，它的 onclose 会被 socket !== ws 挡掉
+      const stale = socket;
+      socket = null;
+      stale?.close();
+
+      installVisibilityWatch();
+      setStatus('connecting');
       openSocket();
     },
 
     disconnect() {
       manualClose = true;
       stopHeartbeat();
+      detachVisibility?.();
       if (reconnectTimer !== undefined) {
         clearTimeout(reconnectTimer);
         reconnectTimer = undefined;
