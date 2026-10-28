@@ -16,7 +16,7 @@ import { PaperClipOutlined, ReloadOutlined, RobotOutlined, UserOutlined } from '
 
 import { formatFileSize } from '@/utils';
 import type { AgentAssistantContent, AgentConnectionStatus } from './types';
-import { assistantContentOf } from './types';
+import { assistantContentOf, hasRenderableContent } from './types';
 import { resolveAgentFileUrl } from './files';
 import { useAgentChat } from './chat/use-agent-chat';
 import { AgentAnswer } from './components/AgentAnswer';
@@ -182,8 +182,9 @@ const AgentChatPage: React.FC<AgentChatPageProps> = ({ embedded = false }) => {
           );
         }
 
-        // 等待首个 chunk 时给骨架，避免「一个空气泡」
-        if (answer && streaming && !answer.text && !(answer.steps?.length)) {
+        // 等到第一个真正能显示的片段才收掉骨架：Bubble 在 loading 下不渲染内容，
+        // 判据只看正文与工具的话，首轮整段思考会被骨架压住，直到出现工具调用才一次性放出来
+        if (answer && streaming && !hasRenderableContent(answer)) {
           base.loading = true;
         }
 

@@ -19,6 +19,7 @@ import type {
   AgentSource,
   AgentTimelineItem,
 } from '../types';
+import { hasRenderableContent } from '../types';
 import {
   appendTimelineText,
   upsertTimelineApproval,
@@ -133,6 +134,9 @@ export function isTruncatedContent(content: AgentAssistantContent): boolean {
  *
  * 用户消息用 turn.question（帧里的 user_message 在实时/回放两种来源下格式不一致，不可靠）；
  * 助手消息优先用 frames 还原（带思考与工具链），拿不到帧时退回 turn.answer 摘要。
+ *
+ * 判据用 hasRenderableContent 而不是「有正文或有工具」：被中断的那轮可能只有思考，
+ * 只看正文会让这条助手消息整个消失（实时能看到、刷新后就没了）。
  */
 export function historyMessagesOf(
   turn: AgentHistoryTurn,
@@ -154,7 +158,7 @@ export function historyMessagesOf(
   const fromFrames = frames && frames.length > 0 ? contentFromFrames(frames) : undefined;
   const answer = (turn.answer ?? '').trim();
   const content: AgentAssistantContent | undefined =
-    fromFrames && (fromFrames.text || fromFrames.steps?.length || fromFrames.error)
+    fromFrames && hasRenderableContent(fromFrames)
       ? fromFrames
       : answer
         ? { text: answer }

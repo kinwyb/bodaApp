@@ -4,7 +4,7 @@
 
 import type { AgentChatAction, AgentChatState } from './actions';
 import type { AgentConversation } from '../types';
-import { timelineOf } from '../types';
+import { hasRenderableContent, timelineOf } from '../types';
 import { DEFAULT_LABEL, createConversation } from './actions';
 import { contentFromFrames, groupFramesByReq, historyMessagesOf, isTruncatedContent } from './frames';
 import {
@@ -312,7 +312,8 @@ export function chatReducer(state: AgentChatState, action: AgentChatAction): Age
       const { conversationKey, turnId, frames, truncated } = action;
       return withConversation(state, conversationKey, (conversation) => {
         const content = contentFromFrames(frames);
-        if (!content.text && !content.steps?.length && !content.error) return conversation;
+        // 只有思考的那轮也要能换出完整过程：判据漏掉片段类型就会让按钮点了没反应
+        if (!hasRenderableContent(content)) return conversation;
 
         return {
           ...conversation,

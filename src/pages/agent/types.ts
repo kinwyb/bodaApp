@@ -274,3 +274,19 @@ export function assistantContentOf(message: AgentMessage): AgentAssistantContent
   }
   return message.content;
 }
+
+/**
+ * 这段内容有没有可显示的东西（思考 / 工具 / 正文 / 审批 / 错误任一片段，或媒体与引用）。
+ *
+ * 判据必须是整条时间线，不能只看 `text` 与 `steps`：真实一轮常常是「思考 → 工具 → 正文」，
+ * 只看后两者会让「只有思考」的这段时间被当成空的。骨架屏就中过这个招：
+ * Bubble 在 loading=true 时根本不渲染内容，于是首轮的思考一直被骨架压着，
+ * 直到第一次工具调用才把攒下的思考一次性放出来（现象是首轮不流式，之后正常）。
+ */
+export function hasRenderableContent(content: AgentAssistantContent): boolean {
+  return (
+    timelineOf(content).length > 0 ||
+    Boolean(content.media?.length) ||
+    Boolean(content.sources?.length)
+  );
+}
