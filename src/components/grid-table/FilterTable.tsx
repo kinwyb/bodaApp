@@ -496,6 +496,12 @@ export const FilterTable = React.forwardRef<FilterTableApi, FilterTableProps>(
                         tableRef.current?.getSelection() ?? {rows: [], cells: [], activeCell: null},
                     // 行号 = 数据行下标（0 起、不含表头，跟随显示顺序）；越界返回 undefined，这里不兜底
                     getRowByIndex: (index: number) => tableRef.current?.getRowByIndex(index),
+                    // 按主键反查行（界面桥「取完整一行」用它）：主键不随排序变化
+                    getRowByKey: (key: string) => tableRef.current?.getRowByKey(key),
+                    // 显示层状态（行数 / 排序 / 分组）：界面桥按行号取数据时靠它知道读到哪停。
+                    // 表格还没建好时给「空表」—— 形状与 GridTable 的回退口径一致
+                    getDisplayInfo: () =>
+                        tableRef.current?.getDisplayInfo() ?? {rowCount: 0, sorts: [], grouped: false},
                     // 表格还没建好时给「没有激活行」——形状与 GridTable 内部的 EMPTY_SELECTED_ROW 一致
                     // （少字段会被 satisfies GridTableApi 当场拦住，不会悄悄漂移）
                     getActiveRow: () =>

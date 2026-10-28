@@ -6,6 +6,8 @@
  * 编辑在 `editing.ts`、排序在 `sorting.ts`、导出配置在 `export.ts`。
  */
 
+import type { GridTableSortState } from './sorting';
+
 /**
  * 列宽模式（`widthMode`），与 `@visactor/vtable` 的取值一致。
  *
@@ -81,4 +83,32 @@ export interface GridTableRowInfo {
   isSummaryRow: boolean;
   /** 是否树形分组的组行（组行没有业务主键，只有 children 与汇总字段） */
   isGroupRow: boolean;
+}
+
+/**
+ * 显示层状态（getDisplayInfo 的返回值）—— 「用户此刻屏幕上是什么」的最小描述。
+ *
+ * 三个字段回答的是同一件事的三个侧面：一共几行、按什么排的、有没有分组。
+ * 需要它的地方（界面桥的快照、按行号取数据的翻页）都不能只看页面 records：
+ * 排序、分组是**表格内部**的显示层，页面 state 里根本没有这些信息。
+ */
+export interface GridTableDisplayInfo {
+  /**
+   * 显示行数（0 起算行号的上界，**含底部统计行**、含分组的组行）。
+   *
+   * 与 `getRowByIndex` 同一套坐标：`0..rowCount-1` 正好覆盖用户在屏幕上能看到的每一行，
+   * 所以「用户说的第 5 条」就是 `getRowByIndex(4)`。
+   */
+  rowCount: number;
+  /**
+   * 当前排序：**数组**，按优先级从高到低。
+   *
+   * 为什么是数组而不是单个对象：@visactor/vtable 原生支持多列排序
+   * （`multipleSort` + `sortState: SortState[]`），只是本组件目前自己实现排序、
+   * 用的是单列 `sortState`，所以这里**现在只会是 0 或 1 项**。将来接多列排序时，
+   * 改的是组件内部的比较逻辑，这个结构不用动 —— 消费方（界面桥、快照）也就不必再改一次。
+   */
+  sorts: GridTableSortState[];
+  /** 是否处于树形分组模式（此时 rowCount 里混有组行，行记录要按 isGroupRow 区分） */
+  grouped: boolean;
 }

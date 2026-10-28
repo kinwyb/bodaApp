@@ -26,6 +26,7 @@ export type { GridTableApi, GridTableProps } from './GridTable';
 // 类型按功能域分散在各文件里，这里统一转出，页面只需认模块入口
 export type {
   GridTableCellInfo,
+  GridTableDisplayInfo,
   GridTableHeightMode,
   GridTableRowInfo,
   GridTableWidthMode,

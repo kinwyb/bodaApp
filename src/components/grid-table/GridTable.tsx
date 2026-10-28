@@ -57,6 +57,7 @@ import { THEME } from './theme';
 import type {
   StyleArgs,
   GridTableCellInfo,
+  GridTableDisplayInfo,
   GridTableRowInfo,
   GridTableWidthMode,
   GridTableHeightMode,
@@ -109,6 +110,26 @@ export interface GridTableApi {
    * 越界返回 undefined。
    */
   getRowByIndex: (index: number) => GridTableRowInfo | undefined;
+  /**
+   * 按**行主键**取该行（显示行号 + 完整记录），找不到返回 undefined。
+   *
+   * 与 `getRowByIndex` 的分工：行号随排序 / 筛选变化，主键不变。外部（界面桥、
+   * 「编辑某一单」这类入口）手里通常只有主键，用它换行号 + 记录，别自己拿页面 records 去 find ——
+   * 页面那份数据的顺序与表格显示顺序不一定相同。
+   *
+   * 返回的 `record` 是表格内存里的**完整记录**（含表格没显示的字段），不是列白名单里的那几列。
+   */
+  getRowByKey: (key: string) => GridTableRowInfo | undefined;
+  /**
+   * 显示层状态：一共几行、按什么排的、有没有分组。
+   *
+   * 与 `getRowByIndex` 是同一套坐标 —— `rowCount` 就是那一套行号的上界，所以
+   * 「按行号把整张表读完」＝ `for (i = 0; i < rowCount; i++) getRowByIndex(i)`。
+   *
+   * **别用页面 records 的长度代替它**：筛选、排序、分组、统计行都只存在于表格里，
+   * 页面 state 的条数与用户屏幕上的行数不一定相等（分组时还多出组行）。
+   */
+  getDisplayInfo: () => GridTableDisplayInfo;
   /**
    * 当前激活行（鼠标点选 / 键盘方向键移动到的**那一行**）及其数据，判定规则与
    * onSelectedChange 完全一致 —— Ctrl+A、选中被清空、点表头时 record 为 undefined。
@@ -1632,6 +1653,56 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
   );
 
   /**
+   * 显示层状态（见 GridTableApi.getDisplayInfo）。
+   *
+   * 行数向表格要，不拿 `rows.length` 当答案：分组模式下「显示第几行」与顶层数组下标
+   * 根本不对应（组行占行号、收起的明细不占），只有 `table.rowCount` 是真实行数。
+   * 表格还没建好时才退回 `rows.length` —— 那个口径与建表后一致（都含统计行）。
+   */
+  const getDisplayInfo = useCallback((): GridTableDisplayInfo => {
+    const table = tableRef.current;
+    const rowCount = table
+      ? Math.max(0, table.rowCount - table.columnHeaderLevelCount)
+      : rows.length;
+    // 数组是因为排序信息天生可能有多列（vtable 原生支持 multipleSort）；
+    // 本组件目前只排一列，所以这里是 0 或 1 项。见 GridTableDisplayInfo.sorts 的注释。
+    return { rowCount, sorts: sortState ? [sortState] : [], grouped: hasGroup };
+  }, [hasGroup, rows.length, sortState]);
+
+  /**
+   * 按行主键取该行（见 GridTableApi.getRowByKey）。
+   *
+   * 与 `getRowByIndex` 是同一份数据的两条入口：行号会随排序 / 筛选变化，主键不会，
+   * 所以「外部拿主键来问这一行」必须走这里，不要自己拿页面 records 去 find ——
+   * 页面那份数据的顺序与表格显示顺序不一定相同。
+   *
+   * 分组模式下只能逐行向表格要记录（组行没有业务主键，`rowKey` 为空，自然跳过）；
+   * 收起的行拿不到记录，等于「当前不可见」。
+   */
+  const getRowByKey = useCallback(
+    (key: string): GridTableRowInfo | undefined => {
+      const wanted = String(key ?? '');
+      if (!wanted) return undefined;
+      if (hasGroup) {
+        const table = tableRef.current;
+        if (!table) return undefined;
+        const headerLevel = table.columnHeaderLevelCount;
+        for (let row = headerLevel; row < table.rowCount; row += 1) {
+          const record = table.getCellOriginRecord(0, row) as Record<string, unknown> | undefined;
+          if (record && String(record[rowKey] ?? '') === wanted) {
+            return getRowByIndex(row - headerLevel);
+          }
+        }
+        return undefined;
+      }
+      const index = rowKeyByIndexRef.current.indexOf(wanted);
+      if (index < 0) return undefined;
+      return getRowByIndex(index);
+    },
+    [getRowByIndex, hasGroup, rowKey],
+  );
+
+  /**
    * 按行主键选中整行（见 GridTableApi.selectRowsByKeys）。
    *
    * 主键 → 显示行号必须**现算**：`rowKeyByIndexRef` 装的是「渲染用的那份数据」
@@ -1670,6 +1741,8 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
       repaint,
       getSelection: selection.getSelection,
       getRowByIndex,
+      getRowByKey,
+      getDisplayInfo,
       // 与 onSelectedChange 同一份判定，命中的就是「当前激活的那一行」
       getActiveRow: selection.resolveSelectedRow,
       getTable: () => tableRef.current,
@@ -1687,6 +1760,8 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
       autoFitColumns,
       repaint,
       getRowByIndex,
+      getRowByKey,
+      getDisplayInfo,
       selection,
       rowExpander,
       exportExcel,
