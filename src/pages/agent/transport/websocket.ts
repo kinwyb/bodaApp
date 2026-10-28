@@ -283,7 +283,14 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
       }
 
       case SYSTEM_TYPE.shutdown: {
-        manualClose = true;
+        /*
+         * 服务端要关了（重启 / 停机 / 发版）。
+         *
+         * 这里**绝对不能**把 manualClose 置真：后端重启是最高频的断线原因，
+         * 置真之后 onclose 会直接 return，前端就永久停在「未连接」——
+         * 除了刷新页面没有任何恢复路径，重连定时器也不会排。
+         * 断开后照常走退避重连，后端回来就自己接上。
+         */
         setStatus('idle');
         socket?.close();
         break;

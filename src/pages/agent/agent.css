@@ -192,6 +192,11 @@
   margin-inline-end: 0;
 }
 
+/* 断开时状态标签可点重连：cursor 是唯一的可见提示，必须有 */
+.agent-status-tag-clickable {
+  cursor: pointer;
+}
+
 .agent-model-select {
   width: 148px;
 }
@@ -248,9 +253,10 @@
   padding: 6px 12px;
   font-size: 12px;
   line-height: 1.4;
-  color: rgba(0, 0, 0, 0.65);
-  background: #fafafa;
-  border-bottom: 1px solid #f0f0f0;
+  /* 用警示色而不是浅灰：浅灰在消息区里像一条分割线，用户根本不会注意到 */
+  color: #874d00;
+  background: #fffbe6;
+  border-bottom: 1px solid #ffe58f;
 }
 
 .agent-conn-banner-error {

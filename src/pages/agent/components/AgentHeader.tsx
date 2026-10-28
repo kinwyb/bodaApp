@@ -66,6 +66,8 @@ export const AgentHeader: React.FC<{
 
   const statusTag =
     mode === 'mock' ? { text: '演示模式', color: 'gold' } : CONNECTION_META[connection];
+  /** 断开状态下，状态标签本身也当作重连入口（最不容易被忽略的那个位置） */
+  const tagClickable = mode === 'websocket' && (connection === 'error' || connection === 'idle');
 
   /**
    * 副标题：紧凑形态里省掉 agent 名字 —— 它就在右边的下拉里，
@@ -91,22 +93,52 @@ export const AgentHeader: React.FC<{
       </div>
 
       <Space size={8} wrap>
-        {/* 状态标签：断线时说明会自动重试，避免用户以为必须刷新页面 */}
-        <Tooltip title={mode === 'mock' ? '当前是本地演示数据' : CONNECTION_HINT[connection]}>
-          <Tag color={statusTag.color} className="agent-status-tag">
+        {/* 状态标签：断开时说明会自动重试，且可以直接点它重连 */}
+        <Tooltip
+          title={
+            mode === 'mock'
+              ? '当前是本地演示数据'
+              : tagClickable
+                ? `${CONNECTION_HINT[connection]}（点击可重连）`
+                : CONNECTION_HINT[connection]
+          }
+        >
+          <Tag
+            color={statusTag.color}
+            className={`agent-status-tag${tagClickable ? ' agent-status-tag-clickable' : ''}`}
+            onClick={tagClickable ? onReconnect : undefined}
+          >
             {statusTag.text}
           </Tag>
         </Tooltip>
         {/* 会话记录入口（新建 / 历史），由 AgentConversationPanel 提供 */}
         {conversationSlot}
         {/*
-          断线的重连入口只在宽形态放这里 —— 紧凑形态（480px 面板）顶栏是固定 60px，
-          再加一个按钮就会换行掉出可视区，那时入口由聊天区的断线横幅承担。
+          断开入口：idle（未连接）和 error（连接异常）都必须有，而且紧凑形态也要给 ——
+          缩成纯图标（约 32px）就不会把 60px 的顶栏挤换行，
+          「后端重启后停在未连接、页面上没有任何地方可点」就是这么来的。
         */}
-        {mode === 'websocket' && connection === 'error' && !compact ? (
-          <Button size="small" danger icon={<ReloadOutlined />} onClick={onReconnect}>
-            重连
-          </Button>
+        {mode === 'websocket' && (connection === 'error' || connection === 'idle') ? (
+          compact ? (
+            <Tooltip title={connection === 'error' ? '连接异常，点击重连' : '未连接，点击连接'}>
+              <Button
+                size="small"
+                type="text"
+                danger={connection === 'error'}
+                icon={<ReloadOutlined />}
+                onClick={onReconnect}
+              />
+            </Tooltip>
+          ) : (
+            <Button
+              size="small"
+              danger={connection === 'error'}
+              icon={<ReloadOutlined />}
+              onClick={onReconnect}
+            >
+              {connection === 'error' ? '重连' : '连接'}
+            </Button>
+          )
         ) : null}
         <Select
           className={`agent-model-select${compact ? ' agent-model-select-compact' : ''}`}
