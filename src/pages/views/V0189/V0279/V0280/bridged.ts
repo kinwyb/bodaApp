@@ -119,8 +119,6 @@ export type YupaiOrderBridgeContext = {
      * 预订单过滤
      */
     filter: YupaiOrderFilter;
-    /** 列表是否已加载完成；ui_navigate 打开本页后会等它 */
-    ready: boolean;
     /** 用新条件重新查询：页面负责落 state 并拉数据 */
     applyFilter: (next: YupaiOrderFilter) => Promise<void>;
     /**
@@ -246,8 +244,16 @@ export function createYupaiOrderBridge(read: () => YupaiOrderBridgeContext): UIB
     return {
         snapshot,
         handlers: {...buildHandlers(read), ...tableBridge.handlers},
-        // 列表加载完成才算就绪。弹窗自己的就绪由弹窗那层报（见 useUIBridgeDialog 的 ready）
-        ready: () => read().ready,
+        /*
+         * **不报 ready：挂载即可用**。
+         *
+         * 快照里本来就没有数据行（`data` 只有列目录 / 行数 / 排序，取行要 data.page，
+         * 那是命令执行时现读表格的），列定义也是页面写死的常量。
+         * 拿「列表接口回来没有」当就绪条件，等于让 agent 的导航等一个它根本用不到的东西 ——
+         * 接口慢一点（>5s）就变成「打开页面超时」，看起来像页面挂了。
+         *
+         * 唯一会因此变旧的是 `data.total`（0 → N），下次 observe / 命令回执的补丁会自然带上。
+         */
     };
 }
 

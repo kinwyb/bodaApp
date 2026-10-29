@@ -50,11 +50,6 @@ const YupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
     const [dataSource, setDataSource] = useState<YupaiOrder[]>([]);
     const [loading, setLoading] = useState(false);
     const [filters, setFilters] = useState<FilterModel>({});
-    /**
-     * 界面桥就绪标志：第一次数据加载完成后才置 true。
-     * ui_navigate 打开本页后会等它 —— 否则 agent 拿到的是一份空列表，会以为页面没打开。
-     */
-    const [snapshotReady, setSnapshotReady] = useState(false);
     /** 选中的行数：只用来驱动按钮 disabled，行数据本身一律向表格要（见 getActiveRows） */
     const [activeRowCount, setActiveRowCount] = useState(0);
     /**
@@ -96,7 +91,6 @@ const YupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
                 void message.error(error instanceof ApiError ? error.message : '加载预订单失败');
             } finally {
                 setLoading(false);
-                setSnapshotReady(true);
             }
         },
         [message, tableRef, setLoading],
@@ -427,7 +421,6 @@ const YupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
             commands,
             activeRow,
             activeRowCount,
-            ready: snapshotReady,
             filter: brigdeFilter,
             applyFilter,
             readTable,
@@ -438,7 +431,6 @@ const YupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
             commands,
             activeRow,
             activeRowCount,
-            snapshotReady,
             applyFilter,
             brigdeFilter,
             readTable,

@@ -25,7 +25,8 @@ import type {
   UISnapshotPatch,
   UITablePatch,
 } from '../protocol';
-import { stableStringify } from '@/utils';
+import { resolveViewPath } from '@/pages/registry';
+import { isDebugEnv, stableStringify } from '@/utils';
 import { UI_SNAPSHOT_VERSION } from '../protocol';
 import type { AgentUIRequest } from '../transport';
 import {
@@ -42,7 +43,12 @@ import type { UIBridgeHost, UIDialogHost, UIWorkbenchHost } from './types';
 /** 没有业务页面时快照里的 view 标识（对应 MainLayout 的工作台页签） */
 const HOME_VIEW = 'home';
 
-/** 等目标页面就绪的上限：超时必须明确失败，不能让模型一直挂着 */
+/**
+ * 等目标页面就绪的上限。
+ *
+ * 超时不一定算失败：宿主已经注册（页面确实打开了、桥也在）就照常回执，
+ * 只是提示数据可能还没到；宿主根本不存在才算失败（见 runNavigate）。
+ */
 const NAVIGATE_TIMEOUT_MS = 5000;
 /** 操作后等页面就绪的上限：这里等不到不算失败（动作本身已经执行了），只是快照可能不够新 */
 const ACT_READY_TIMEOUT_MS = 3000;
@@ -157,8 +163,16 @@ async function answer(request: AgentUIRequest): Promise<void> {
     // 执行完状态与上次发出去的那份一模一样：没什么可合并的，只回一句执行结果
     request.respond(base);
   } catch (error) {
-    const view = currentViewOf(workbench);
-    const patch = buildSnapshotPatch(workbench, view);
+    /*
+     * 取**最新**的工作台宿主，不是函数开头那个。
+     *
+     * `answer` 开头拿到的 host 对象里 `currentView` 是当次渲染的闭包：navigate 已经把页签切走了，
+     * 用旧闭包读到的还是切换前的 view（空 → 归一成 home），回执里的补丁就会挂在「工作台」上，
+     * 排查的人会以为页面根本没打开。
+     */
+    const latest = getWorkbenchHost() ?? workbench;
+    const view = currentViewOf(latest);
+    const patch = buildSnapshotPatch(latest, view);
     request.respond({
       ok: false,
       error: error instanceof Error ? error.message : String(error),
@@ -553,6 +567,30 @@ function composeSnapshot(workbench: UIWorkbenchHost, view: string): UISnapshot {
   return { ...content, fp: structureKey(content) };
 }
 
+/**
+ * 开发期：把「明明有 bridged.ts，为什么宿主是空的」的两种成因打到控制台一次。
+ *
+ * 这条日志存在的理由是它很难靠现象区分 —— 页签都打开了，快照都同样难看，
+ * 但一边要补页面目录、另一边要查渲染异常。生产环境不打（isDebugEnv 常量，打包会折掉）。
+ */
+const warnedViews = new Set<string>();
+function warnMissingHost(view: string, pagePath: string | null): void {
+  if (warnedViews.has(view)) return;
+  warnedViews.add(view);
+  if (pagePath === null) {
+    console.warn(
+      `[ui-bridge] ${view} 没有注册页面宿主，且 registry 里没有这个 View 的页面目录 —— ` +
+        '当前渲染的是通用列表页 ViewPage。新增目录后 dev 可能要重启（import.meta.glob 是构建期映射），' +
+        '页签若早就打开过，还要关掉重开（元素被缓存了）。',
+    );
+    return;
+  }
+  console.warn(
+    `[ui-bridge] ${view} 的页面已登记（${pagePath}），但没有注册界面桥：` +
+      '检查该页面是否调用了 useUIBridgeHost、lazy 是否加载失败、渲染时是否抛错。',
+  );
+}
+
 /** 页面自己那一段：页面宿主，或工作台主页的两条兜底 */
 function baseSnapshot(workbench: UIWorkbenchHost, view: string): UISnapshotData {
   const pageHost = getPageHost(view);
@@ -566,11 +604,20 @@ function baseSnapshot(workbench: UIWorkbenchHost, view: string): UISnapshotData 
       navigation: workbench.navigation().slice(0, NAVIGATION_LIMIT),
     };
   }
-  // 页面存在但没接入界面桥（例如通用列表页）：如实说明，别伪装成主页，
-  // 否则排查起来会以为是导航出了问题
+  /*
+   * 页面存在但没接入界面桥。两种成因要分开说，否则排查方向完全不同：
+   * - 这个 View 没有对应页面目录 → registry 兜底渲染通用列表页 ViewPage，它本来就没有桥；
+   * - 有页面、但 `useUIBridgeHost` 没执行（lazy 加载失败 / 渲染抛错 / 组件不是那个文件）。
+   * 两者都不伪装成主页，否则排查起来会以为是导航出了问题。
+   */
+  const pagePath = resolveViewPath(view);
+  if (isDebugEnv) warnMissingHost(view, pagePath);
   return {
     view,
-    title: `${view}（该页面还没接入界面桥）`,
+    title:
+      pagePath === null
+        ? `${view}（没有对应页面，渲染的是通用列表页）`
+        : `${view}（页面没有接入界面桥）`,
     actions: [],
     data: null,
     navigation: workbench.navigation().slice(0, NAVIGATION_LIMIT),
@@ -662,9 +709,23 @@ async function runNavigate(
 
   workbench.openView(view);
   if (!(await waitForReady(view, NAVIGATE_TIMEOUT_MS))) {
+    /*
+     * 超时有两种，性质完全不同，别混成一句话：
+     * - **宿主在**：页面挂载了、桥也注册了，只是它自己的 `ready()` 还没 true（典型是首屏接口慢）。
+     *   页面确实打开了，不该判失败 —— 判失败会让模型以为要重试打开，实际只会多切一次页签。
+     * - **宿主不在**：页面压根没渲染成接了桥的那个组件（lazy 加载失败、渲染抛错，
+     *   或该 View 没有对应目录、落到了通用列表页 ViewPage）。这才是真故障。
+     */
+    if (getPageHost(view) || getDialogHost(view)) {
+      return {
+        view,
+        result: `已打开：${target.title}（页面数据仍在加载，稍后 ui_observe 可取到最新状态）`,
+      };
+    }
     throw new Error(
-      `打开页面超时（${NAVIGATE_TIMEOUT_MS}ms 内未就绪）：页面可能加载失败，` +
-        '或它声明了 bridged.ts 却没有真正注册界面桥（useUIBridgeHost 没执行）',
+      `页面 ${view} 打开了，但界面桥没有注册：` +
+        '可能是页面组件没渲染成功（lazy 加载失败或渲染抛错，看浏览器控制台），' +
+        '也可能是这个 View 没有对应页面目录、实际落到了通用列表页 ViewPage',
     );
   }
   return { view, result: `已打开：${target.title}` };
@@ -685,11 +746,14 @@ function searchNavigation(workbench: UIWorkbenchHost, query: string): UINavItem[
 }
 
 /**
- * 等页面自报就绪（`ready()`），超时返回 false。
+ * 等目标页面就绪，超时返回 false。
  *
- * 页面是懒加载组件、打开后还要拉数据，弹窗打开后也可能在等接口 ——
- * 不等就回执，模型拿到的是「刚发出操作」那一刻的空视图，然后开始怀疑自己。
- * 页面没实现 ready() 视为挂载即就绪。
+ * 等的其实是两件事：**页面组件挂载并注册了宿主**（懒加载加载完），
+ * 以及页面自己声明的 `ready()`（没声明就是挂载即就绪）。
+ *
+ * 别把「首屏接口回来没有」写进 ready()：列表页的快照里只有列目录 / 行数，
+ * 数据行要用 `data.page` 现取，拿接口当就绪条件只会让导航跟着接口一起慢，
+ * 慢过超时时间就报成「打开页面超时」，看起来像页面挂了。
  */
 async function waitForReady(view: string, timeoutMs: number): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
