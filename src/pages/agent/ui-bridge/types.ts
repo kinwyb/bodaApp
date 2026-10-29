@@ -15,8 +15,9 @@ export type UIBridgeHost = {
   /**
    * 生成当前页面快照；纯读取，不应有副作用。
    *
-   * observe / navigate 直接把它发给模型；act 之后桥也从这里取，但**默认只发变化的那几段**
-   * （见协议里的 `UIAction.returns`）—— 所以它可以放心地算得细一点，字节数由桥控制。
+   * observe / navigate 把它整份发给模型；act 之后桥也从这里取，但发什么由桥比对新旧快照的
+   * 结构指纹自己定（结构变了 full、什么都没变 result、否则只发变化的那几段）——
+   * 所以它可以放心算得细一点，字节数由桥控制，页面不用管传输档位。
    * guide 也由这里给出（属于「这一页怎么操作」，与页面描述同源）。
    */
   snapshot: () => UISnapshotData;

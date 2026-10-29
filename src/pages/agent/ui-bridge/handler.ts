@@ -6,8 +6,8 @@
  *
  * 三个操作：
  * - observe   合成当前快照：工作台给导航，页面给自己的那一段
- * - act       执行当前页面的命令（必须带 rev）；回什么由命令自己声明（`UIAction.returns`），
- *             默认只回**补丁**，不再重发整页快照
+ * - act       执行当前页面的命令（必须带 rev）；回什么**由桥比对新旧快照自己定**
+ *             （结构变了 full、什么都没变 result、否则 patch），页面的 `returns` 只是覆盖
  * - navigate  打开/切换页面，等目标页就绪再回执；只给 query 则只搜菜单、不导航
  */
 
@@ -25,9 +25,18 @@ import type {
   UISnapshotPatch,
   UITablePatch,
 } from '../protocol';
+import { stableStringify } from '@/utils';
 import { UI_SNAPSHOT_VERSION } from '../protocol';
 import type { AgentUIRequest } from '../transport';
-import { bumpRev, currentRev, getDialogHost, getPageHost, getWorkbenchHost } from './store';
+import {
+  anchorOf,
+  bumpRev,
+  currentRev,
+  getDialogHost,
+  getPageHost,
+  setAnchor,
+  getWorkbenchHost,
+} from './store';
 import type { UIBridgeHost, UIDialogHost, UIWorkbenchHost } from './types';
 
 /** 没有业务页面时快照里的 view 标识（对应 MainLayout 的工作台页签） */
@@ -45,15 +54,18 @@ const NAVIGATION_LIMIT = 50;
 const NAVIGATION_MATCH_LIMIT = 20;
 
 /**
- * 命令的回执形态就是 `UIAction.returns`（协议里已声明，这里只是别名，读代码时一眼看懂分支）：
- * - `result` 纯读：只回 result，不推 rev、不回快照
- * - `patch`  默认：回 result + 变化的那几段，推 rev
- * - `full`   结构变了：回 result + 整页快照，推 rev
+ * 回执的三种形态（见协议的 `UIActionReturn`）：
+ * - `result` 只回 result：纯读，或「执行完状态与上次发出去的一模一样」
+ * - `patch`  回 result + 变化的那几段（默认档）
+ * - `full`   回 result + 整页快照：模型手里那份已经看不懂现在这页了
+ *
+ * 谁定的：命令自己声明的 `returns` 优先（那是页面作者的明确意图）；
+ * 没声明就由 `decideReceipt` 比对新旧快照的指纹得出 —— 页面正常不用写。
  */
 type UIActionMode = UIActionReturn;
 
-/** 默认回执：命令不声明 `returns` 时走补丁（整页快照只在结构变化时才必要） */
-const DEFAULT_RETURN: UIActionMode = 'patch';
+/** 还没盖结构指纹的快照（composeSnapshot 先拼内容、最后一次性算 fp） */
+type SnapshotContent = Omit<UISnapshot, 'fp'>;
 
 /** 创建请求处理器，交给 transport.onUIRequest 订阅 */
 export function createUIRequestHandler(): (request: AgentUIRequest) => void {
@@ -72,21 +84,26 @@ async function answer(request: AgentUIRequest): Promise<void> {
   try {
     if (request.payload.op === 'observe') {
       const view = currentViewOf(workbench);
+      const snapshot = composeSnapshot(workbench, view);
+      // 整页快照发出去就等于重新锚定：之后所有补丁都以这一份为基准
+      rememberFull(view, snapshot);
       request.respond({
         ok: true,
         rev: currentRev(view),
-        snapshot: composeSnapshot(workbench, view),
+        snapshot,
       });
       return;
     }
 
     if (request.payload.op === 'navigate') {
       const outcome = await runNavigate(workbench, request.payload);
+      const snapshot = composeSnapshot(workbench, outcome.view);
+      rememberFull(outcome.view, snapshot);
       request.respond({
         ok: true,
         rev: currentRev(outcome.view),
         result: outcome.result,
-        snapshot: composeSnapshot(workbench, outcome.view),
+        snapshot,
       });
       return;
     }
@@ -102,19 +119,20 @@ async function answer(request: AgentUIRequest): Promise<void> {
     }
     const outcome = await runAction(view, request.payload);
     /*
-     * 纯读命令到此为止：**不推进版本、不回快照也不回补丁**。
+     * 命令显式声明了 `returns: 'result'`（纯读）就到此为止：**不推版本、不等落定、不回状态**。
      *
      * 翻页读数据是 agent 最频繁的动作（一次几十上百条），如果每次带一份整页快照：
      * - 上下文被同一份「目录」反复冲刷；
      * - rev 被推进，模型下一次读还得先重新 observe，一条命令变两条。
-     * 产出本来就在 result 里，快照帮不上忙。
+     * 产出本来就在 result 里，快照帮不上忙。这一档也是唯一值得页面动手声明的：
+     * 不声明也行（桥 diff 出来同样是「什么都没变」），但那就白等一趟页面落定。
      */
-    if (outcome.mode === 'result') {
+    if (outcome.declared === 'result') {
       request.respond({ ok: true, rev: currentRev(view), result: outcome.value ?? null });
       return;
     }
 
-    // 页面状态真的变了才推进版本：下一次拿到新 rev，旧快照再拿来操作会被拒
+    // 命令执行过了就推进版本：回执里带着新 rev，模型下一条命令直接用它
     bumpRev(view);
     /*
      * 等这次操作真正落定再取快照。
@@ -125,26 +143,22 @@ async function answer(request: AgentUIRequest): Promise<void> {
      */
     await waitForReady(view, ACT_READY_TIMEOUT_MS);
     await settleBeforeSnapshot();
-    const rev = currentRev(view);
-    const result = outcome.value ?? null;
+    const base = { ok: true as const, rev: currentRev(view), result: outcome.value ?? null };
+    const receipt = decideReceipt(view, composeSnapshot(workbench, view), outcome.declared);
 
-    /*
-     * `full`：视野换掉了（打开弹窗、切页、切模式），模型要重看一份目录才知道现在能做什么。
-     * 一份完整快照在预订单页约 8–9 KB，其中八成是静态的列目录 + guide + 参数说明，
-     * 所以它是「值得付」的那一次：结构确实变了。
-     */
-    if (outcome.mode === 'full') {
-      request.respond({ ok: true, rev, result, snapshot: composeSnapshot(workbench, view) });
+    if (receipt.mode === 'full') {
+      request.respond({ ...base, snapshot: receipt.snapshot });
       return;
     }
-
-    /*
-     * `patch`（默认）：取值变了、结构没变 —— 选中、改筛选、删单、保存、填字段都是这类。
-     * 目录、guide、命令的参数说明一个字节没变，重发一遍纯属重复计费。
-     */
-    request.respond({ ok: true, rev, result, patch: buildSnapshotPatch(workbench, view) });
+    if (receipt.mode === 'patch') {
+      request.respond({ ...base, patch: receipt.patch });
+      return;
+    }
+    // 执行完状态与上次发出去的那份一模一样：没什么可合并的，只回一句执行结果
+    request.respond(base);
   } catch (error) {
     const view = currentViewOf(workbench);
+    const patch = buildSnapshotPatch(workbench, view);
     request.respond({
       ok: false,
       error: error instanceof Error ? error.message : String(error),
@@ -156,7 +170,7 @@ async function answer(request: AgentUIRequest): Promise<void> {
        * 而一份整页快照恰恰是这条回执里最贵、也最没用的部分。
        * 取状态本身失败就省略它 —— 回执必须发出去，不能因为附赠信息再炸一次。
        */
-      patch: buildSnapshotPatch(workbench, view),
+      patch,
     });
   }
 }
@@ -181,13 +195,19 @@ function buildSnapshotPatch(
   view: string,
 ): UISnapshotPatch | undefined {
   const snapshot = trySnapshot(workbench, view);
-  return snapshot ? toSnapshotPatch(snapshot) : undefined;
+  if (!snapshot) return undefined;
+  const patch = toSnapshotPatch(snapshot, structureKey(snapshot));
+  // 补丁发出去就算重新锚定：模型会把它合并进手里那份，下一次 diff 以这份为准
+  setAnchor(view, { structure: patch.basedOn, dynamic: dynamicKey(patch) });
+  return patch;
 }
 
 /** 完整快照 → 补丁：目录类内容（columns / guide / params / label / type）一概不带 */
-function toSnapshotPatch(snapshot: UISnapshot): UISnapshotPatch {
+function toSnapshotPatch(snapshot: SnapshotContent, structure: string): UISnapshotPatch {
   const patch: UISnapshotPatch = {
     view: snapshot.view,
+    // 模型拿它对一下手里那份快照的 fp，对不上就该重新 observe
+    basedOn: structure,
     // 命令可用性跟着状态变（选中了才亮），而它比整张动作表小一个数量级
     enabled: snapshot.actions.filter((item) => !item.disabled).map((item) => item.id),
   };
@@ -211,6 +231,130 @@ function toSnapshotPatch(snapshot: UISnapshot): UISnapshotPatch {
     patch.tables = snapshot.tables.map((table) => toTablePatch(table));
   }
   return patch;
+}
+
+/**
+ * 一次命令的回执：形态 + 要发出去的那份状态。
+ *
+ * `declared` 是命令自己声明的 `returns`（覆盖），没有就按下面的规则算。
+ */
+type Receipt = {
+  mode: UIActionMode;
+  snapshot?: UISnapshot;
+  patch?: UISnapshotPatch;
+};
+
+/**
+ * **这条命令该回什么，由桥比对新旧快照得出**（页面正常不用声明 `returns`）：
+ *
+ * 1. 从没给过这一页完整快照（`anchorOf` 为空）→ `full`：模型手里什么都没有。
+ * 2. 结构指纹变了（换了视野：开弹窗、切模式、命令表或列目录变了）→ `full`：
+ *    模型手里那份已经解释不了现在这页，只给补丁它就照着旧目录推理。
+ * 3. 结构没变、而补丁要说的内容与上次发出去的**一字不差** → `result`：没什么可合并的。
+ * 4. 其余 → `patch`。
+ *
+ * 命令显式声明过 `returns` 就以它为准（`result` 还能让桥省掉等页面落定那一趟）。
+ * 声明成 `patch` 但其实结构变了也不会有人拦着：那种补丁的 `basedOn` 与模型手里那份的
+ * `fp` 对不上，模型自己会去 observe —— 指纹就是给这种误用兜底的。
+ */
+function decideReceipt(
+  view: string,
+  snapshot: UISnapshot,
+  declared: UIActionReturn | null,
+): Receipt {
+  const structure = structureKey(snapshot);
+  const patch = toSnapshotPatch(snapshot, structure);
+  const dynamic = dynamicKey(patch);
+  const anchor = anchorOf(view);
+  const mode: UIActionMode =
+    declared ??
+    (anchor === null || anchor.structure !== structure
+      ? 'full'
+      : anchor.dynamic === dynamic
+        ? 'result'
+        : 'patch');
+  // 无论发的是哪一种，模型合并之后看到的就是这一份（result 时两者本就相同）
+  setAnchor(view, { structure, dynamic });
+  if (mode === 'full') return { mode, snapshot };
+  if (mode === 'patch') return { mode, patch };
+  return { mode };
+}
+
+/** 发整页快照（observe / navigate）等于重新锚定：之后的补丁都以这一份为基准 */
+function rememberFull(view: string, snapshot: UISnapshot): void {
+  const structure = structureKey(snapshot);
+  setAnchor(view, { structure, dynamic: dynamicKey(toSnapshotPatch(snapshot, structure)) });
+}
+
+/**
+ * 结构指纹：这份快照里「模型必须先知道、补丁才有意义」的那部分。
+ *
+ * 只算目录类内容 —— 命令的 `disabled` / 字段的取值 / 行数排序都不在这里，
+ * 它们是补丁要表达的东西，进了指纹就等于每条命令都要重发整页快照。
+ * `navigation` 也算结构：补丁表达不了菜单变化，菜单一变就得给 full。
+ */
+function structureKey(snapshot: SnapshotContent): string {
+  const tables = [snapshot.data, ...(snapshot.tables ?? [])].filter(
+    (table): table is UIDataSummary => table !== null && table !== undefined,
+  );
+  return hash8(
+    stableStringify({
+      view: snapshot.view,
+      title: snapshot.title,
+      mode: snapshot.mode,
+      guide: snapshot.guide,
+      navigation: snapshot.navigation,
+      actions: snapshot.actions.map((item) => ({
+        id: item.id,
+        label: item.label,
+        group: item.group,
+        danger: item.danger,
+        params: item.params,
+      })),
+      filterSchema: (snapshot.filters ?? []).map(fieldSchema),
+      tableSchema: tables.map((table) => ({
+        name: table.name,
+        rowKey: table.rowKey,
+        columns: table.columns,
+      })),
+      formSchema: snapshot.form
+        ? { id: snapshot.form.id, fields: snapshot.form.fields.map(fieldSchema) }
+        : null,
+    }),
+  );
+}
+
+/** 字段的目录类内容（取值、锁、报错属于变化段，不进这里） */
+function fieldSchema(field: UIField): Record<string, unknown> {
+  return {
+    id: field.id,
+    label: field.label,
+    type: field.type,
+    options: field.options,
+    required: field.required,
+    hint: field.hint,
+  };
+}
+
+/** 变化段指纹：补丁要发的内容一字不差时，这一档就退化成一句执行结果 */
+function dynamicKey(patch: UISnapshotPatch): string {
+  const { view: _view, basedOn: _basedOn, ...rest } = patch;
+  return hash8(stableStringify(rest));
+}
+
+/**
+ * FNV-1a（32 位）取 8 位十六进制。
+ *
+ * 只用于「这两份结构是否相同」，不当校验和用：碰撞的后果是多一次或少一次 full，
+ * 而这里比对的输入最多几千字符，8 位 hex 的碰撞概率足够低。
+ */
+function hash8(text: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
 }
 
 /** 表格段里会变的是行数、排序、分组、统计行位置、激活行；列目录不变（它属于 full） */
@@ -270,8 +414,18 @@ function currentViewOf(workbench: UIWorkbenchHost): string {
 function composeSnapshot(workbench: UIWorkbenchHost, view: string): UISnapshot {
   const base = baseSnapshot(workbench, view);
   const dialog = getDialogHost(view);
+  /*
+   * `fp` 是结构指纹（发给模型时带上，补丁的 `basedOn` 就是它）。
+   * 两个分支各先拼内容再算：指纹只覆盖目录类字段，多算一次不占 token。
+   */
   if (!dialog) {
-    return { v: UI_SNAPSHOT_VERSION, rev: currentRev(base.view), ts: Date.now(), ...base };
+    const content: SnapshotContent = {
+      v: UI_SNAPSHOT_VERSION,
+      rev: currentRev(base.view),
+      ts: Date.now(),
+      ...base,
+    };
+    return { ...content, fp: structureKey(content) };
   }
 
   /*
@@ -279,7 +433,7 @@ function composeSnapshot(workbench: UIWorkbenchHost, view: string): UISnapshot {
    * 列表的筛选条件与数据收起（它们被弹窗挡住，发出去只会让模型对着看不见的内容推理）。
    * 这条覆盖规则写在桥里，所以页面和弹窗都不用各自实现一遍。
    */
-  return {
+  const content: SnapshotContent = {
     v: UI_SNAPSHOT_VERSION,
     rev: currentRev(base.view),
     ts: Date.now(),
@@ -293,6 +447,7 @@ function composeSnapshot(workbench: UIWorkbenchHost, view: string): UISnapshot {
     data: null,
     form: dialog.snapshot(),
   };
+  return { ...content, fp: structureKey(content) };
 }
 
 /** 页面自己那一段：页面宿主，或工作台主页的两条兜底 */
@@ -323,7 +478,7 @@ function baseSnapshot(workbench: UIWorkbenchHost, view: string): UISnapshotData 
 async function runAction(
   view: string,
   payload: UIRequestPayload,
-): Promise<{ mode: UIActionMode; value: unknown }> {
+): Promise<{ declared: UIActionReturn | null; value: unknown }> {
   const cmd = payload.cmd ?? '';
   if (!cmd) {
     throw new Error('缺少命令 ID');
@@ -354,14 +509,9 @@ async function runAction(
     throw new Error(`命令 ${cmd} 还没有接入处理函数`);
   }
   const value = await run(payload.params ?? {});
-  /*
-   * 回执形态由动作表自己声明（见 `UIAction.returns`）：
-   * - result：纯读，只有 result，不推 rev、不回快照
-   * - patch（默认）：取值变了、结构没变，result + 变化的那几段
-   * - full：视野换掉了（开弹窗 / 切页 / 切模式），result + 整页快照
-   */
-  const mode: UIActionMode = action.returns ?? DEFAULT_RETURN;
-  return { mode, value };
+  // 这里只把命令**自己声明的**档位带出去（可能是 undefined = 交给桥 diff），
+  // 真正决定回什么在 decideReceipt —— 别在这里补默认值，一补就又把 diff 变成摆设。
+  return { declared: action.returns ?? null, value };
 }
 
 /** 打开页面（或在只给 query 时搜菜单），返回落点 view 与给模型看的结果 */

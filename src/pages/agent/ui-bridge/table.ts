@@ -418,8 +418,7 @@ export function createTableBridge(options: TableBridgeOptions): TableBridge {
       id: selectCmd,
       label: '选中行',
       group: 'row',
-      // 选中只改 selection 与激活行，列表数据、列目录、guide 都没变 —— 回补丁就够
-      returns: 'patch',
+      // 选中只改 selection 与激活行：桥比对结构指纹后自然只回补丁（重复选中同一行时连补丁都省了）
       params: [
         {
           name: 'rowIds',

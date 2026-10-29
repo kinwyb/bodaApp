@@ -28,6 +28,19 @@ const dialogHosts = new Map<string, () => UIDialogHost | null>();
 /** 页面版本（乐观锁），按 view 维护 */
 const revByView = new Map<string, number>();
 
+/**
+ * 「模型手里那份快照」的锚点，按 view 维护。
+ *
+ * 桥每发一次完整快照就记下它的结构指纹，每发一次补丁就记下变化段指纹；
+ * 下一条命令执行完拿新快照一比，就知道该发 full / patch / result —— 页面不用声明。
+ *
+ * 存的是浏览器侧的记忆（不占 token），所以页面卸载也不必清：
+ * 同一个 view 重新挂载时结构一样，继续发补丁是对的；结构不一样会自动升级成 full。
+ * 唯一的失配风险是服务端把上下文折叠过、模型手里其实没那份快照了，
+ * 那条路由 `patch.basedOn` 与 `snapshot.fp` 让模型自己发现并重新 observe。
+ */
+const anchorByView = new Map<string, { structure: string; dynamic: string }>();
+
 /** 注册页面级宿主，返回注销函数 */
 export function registerPageHost(view: string, getter: () => UIBridgeHost | null): () => void {
   pageHosts.set(view, getter);
@@ -73,6 +86,16 @@ export function getDialogHost(view: string): UIDialogHost | null {
 /** 某个页面的当前版本 */
 export function currentRev(view: string): number {
   return revByView.get(view) ?? 1;
+}
+
+/** 模型手里那份快照的锚点；从没发过完整快照时返回 null（第一次操作必须给 full） */
+export function anchorOf(view: string): { structure: string; dynamic: string } | null {
+  return anchorByView.get(view) ?? null;
+}
+
+/** 记下「刚发给模型的这一份」：下一次 diff 就以它为基准 */
+export function setAnchor(view: string, anchor: { structure: string; dynamic: string }): void {
+  anchorByView.set(view, anchor);
 }
 
 /** 推进某个页面的版本 */

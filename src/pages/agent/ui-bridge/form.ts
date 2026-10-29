@@ -389,8 +389,6 @@ export function createFormWriteActions(fields: FormFieldSpec[]): UIAction[] {
       id: 'form.setMany',
       label: '一次性设置多个字段',
       group: 'form',
-      // 填字段变的是字段值、锁与校验报错 —— 字段表本身（label/type/options）没变，回补丁
-      returns: 'patch' as const,
       params: [
         {
           name: 'values',
@@ -408,7 +406,6 @@ export function createFormWriteActions(fields: FormFieldSpec[]): UIAction[] {
       id: 'form.set',
       label: '设置单个字段',
       group: 'form',
-      returns: 'patch' as const,
       params: [
         {
           name: 'field',

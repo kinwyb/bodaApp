@@ -12,9 +12,13 @@
  * 3. rev 是乐观锁：命令必须带上看快照时的 rev，不匹配就拒绝并要求重新观察。
  * 4. **模型能做的任何事都必须出现在 actions 里**：filters / selection / data 只是「当前是什么」，
  *    不是「怎么改」。只发数据不发命令，模型就只能干猜（筛选条件踩过这个坑）。
- * 5. **回执默认是补丁，不是整页快照**（v3）：一条命令只回它真正改变的那几段，
- *    列目录 / guide / 参数说明这些静态段只出现在 observe、navigate 与结构变化的 full 里。
- *    所以「模型手里那份快照」= 最近一次 full + 之后所有 patch 合并出来的结果。
+ * 5. **回执默认是补丁，不是整页快照**（v3）：一条命令只回它真正改变的那几段，列目录 / guide /
+ *    参数说明这些静态段只出现在 observe、navigate 与结构变化的 full 里。所以「模型手里那份快照」
+ *    = 最近一次 full + 之后所有 patch 合并出来的结果。
+ * 6. **档位由桥算，不由页面写**（v4）：桥记着「模型手里那份快照的结构指纹 + 变化段指纹」，
+ *    命令执行后拿新快照一比：结构变了发 full，什么都没变发 result，否则发 patch。
+ *    `UIAction.returns` 只是**覆盖**这个判断的出口（纯读命令用它省掉一次等待），页面正常不用写。
+ *    模型可以用 `patch.basedOn` 自查手里的快照是否还有效。
  */
 
 import type { AgentEnvelope } from './envelope';
@@ -23,9 +27,10 @@ import { KIND, UI_TYPE, newEnvelope } from './envelope';
 /**
  * 快照版本，结构不兼容变更时递增。
  * - v2：data 段改成目录 + 按需取行；
- * - v3：回执改成 result / patch / full 三档，patch 扩到能独立表达「取值变了」。
+ * - v3：回执改成 result / patch / full 三档，patch 扩到能独立表达「取值变了」；
+ * - v4：回执档位由桥 diff 得出（`returns` 退化成可选覆盖），快照带结构指纹 `fp`、补丁带 `basedOn`。
  */
-export const UI_SNAPSHOT_VERSION = 3;
+export const UI_SNAPSHOT_VERSION = 4;
 
 /**
  * 命令参数的类型。
@@ -77,11 +82,12 @@ export type UIAction = {
   /** 需要的参数；不填表示这条命令不需要参数 */
   params?: UIActionParam[];
   /**
-   * 回执形态，默认 `patch`（见 `UIActionReturn`）。
+   * 回执形态的**显式覆盖**（见 `UIActionReturn`）。**正常不用写**：
+   * 省略时由桥比较新旧快照自己定（结构变了 full、什么都没变 result、否则 patch）。
    *
-   * 省略它 = `patch`：绝大多数命令只改取值（改筛选、选中、删单、保存），
-   * 目录和说明书都不用重发。只有会把视野换掉的动作才显式写 `full`：
-   * 打开表单弹窗、切页、切模式。纯读命令写 `result`。
+   * 什么情况下才值得覆盖：纯读命令写 `result` —— 桥能省掉「等页面落定 + 取新快照」这一趟，
+   * 回执也立刻发出（读命令本来就不改状态，diff 出来一定是什么都没有）。
+   * 想强制每次都给整页目录（例如某个动作会换一整套命令但没有结构差异）才写 `full`。
    */
   returns?: UIActionReturn;
 };
@@ -275,6 +281,14 @@ export type UISnapshot = UISnapshotData & {
   v: number;
   rev: number;
   ts: number;
+  /**
+   * **结构指纹**（8 位十六进制）：这一份快照里「模型必须知道才能看懂补丁」的那部分
+   * （模式、命令表与参数说明、列目录、guide、字段表、可导航清单）的哈希。
+   *
+   * 由桥计算，页面不用管。作用是让模型能自查手里的快照还作不作数：
+   * 补丁的 `basedOn` 与自己那份快照的 `fp` 不一致（或压根没有），就先 `ui_observe`。
+   */
+  fp: string;
 };
 
 /**
@@ -334,6 +348,13 @@ export type UIFormPatch = {
 export type UISnapshotPatch = {
   /** 合并目标：哪个页面的快照 */
   view: string;
+  /**
+   * 这份补丁针对的结构指纹（等于它要合并进去的那份快照的 `fp`）。
+   *
+   * 对不上就说明手里没有对应的完整快照（上下文被折叠过、或这是本会话第一次操作这页）：
+   * 别硬合，先 `ui_observe` 取一份带目录的快照。
+   */
+  basedOn: string;
   mode?: 'list' | 'form';
   /** 筛选条件的新取值（整段替换；只在列表层给。label / type 在目录里，补丁只带给值与报错） */
   filters?: UIFieldPatch[];

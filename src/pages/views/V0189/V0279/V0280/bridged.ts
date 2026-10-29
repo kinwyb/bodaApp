@@ -140,15 +140,6 @@ export type YupaiOrderBridgeContext = {
 };
 
 /**
- * 会把视野换成表单弹窗的命令：执行完要回**整页快照**（`returns: 'full'`）。
- *
- * 判据只有一条 —— 模型是不是第一次见这段结构。这几条之后快照的 actions 会换成弹窗那一套
- * （form.* / detail.*），字段表与参数说明它手里没有，只给补丁它就没有可填的字段清单。
- * 其余命令（改条件、选中、删单、发布、刷新……）都只是取值变，走默认的 patch。
- */
-const FORM_DIALOG_COMMANDS = new Set(['add', 'edit', 'copy', 'copyOrdered']);
-
-/**
  * 装配本页的界面桥宿主。
  *
  * 吃的是**取值函数**而不是 ctx 对象本身：桥的 snapshot / handler 都在「被调用的那一刻」
@@ -221,8 +212,6 @@ export function createYupaiOrderBridge(read: () => YupaiOrderBridgeContext): UIB
                     group: 'toolbar' as const,
                     danger: item.danger,
                     disabled: item.disabled,
-                    // 只有「模型没见过的新结构」需要整页快照，其余走默认补丁
-                    returns: FORM_DIALOG_COMMANDS.has(item.key) ? ('full' as const) : ('patch' as const),
                     // 本页命令的 disabled 几乎都来自「没有选中行」，写清原因省得模型反复试错
                     disabledReason: item.disabled ? '需要先选中一行：用 data.select 传 rowIds' : undefined,
                 })),
@@ -233,8 +222,6 @@ export function createYupaiOrderBridge(read: () => YupaiOrderBridgeContext): UIB
                     id: 'filter.set',
                     label: '设置筛选条件',
                     group: 'filter' as const,
-                    // 改条件只换筛选取值与结果行数：列目录、guide、动作表都没变，回补丁
-                    returns: 'patch' as const,
                     params: filters.map((field) => ({
                         name: field.id,
                         type: field.type,

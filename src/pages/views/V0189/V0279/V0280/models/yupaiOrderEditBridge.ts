@@ -135,13 +135,16 @@ const FORM_GUIDE: UIGuide = {
 function formActions(fields: FormFieldSpec[]): UIAction[] {
     return [
         ...createFormWriteActions(fields),
+        /*
+         * 纯读命令标 `result`：回执立刻发出（不用等页面落定），也不推 rev。
+         * 别的命令都不用标 —— 桥会拿新旧快照自己比（填明细 → patch，保存成功/取消把弹窗关掉
+         * 属于视野变化 → 自动 full）。
+         */
         {id: 'detail.get', label: '读取明细行', group: 'form', returns: 'result'},
         {
             id: 'detail.set',
             label: '写入明细行（整份替换数据源）',
             group: 'form',
-            // 写完变的是明细行、总数量与校验报错：字段表本身没变，回补丁
-            returns: 'patch',
             params: [
                 {
                     name: 'rows',
@@ -151,14 +154,9 @@ function formActions(fields: FormFieldSpec[]): UIAction[] {
                 },
             ],
         },
-        /*
-         * 保存成功 / 取消都会关掉弹窗，视野从表单那一层回到列表那一层。
-         * 这时必须给**整页快照**：弹窗打开那份把 filters / data 置空了（列表被挡住），
-         * 只回补丁的话模型手里就永远是一张「没有列表」的快照。
-         * 保存失败不会走到这条分支 —— 弹窗还开着，桥的失败回执给的是补丁。
-         */
-        {id: 'form.submit', label: '保存', group: 'form', returns: 'full'},
-        {id: 'form.cancel', label: '取消', group: 'form', returns: 'full'},
+        // 保存成功与取消都会关掉弹窗（视野变回列表那一层），桥比对结构指纹后自动给整页快照
+        {id: 'form.submit', label: '保存', group: 'form'},
+        {id: 'form.cancel', label: '取消', group: 'form'},
     ];
 }
 
