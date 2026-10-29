@@ -15,6 +15,14 @@
  */
 
 import type { UIBridgeHost, UIDialogHost, UIWorkbenchHost } from './types';
+import type { UISnapshotPatch } from '../protocol';
+
+/** 锚点：结构指纹（决定 full / patch）、变化段指纹（决定 patch / result）、以及上次那份全量投影（做逐条 diff） */
+export type SnapshotAnchor = {
+  structure: string;
+  dynamic: string;
+  state: UISnapshotPatch;
+};
 
 /** 页面级宿主：view -> getter */
 const pageHosts = new Map<string, () => UIBridgeHost | null>();
@@ -34,12 +42,16 @@ const revByView = new Map<string, number>();
  * 桥每发一次完整快照就记下它的结构指纹，每发一次补丁就记下变化段指纹；
  * 下一条命令执行完拿新快照一比，就知道该发 full / patch / result —— 页面不用声明。
  *
+ * `state` 存的是**上一次发出去的变化段全量投影**（不是那份最小补丁）：
+ * 模型把它合并进手里那份之后，那一段就等于这份投影，所以下一条命令的补丁
+ * 拿它逐条比，只发真正变了的那几项（填 2 个字段就只给 2 个字段，不是整张 16 项表单）。
+ *
  * 存的是浏览器侧的记忆（不占 token），所以页面卸载也不必清：
  * 同一个 view 重新挂载时结构一样，继续发补丁是对的；结构不一样会自动升级成 full。
  * 唯一的失配风险是服务端把上下文折叠过、模型手里其实没那份快照了，
  * 那条路由 `patch.basedOn` 与 `snapshot.fp` 让模型自己发现并重新 observe。
  */
-const anchorByView = new Map<string, { structure: string; dynamic: string }>();
+const anchorByView = new Map<string, SnapshotAnchor>();
 
 /** 注册页面级宿主，返回注销函数 */
 export function registerPageHost(view: string, getter: () => UIBridgeHost | null): () => void {
@@ -89,12 +101,12 @@ export function currentRev(view: string): number {
 }
 
 /** 模型手里那份快照的锚点；从没发过完整快照时返回 null（第一次操作必须给 full） */
-export function anchorOf(view: string): { structure: string; dynamic: string } | null {
+export function anchorOf(view: string): SnapshotAnchor | null {
   return anchorByView.get(view) ?? null;
 }
 
 /** 记下「刚发给模型的这一份」：下一次 diff 就以它为基准 */
-export function setAnchor(view: string, anchor: { structure: string; dynamic: string }): void {
+export function setAnchor(view: string, anchor: SnapshotAnchor): void {
   anchorByView.set(view, anchor);
 }
 

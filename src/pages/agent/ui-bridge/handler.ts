@@ -197,9 +197,18 @@ function buildSnapshotPatch(
   const snapshot = trySnapshot(workbench, view);
   if (!snapshot) return undefined;
   const patch = toSnapshotPatch(snapshot, structureKey(snapshot));
-  // 补丁发出去就算重新锚定：模型会把它合并进手里那份，下一次 diff 以这份为准
-  setAnchor(view, { structure: patch.basedOn, dynamic: dynamicKey(patch) });
-  return patch;
+  // 补丁发出去就算重新锚定：模型会把它合并进手里那份，下一次 diff 以这份全量投影为基准
+  const anchor = anchorOf(view);
+  setAnchor(view, { structure: patch.basedOn, dynamic: dynamicKey(patch), state: patch });
+  const delta = anchor && anchor.structure === patch.basedOn ? diffPatch(anchor.state, patch) : patch;
+  // 失败但页面什么都没变时，就别发一份只有 view + basedOn 的空补丁
+  return hasContent(delta) ? delta : undefined;
+}
+
+/** 除了定位用的 view / basedOn 之外还有没有内容 */
+function hasContent(patch: UISnapshotPatch): boolean {
+  const { view: _view, basedOn: _basedOn, ...rest } = patch;
+  return Object.keys(rest).length > 0;
 }
 
 /** 完整快照 → 补丁：目录类内容（columns / guide / params / label / type）一概不带 */
@@ -263,8 +272,8 @@ function decideReceipt(
   declared: UIActionReturn | null,
 ): Receipt {
   const structure = structureKey(snapshot);
-  const patch = toSnapshotPatch(snapshot, structure);
-  const dynamic = dynamicKey(patch);
+  const full = toSnapshotPatch(snapshot, structure);
+  const dynamic = dynamicKey(full);
   const anchor = anchorOf(view);
   const mode: UIActionMode =
     declared ??
@@ -274,16 +283,110 @@ function decideReceipt(
         ? 'result'
         : 'patch');
   // 无论发的是哪一种，模型合并之后看到的就是这一份（result 时两者本就相同）
-  setAnchor(view, { structure, dynamic });
+  setAnchor(view, { structure, dynamic, state: full });
   if (mode === 'full') return { mode, snapshot };
-  if (mode === 'patch') return { mode, patch };
+  /*
+   * 补丁本身也是增量的：拿锚点里那份全量投影逐条比，只发变了的那几项。
+   *
+   * 命令把 `returns` 覆盖成 patch、可这次其实什么都没动时，diff 出来是空的 ——
+   * 那就退化成只回 result，别发一份只有 view + basedOn 的占位补丁（模型合并了个寂寞）。
+   */
+  if (mode === 'patch') {
+    const delta = diffPatch(anchor?.state, full);
+    return hasContent(delta) ? { mode, patch: delta } : { mode: 'result' };
+  }
   return { mode };
 }
 
 /** 发整页快照（observe / navigate）等于重新锚定：之后的补丁都以这一份为基准 */
 function rememberFull(view: string, snapshot: UISnapshot): void {
   const structure = structureKey(snapshot);
-  setAnchor(view, { structure, dynamic: dynamicKey(toSnapshotPatch(snapshot, structure)) });
+  const full = toSnapshotPatch(snapshot, structure);
+  setAnchor(view, { structure, dynamic: dynamicKey(full), state: full });
+}
+
+/** 值比较：补丁里每个「给不给」都问它（浏览器侧计算，不占 token） */
+function same(a: unknown, b: unknown): boolean {
+  return stableStringify(a) === stableStringify(b);
+}
+
+/**
+ * 记录数组按 id 逐条比：只列变了的条目。
+ *
+ * 条目集合本身变了（字段多了少了）理论上属于结构变化、上面已经发 full，
+ * 这里再兜一层：对不上就整段给，宁可多发也不给模型一份合不出来的补丁。
+ */
+function diffEntries<T extends { id: string }>(prev: T[] | undefined, next: T[]): T[] {
+  if (!prev || prev.length === 0 || prev.length !== next.length) return next;
+  const prevById = new Map(prev.map((item) => [item.id, item]));
+  const changed = next.filter((item) => !same(prevById.get(item.id), item));
+  return changed.length > 0 ? changed : next;
+}
+
+/** 表格段按键逐条比；一个键都没变就整段不给 */
+function diffTable(prev: UITablePatch | undefined, next: UITablePatch): UITablePatch | null {
+  if (!prev) return next;
+  const out: Record<string, unknown> = { name: next.name };
+  let touched = false;
+  (Object.keys(next) as (keyof UITablePatch)[]).forEach((key) => {
+    if (key === 'name') return;
+    if (!same(prev[key], next[key])) {
+      out[key] = next[key];
+      touched = true;
+    }
+  });
+  return touched ? (out as unknown as UITablePatch) : null;
+}
+
+/**
+ * 补丁的补丁：拿上一次发出去的全量投影逐条比，只发真正变了的项。
+ *
+ * 存在的理由很具体 —— 表单弹窗有 16 个字段，改 2 个就把 16 项的
+ * `{id,value,readOnly,errors}` 重发一遍（约 900 字节）是白付的钱；
+ * `enabled`、行数、排序这些没动的段同理。没出现的项表示「没变」，与整段合并规则一致。
+ */
+function diffPatch(prev: UISnapshotPatch | null | undefined, next: UISnapshotPatch): UISnapshotPatch {
+  if (!prev || prev.basedOn !== next.basedOn) return next;
+  const out: UISnapshotPatch = { view: next.view, basedOn: next.basedOn };
+  if (!same(prev.mode, next.mode)) out.mode = next.mode;
+  if (!same(prev.selection, next.selection)) out.selection = next.selection;
+  if (!same(prev.enabled, next.enabled)) out.enabled = next.enabled;
+
+  if (!same(prev.filters, next.filters) && next.filters) {
+    out.filters = diffEntries(prev.filters, next.filters);
+  }
+
+  if (next.form) {
+    const before = prev.form;
+    const form: UIFormPatch = { id: next.form.id };
+    let touched = false;
+    (['title', 'mode', 'recordId', 'dirty', 'errors'] as const).forEach((key) => {
+      if (next.form && !same(before?.[key], next.form[key])) {
+        (form as Record<string, unknown>)[key] = next.form[key];
+        touched = true;
+      }
+    });
+    const nextFields = next.form.fields ?? [];
+    if (!same(before?.fields, nextFields)) {
+      form.fields = diffEntries(before?.fields, nextFields);
+      touched = true;
+    }
+    if (touched) out.form = form;
+    return out;
+  }
+
+  if (!same(prev.data, next.data) && next.data) {
+    const data = diffTable(prev.data, next.data);
+    if (data) out.data = data;
+  }
+  if (next.tables && next.tables.length > 0 && !same(prev.tables, next.tables)) {
+    const prevByName = new Map((prev.tables ?? []).map((table) => [table.name, table]));
+    const tables = next.tables
+      .map((table) => diffTable(prevByName.get(table.name), table))
+      .filter((table): table is UITablePatch => table !== null);
+    if (tables.length > 0) out.tables = tables;
+  }
+  return out;
 }
 
 /**

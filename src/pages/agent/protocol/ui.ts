@@ -28,9 +28,10 @@ import { KIND, UI_TYPE, newEnvelope } from './envelope';
  * 快照版本，结构不兼容变更时递增。
  * - v2：data 段改成目录 + 按需取行；
  * - v3：回执改成 result / patch / full 三档，patch 扩到能独立表达「取值变了」；
- * - v4：回执档位由桥 diff 得出（`returns` 退化成可选覆盖），快照带结构指纹 `fp`、补丁带 `basedOn`。
+ * - v4：回执档位由桥 diff 得出（`returns` 退化成可选覆盖），快照带结构指纹 `fp`、补丁带 `basedOn`；
+ * - v5：补丁本身也是增量的 —— 每段只列**变了的那几项**（改 2 个字段就只给 2 个字段）。
  */
-export const UI_SNAPSHOT_VERSION = 4;
+export const UI_SNAPSHOT_VERSION = 5;
 
 /**
  * 命令参数的类型。
@@ -296,14 +297,17 @@ export type UISnapshot = UISnapshotData & {
  *
  * 故意不带 `columns` 与 `rowKey` —— 它们是这张表的目录，只有换页 / 换表才会变，
  * 而那属于 `full`（模型没见过这份目录）。
+ *
+ * 这里也只带真正变了的键（除了定位用的 `name`）：行数变了就只给 `total/loaded`，
+ * 没变的 `sorts/grouped` 不重发。
  */
 export type UITablePatch = {
   /** 哪张表：与快照里的 `data.name` / `tables[].name` 对齐 */
   name: string;
-  total: number;
-  loaded: number;
-  sorts: { field: string; order: 'asc' | 'desc' }[];
-  grouped: boolean;
+  total?: number;
+  loaded?: number;
+  sorts?: { field: string; order: 'asc' | 'desc' }[];
+  grouped?: boolean;
   /** 底部统计行的显示行号；null = 没有统计行 */
   summaryRow?: number | null;
   /** 激活行的显示行号（0 起，与 `<name>.page` 的 offset 同一套坐标）；null = 没有激活行 */
@@ -321,8 +325,9 @@ export type UIFieldPatch = {
   errors?: string[];
 };
 
-/** 表单段的补丁 */
+/** 表单段的补丁：除 `id` 外每项都只在变了时出现，`fields` 只列变了的那几项 */
 export type UIFormPatch = {
+  /** 哪个表单：与快照里 `form.id` 对齐（合并时按它定位） */
   id: string;
   title?: string;
   mode?: UIForm['mode'];
@@ -339,11 +344,15 @@ export type UIFormPatch = {
  * 模型要把它合并进手里那份快照，而不是当成一份新快照 —— 没出现的段表示「没变」。
  * `patch` 默认用在「取值变了、结构没变」的绝大多数命令上：选中、改筛选、删单、保存、填字段。
  *
+ * **段内部同样是增量的**（v5）：`filters` 与 `form.fields` 只列变了的那几项（按 `id` 覆盖合并），
+ * `data` / `tables` 只带变了的键（按 `name` 定位），`enabled` 只在可用命令集合变了时才给。
+ * 一次填 2 个字段就只回 2 个字段，不会把整张 16 项的表单重发一遍。
+ *
  * 两条合并约定，别搞混：
  * - `mode` 为 `form` 时，快照里的 `filters` / `data` / `tables` 表示「被弹窗挡住了」，
  *   与 full 快照把它们置空是同一个意思，不用补丁里再出现一次；
  * - `enabled` 是**当前可执行**的命令 ID 全集（不是增量）。没列出来的命令仍然存在，
- *   只是 disabled，原因见原快照的 `disabledReason`。
+ *   只是 disabled，原因见原快照的 `disabledReason`。**这一项是全集覆盖，不做增量**。
  */
 export type UISnapshotPatch = {
   /** 合并目标：哪个页面的快照 */
@@ -356,7 +365,7 @@ export type UISnapshotPatch = {
    */
   basedOn: string;
   mode?: 'list' | 'form';
-  /** 筛选条件的新取值（整段替换；只在列表层给。label / type 在目录里，补丁只带给值与报错） */
+  /** 变了的那几个筛选条件（按 id 覆盖；只在列表层给。label / type 在目录里，补丁只带给值与报错） */
   filters?: UIFieldPatch[];
   selection?: UISelection;
   /** 主表（对应快照的 `data` 段） */
