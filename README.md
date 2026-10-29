@@ -319,6 +319,21 @@ useUIBridgeDialog(view, dialogBridge, open);   // open 为 false 时自动让位
 
 工作台级宿主已由 `MainLayout` 常驻注册，页面不用管。
 
+**第 5 步：一页多表（标签页 / 折叠区）。** 一个页面上的多张表**不需要**多层宿主、也不需要谁"只注册激活的那个"：
+
+- 三张表的**目录全部常驻**快照（`data` + `tables[]`），每张表自带 `name`，命令按名字前缀区分（`items.page` / `colors.page`）；
+  数据仍然按需取。切标签页只改两个状态字段，不换宿主，所以只回一条补丁。
+- 两个状态字段都在表上，**都不进结构指纹**（进了就等于"切一次标签页整页重发"）：
+  - `readable` / `readableReason`：此刻读不读得到。标签页是懒挂载的，没切过去的那张表实例是 null ——
+    这时 `total: 0` 的意思是"不知道"，不是"没有数据"。
+  - `visible`：用户看不看得见。与 readable 是两个维度（切走过 = 看得见 false、读得到 true）。
+- **省略 = 正常**（能读、看得见），跟 `disabled` / `disabledReason` 同一个约定 —— 单表页面一个字都不用写。
+- 判别标准：**集合固定的表进 `tables[]`；集合随交互增长的区域（行展开明细）走命令按需取**，
+  因为 `tables[]` 的条目增减本身就是结构变化。
+
+样板见 `src/pages/views/V0277/V0354/bridged.ts`（三张表同一批行的三种投影）。
+控件侧不接桥，只交两样东西：列定义（`columns.ts`）与表格实例（`forwardRef`）。
+
 ### 五条硬约束（都是踩过坑才定下来的）
 
 1. **`bridged.ts` 文件存在本身就是"已接入"的标记**。工作台导航清单靠 `import.meta.glob('../../views/**/bridged.ts')` 只取
@@ -414,3 +429,4 @@ flex 高度链），宽度存 localStorage 并收敛（左 ≥360、右 ≥720�
 | 接口 Schema 生成                                        | `docs/API-Schema生成.md`                                                                                                                          |
 | **界面桥的契约，看代码注释**                            | `src/pages/agent/protocol/ui.ts`（协议）、`src/pages/agent/ui-bridge/`（实现）                                                                    |
 | **接入示例，看这三个文件**                              | `src/pages/views/V0189/V0279/V0280/bridged.ts`（页面层）、`.../models/yupaiOrderEditBridge.ts`（弹窗层）、`.../models/yupaiOrderEdit.tsx`（注册） |
+| **一页多表（标签页）示例**                              | `src/pages/views/V0277/V0354/bridged.ts`（三张表的拼法 + `tab.switch`）、`src/components/nc/bomMatrix/`（控件只交列定义与 ref）                  |

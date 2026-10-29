@@ -429,6 +429,12 @@ function structureKey(snapshot: SnapshotContent): string {
         params: item.params,
       })),
       filterSchema: (snapshot.filters ?? []).map(fieldSchema),
+      /*
+       * 表的目录只有「有哪些表、主键是什么、有哪些列」。
+       *
+       * **`readable` / `visible` / `total` / `sorts` 绝对不能进来**：它们是「此刻怎么样」，
+       * 进了指纹就等于「切一次标签页 = 整页重发一次」。一页多表页面正是靠这条省下来的。
+       */
       tableSchema: tables.map((table) => ({
         name: table.name,
         rowKey: table.rowKey,
@@ -474,7 +480,7 @@ function hash8(text: string): string {
   return (hash >>> 0).toString(16).padStart(8, '0');
 }
 
-/** 表格段里会变的是行数、排序、分组、统计行位置、激活行；列目录不变（它属于 full） */
+/** 表格段里会变的是行数、排序、分组、统计行位置、激活行与可读/可见；列目录不变（它属于 full） */
 function toTablePatch(table: UIDataSummary, activeRowId?: string | null): UITablePatch {
   const patch: UITablePatch = {
     name: table.name,
@@ -482,7 +488,17 @@ function toTablePatch(table: UIDataSummary, activeRowId?: string | null): UITabl
     loaded: table.loaded,
     sorts: table.sorts,
     grouped: table.grouped,
+    /*
+     * 可读/可见**给当前值，不给「变化量」**：省略只能表示「没变」，
+     * 那么从读不到恢复到读得到就永远发不出去，模型会一直以为那张表是空的。
+     * 单个布尔，diff 时没变就自动不发，不会因此变胖。
+     */
+    readable: table.readable !== false,
+    visible: table.visible !== false,
   };
+  if (patch.readable === false && table.readableReason) {
+    patch.readableReason = table.readableReason;
+  }
   if (table.summaryRow !== undefined) patch.summaryRow = table.summaryRow;
   /*
    * 激活行只给「行号 + 主键」，不给整条记录：一份 active 是 52 个键，

@@ -29,9 +29,12 @@ import { KIND, UI_TYPE, newEnvelope } from './envelope';
  * - v2：data 段改成目录 + 按需取行；
  * - v3：回执改成 result / patch / full 三档，patch 扩到能独立表达「取值变了」；
  * - v4：回执档位由桥 diff 得出（`returns` 退化成可选覆盖），快照带结构指纹 `fp`、补丁带 `basedOn`；
- * - v5：补丁本身也是增量的 —— 每段只列**变了的那几项**（改 2 个字段就只给 2 个字段）。
+ * - v5：补丁本身也是增量的 —— 每段只列**变了的那几项**（改 2 个字段就只给 2 个字段）；
+ * - v6：表增加「此刻读不读得到 / 用户看不看得见」（`readable` / `visible`）。
+ *   一页多表（标签页、折叠区）时，未渲染的那张不该被当成「0 条数据」回答，
+ *   切换标签页也只该改这两个状态、不该整页重发。
  */
-export const UI_SNAPSHOT_VERSION = 5;
+export const UI_SNAPSHOT_VERSION = 6;
 
 /**
  * 命令参数的类型。
@@ -170,9 +173,31 @@ export type UIDataSummary = {
    */
   rowKey: string;
   /**
+   * 这张表此刻**读不读得到**。省略 = 能读（绝大多数情况）。
+   *
+   * 为 false 的典型场景：控件还没挂载（标签页没切过去、折叠区没展开）、数据还没回来、
+   * 当前账号没有这张表的权限。**这时 `total` / `sorts` / `active` 都不代表真实情况** ——
+   * 别据此回答「共几条」，先按 `readableReason` 说的把它变成可读（切标签页 / 展开行）。
+   */
+  readable?: boolean;
+  /** `readable` 为 false 时说明为什么读不到、怎么才能读（页面自己给，桥不猜） */
+  readableReason?: string;
+  /**
+   * 用户此刻**看不看得见**这张表。省略 = 看得见。
+   *
+   * 为 false 的典型场景：表在没激活的标签页里（或折叠区里）—— 挂载了、读得到，
+   * 但用户没有在看它。用户说「这一行」时指的**不是**它。
+   *
+   * 与 `readable` 是两个维度：看不见但读得到（切走过，实例还在）、
+   * 看不见也读不到（从没打开过，库都是冷的）、看得见当然也读得到。
+   * 「看不见却读得到」正是切标签页之后的状态，所以两者不能合成一个字段。
+   */
+  visible?: boolean;
+  /**
    * 显示行总数 —— **与用户屏幕上的行数一致**（跟随筛选、排序、分组，含底部统计行）。
    *
    * 同时它是 `<name>.page` 的 `offset` 上界：`offset` 取 `0..total-1`。
+   * `readable: false` 时它是 0，但那个 0 的意思是「不知道」，不是「没有数据」。
    */
   total: number;
   /** 已加载条数（纯前端列表等于 total；服务端分页时会小于 total） */
@@ -308,6 +333,16 @@ export type UITablePatch = {
   loaded?: number;
   sorts?: { field: string; order: 'asc' | 'desc' }[];
   grouped?: boolean;
+  /**
+   * 此刻读不读得到 / 用户看不看得见（见 `UIDataSummary` 同名字段）。
+   *
+   * **两个都是「当前值」而不是「变化量」**：从能读变成不能读、以及反过来，
+   * 都必须如实出现 —— 省略只能表示「没变」，不能表示「恢复了」，
+   * 否则模型会一直以为那张表还是读不到。
+   */
+  readable?: boolean;
+  readableReason?: string;
+  visible?: boolean;
   /** 底部统计行的显示行号；null = 没有统计行 */
   summaryRow?: number | null;
   /** 激活行的显示行号（0 起，与 `<name>.page` 的 offset 同一套坐标）；null = 没有激活行 */

@@ -1,7 +1,8 @@
 import React, {useEffect, useMemo, useState} from "react";
 import type {BomMatrix} from "@/api/schemas/nc/bomMatrix.ts";
 import {toStringOrEmpty} from "@/utils";
-import {type AppColumnDef, type AppColumnGroupDef, GridTable} from "@/components/grid-table";
+import {type GridTableApi, GridTable} from "@/components/grid-table";
+import {buildColorColumns} from "./columns.ts";
 
 export type BomMatrixColorViewProps = {
     bomMatrix: BomMatrix;
@@ -65,48 +66,26 @@ function bomMatrixToColorData(matrix: BomMatrix): bomMatrixColorData[] {
     return datas;
 }
 
+/**
+ * 配色表：一行一个子项物料，一列一个缝制颜色。
+ *
+ * 与子项物料表是**同一批行的两种投影**，所以行标识都是 `VRowNo_MaterialVID` 拼出来的
+ * （子项物料表用的是明细主键，两套键并不通用 —— 跨表引用同一行要用行号对齐）。
+ */
+const BomMatrixColorView = React.forwardRef<GridTableApi, BomMatrixColorViewProps>(({bomMatrix}, ref) => {
 
-const BomMatrixColorView: React.FC<BomMatrixColorViewProps> = ({bomMatrix}) => {
     const [datas, setDatas] = useState<bomMatrixColorData[]>([])
 
-    const columns = useMemo((): AppColumnDef[] => {
-        const colorGroup: AppColumnGroupDef = {
-            title: '颜色',
-            children: [],
-        }
-        bomMatrix.ColorSort?.forEach((color) => {
-            if (!color) {
-                return;
-            }
-            colorGroup.children.push({field: color, title: color, minWidth: 50})
-        })
-        const materialGroup: AppColumnGroupDef = {
-            title: '物料',
-            children: [
-                {field: 'VRowNo', title: '行号'},
-                {field: 'MaterialCode', title: '物料编码'},
-                {field: 'MaterialName', title: '物料名称'},
-                {field: 'MaterialVersion', title: '物料版本'},
-                {field: 'MaterialSpec', title: '物料规格'},
-                {field: 'MaterialType', title: '物料型号'},
-                {field: 'VFree5Name', title: '季度号/通用'},
-                {field: 'VFree4Name', title: '批号'},
-            ]
-        }
-        return [
-            materialGroup,
-            colorGroup
-        ];
-    }, [bomMatrix]);
+    const columns = useMemo(() => buildColorColumns(bomMatrix), [bomMatrix]);
 
     useEffect(() => {
         setDatas(bomMatrixToColorData(bomMatrix));
     }, [bomMatrix])
 
     return (
-        <GridTable columns={columns} records={datas} rowKey={'Key'} multiSelect={false} rowNumber={false}
+        <GridTable ref={ref} columns={columns} records={datas} rowKey={'Key'} multiSelect={false} rowNumber={false}
                    widthMode={'autoWidth'}/>
     );
-}
+});
 
 export default BomMatrixColorView;

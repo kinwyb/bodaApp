@@ -25,7 +25,7 @@
  *    而模型多数只需认单、看状态、看数量的那几列；要全部列它自己传 `fields: "*"`。
  */
 
-import type { ColumnSource, FilterTableApi } from '@/components/grid-table';
+import type { ColumnSource, GridTableApi } from '@/components/grid-table';
 import { isBlank, toNumberOrZero, toStringOrEmpty } from '@/utils';
 import type { UIAction, UIColumn, UIDataSummary } from '@/pages/agent/protocol';
 import type { UIBridgeHandler } from './types';
@@ -36,6 +36,21 @@ const MAX_LIMIT = 200;
 
 /** 一个单元格最多给多少字符：自由文本（备注、款式描述）能写几百字，一次 20 行就爆上下文 */
 const DEFAULT_CELL_CHARS = 120;
+
+/** 页面没给原因时的兜底：够模型判断「这不是空表，是读不到」，但不猜具体成因 */
+const UNREADABLE_FALLBACK = '这张表此刻读不到（控件还没挂载或已经卸载），稍后重试或重新 observe';
+
+/**
+ * 桥实际用到表格实例的**这五个方法**。
+ *
+ * 不直接要 `FilterTableApi`：`GridTable`（没有筛选面板的单表）与 `FilterTable` 都满足它，
+ * 页面不必为了接桥而改用某个特定组件。这也让「一页多表」里的每张小表都能单独接桥 ——
+ * 标签页里的表通常就是裸 `GridTable`，套一层 `FilterTable` 反而多余。
+ */
+export type TableReadApi = Pick<
+  GridTableApi,
+  'getDisplayInfo' | 'getRowByIndex' | 'getRowByKey' | 'getActiveRow' | 'selectRowsByKeys'
+>;
 
 /** 列定义里可能出现的形状（原生列与项目列定义都覆盖） */
 type ColumnLike = {
@@ -229,8 +244,20 @@ export type TableBridgeOptions = {
   /**
    * 取表格实例的取值函数 —— 桥在「被调用的那一刻」才读，所以表格重建、页面刷新都不用重新装配。
    * 传 `() => tableRef.current` 即可。
+   *
+   * 返回 null 表示**这张表此刻读不到**（标签页没切过去、折叠区没展开、组件已卸载）。
+   * 桥会把它翻成快照里的 `readable: false`，并让 `<name>.page` 之类的命令给出可读的原因，
+   * 而不是拿一个 0 行空表去骗模型。
    */
-  readTable: () => FilterTableApi | null;
+  readTable: () => TableReadApi | null;
+  /**
+   * 这张表**为什么读不到**（`readTable()` 返回 null 时才会被问）。
+   *
+   * 只有页面知道原因：是标签页没切过去、数据还在加载、还是没有权限。桥不猜，
+   * 只负责把它原样交给模型 —— 一句「先用 xxx 切过去」比「表格还没建好」有用得多。
+   * 返回 null/不填时用兜底文案。
+   */
+  unreadableReason?: () => string | null;
   /** 列上的业务提示（可选）：field → 说明。用于补 `hint` 字段里页面的私货 */
   columnHints?: Record<string, string>;
   /**
@@ -268,13 +295,23 @@ export type TableBridge = {
   /** 这张表的对象名（命令前缀）；页面拼 `tables` 段或写 guide 时要用 */
   name: string;
   /**
-   * 快照里的 data 段：**目录**（列 + 行数 + 排序），不含数据行。
+   * 快照里的 data 段：**目录**（列 + 行数 + 排序 + 能不能读），不含数据行。
    *
    * `override.active` 给页面一个「换掉激活行」的口子：表格判定的激活行未必等于业务认可的
    * （点到底部统计行时，页面通常会把它当成「没有选中任何单据」）。不传就用表格自己的判定。
    * 无论哪来的，都按列白名单裁剪，并做同样的空值/长文本收缩。
+   *
+   * `override.visible` 是多表 / 标签页页面才需要给的：用户此刻看不看得见这张表。
+   * 不给 = 看得见（单表页面不必关心）。
+   *
+   * `override.unreadableReason` 用来表达「实例在、但读不到」（数据还在加载这类）：
+   * 给了就按读不到处理，实例存不存在都不重要。
    */
-  data: (override?: { active?: Record<string, unknown> | null }) => UIDataSummary;
+  data: (override?: {
+    active?: Record<string, unknown> | null;
+    visible?: boolean;
+    unreadableReason?: string | null;
+  }) => UIDataSummary;
   /** 数据读取 + 选中行两条命令。拼进页面的 actions */
   actions: () => UIAction[];
   /** 对应处理函数。拼进页面的 handlers */
@@ -312,12 +349,28 @@ export function createTableBridge(options: TableBridgeOptions): TableBridge {
   const defaultFields = keyFields.length > 0 ? keyFields : columnFields;
   const maxCellChars = options.maxCellChars ?? DEFAULT_CELL_CHARS;
 
-  const readTable = (): FilterTableApi | null => options.readTable();
+  const readTable = (): TableReadApi | null => options.readTable();
   const displayInfo = () =>
     readTable()?.getDisplayInfo() ?? { rowCount: 0, sorts: [], grouped: false };
 
+  /**
+   * 这张表此刻读不到的原因；能读返回 null。
+   *
+   * 两种都算读不到：实例不在（没挂载），以及实例在、但页面说「还在加载」。
+   * 对模型是同一件事 —— 现在拿到的行数与排序都不作数。
+   */
+  const unreadableOf = (overrideReason: string | null | undefined): string | null => {
+    if (overrideReason) return overrideReason;
+    if (readTable() === null) return options.unreadableReason?.() ?? UNREADABLE_FALLBACK;
+    return null;
+  };
+
   const data = (
-    override?: { active?: Record<string, unknown> | null },
+    override?: {
+      active?: Record<string, unknown> | null;
+      visible?: boolean;
+      unreadableReason?: string | null;
+    },
   ): UIDataSummary => {
     const info = displayInfo();
     const table = readTable();
@@ -332,6 +385,16 @@ export function createTableBridge(options: TableBridgeOptions): TableBridge {
       grouped: info.grouped,
       activeRowIndex: tableActive?.record ? tableActive.rowIndex : null,
     };
+    /*
+     * 读不到就如实说，别让「0 行」冒充「没有数据」。
+     * 只有异常的那一档才出现在快照里（省略 = 能读 / 看得见），单表页面因此一个字都不用写。
+     */
+    const unreadable = unreadableOf(override?.unreadableReason);
+    if (unreadable) {
+      summary.readable = false;
+      summary.readableReason = unreadable;
+    }
+    if (override?.visible === false) summary.visible = false;
 
     /*
      * 最后一行的性质要说清楚：统计行确实占一个行号（用户屏幕上看得见），
@@ -430,12 +493,23 @@ export function createTableBridge(options: TableBridgeOptions): TableBridge {
     },
   ];
 
+  /**
+   * 取表格实例，读不到就抛**页面自己给的原因**。
+   *
+   * 别退回一句「表格还没建好」：多表页面里最常见的是「这张表在没激活的标签页里」，
+   * 一句「先用 xxx 切过去」模型下一步就能做对，含糊的报错只会让它重试三次再放弃。
+   */
+  const requireTable = (): TableReadApi => {
+    const table = readTable();
+    if (!table) {
+      throw new Error(unreadableOf(null) ?? UNREADABLE_FALLBACK);
+    }
+    return table;
+  };
+
   const handlers: Record<string, UIBridgeHandler> = {
     [pageCmd]: (params) => {
-      const table = readTable();
-      if (!table) {
-        throw new Error('表格还没建好（页面可能仍在加载或已经切走），稍后重试或重新 ui_observe');
-      }
+      const table = requireTable();
       const info = table.getDisplayInfo();
       const total = info.rowCount;
       // 上界放到 total（而不是 total-1）：越界要**如实返回空**，模型才知道「没有第 101 行」，
@@ -502,10 +576,7 @@ export function createTableBridge(options: TableBridgeOptions): TableBridge {
      * 校验只会把它挡在门外。拼错的字段名会出现在返回的 `unknownFields` 里，让它自己发现。
      */
     [rowCmd]: (params) => {
-      const table = readTable();
-      if (!table) {
-        throw new Error('表格还没建好（页面可能仍在加载或已经切走），稍后重试或重新 ui_observe');
-      }
+      const table = requireTable();
       const rowId = toStringOrEmpty(params.rowId).trim();
       if (!rowId) {
         throw new Error(
@@ -549,10 +620,7 @@ export function createTableBridge(options: TableBridgeOptions): TableBridge {
      * 页面不必再自己维护一份「可见行集合」，那份复算很容易和表格真实显示不一致。
      */
     [selectCmd]: async (params) => {
-      const table = readTable();
-      if (!table) {
-        throw new Error('表格还没建好（页面可能仍在加载或已经切走），稍后重试或重新 ui_observe');
-      }
+      const table = requireTable();
       const rowIds = toRowIdList(params.rowIds ?? params.rowId);
       if (rowIds.length === 0) {
         throw new Error(

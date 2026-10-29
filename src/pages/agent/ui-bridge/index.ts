@@ -19,7 +19,7 @@ export { createUIRequestHandler } from './handler';
 export { currentRev } from './store';
 export { bridgedViewPaths, isBridgedView } from './bridged';
 export { createTableBridge } from './table';
-export type { TableBridge, TableBridgeOptions } from './table';
+export type { TableBridge, TableBridgeOptions, TableReadApi } from './table';
 export {
   createFormWriteActions,
   createFormWriteHandlers,

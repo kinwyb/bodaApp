@@ -1,7 +1,8 @@
 import React, {useEffect, useMemo, useState} from "react";
 import type {BomMatrix} from "@/api/schemas/nc/bomMatrix.ts";
-import {toNumberOrZero, toStringOrEmpty} from "@/utils";
-import {type AppColumnDef, type AppColumnGroupDef, GridTable} from "@/components/grid-table";
+import {toStringOrEmpty} from "@/utils";
+import {type GridTableApi, GridTable} from "@/components/grid-table";
+import {buildSizeColumns} from "./columns.ts";
 
 export type BomMatrixSizeViewProps = {
     bomMatrix: BomMatrix;
@@ -69,70 +70,25 @@ function bomMatrixToSizeData(matrix: BomMatrix): bomMatrixSizeData[] {
     return datas;
 }
 
-const BomMatrixSizeView: React.FC<BomMatrixSizeViewProps> = ({bomMatrix}) => {
+/**
+ * 配码表：一行一个子项物料，每个尺码三列（损耗数量 / 尺码系数 / 尺码用量）。
+ *
+ * 三个值都来自 `SizeMatch[尺码][行键]`，行键与配色表同一套（`VRowNo_MaterialVID`）。
+ */
+const BomMatrixSizeView = React.forwardRef<GridTableApi, BomMatrixSizeViewProps>(({bomMatrix}, ref) => {
 
     const [datas, setDatas] = useState<bomMatrixSizeData[]>([])
 
-    const columns = useMemo((): AppColumnDef[] => {
-        const sunhaoGroup: AppColumnGroupDef = {
-            title: '损耗数量',
-            children: [],
-        }
-        const sizeGroup: AppColumnGroupDef = {
-            title: '尺码系数',
-            children: [],
-        }
-        const numGroup: AppColumnGroupDef = {
-            title: '尺码用量',
-            children: [],
-        }
-        bomMatrix.SizeSort?.forEach((size) => {
-            if (!size) {
-                return;
-            }
-            sunhaoGroup.children.push({
-                field: 'Sunhao' + size, title: size, dataType: 'int', minWidth: 50, fieldFormat: (record) => {
-                    const val = toNumberOrZero(record['Sunhao' + size]);
-                    if (val === 0) {
-                        return '';
-                    }
-                    return toStringOrEmpty(val)
-                }
-            })
-            sizeGroup.children.push({field: 'S' + size, title: size, minWidth: 50})
-            numGroup.children.push({field: 'N' + size, title: size, dataType: 'int', minWidth: 50})
-        })
-        const materialGroup: AppColumnGroupDef = {
-            title: '物料',
-            children: [
-                {field: 'VRowNo', title: '行号'},
-                {field: 'MaterialCode', title: '物料编码'},
-                {field: 'MaterialName', title: '物料名称'},
-                {field: 'MaterialVersion', title: '物料版本'},
-                {field: 'MaterialSpec', title: '物料规格'},
-                {field: 'MaterialType', title: '物料型号'},
-                {field: 'VFree5Name', title: '季度号/通用'},
-                {field: 'VFree1Name', title: '款号'},
-                {field: 'VFree9Name', title: '色纱色'},
-                {field: 'VFree4Name', title: '批号'},
-            ]
-        }
-        return [
-            materialGroup,
-            sunhaoGroup,
-            sizeGroup,
-            numGroup,
-        ];
-    }, [bomMatrix]);
+    const columns = useMemo(() => buildSizeColumns(bomMatrix), [bomMatrix]);
 
     useEffect(() => {
         setDatas(bomMatrixToSizeData(bomMatrix));
     }, [bomMatrix])
 
     return (
-        <GridTable columns={columns} records={datas} rowKey={'Key'} multiSelect={false} rowNumber={false}
+        <GridTable ref={ref} columns={columns} records={datas} rowKey={'Key'} multiSelect={false} rowNumber={false}
                    widthMode={'autoWidth'}/>
     );
-}
+});
 
 export default BomMatrixSizeView;
