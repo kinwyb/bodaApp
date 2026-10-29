@@ -7,7 +7,7 @@
  * 这一页是「一页多表」的第一个样本：三个标签页 = 三张表，同一时刻只有一张在屏幕上。
  * 所以它示范的是**多表怎么拼**，不是「多页怎么拼」：
  *
- * - 三张表的目录**全部常驻**快照（`data` + `tables[]`），列定义与视图共用 `./columns`；
+ * - 三张表的目录**全部常驻**快照（`tables[]` 的三个元素），列定义与视图共用 `./columns`；
  * - 只有数据按需取（`items.page` / `colors.page` / `sizes.page`）；
  * - 「此刻能不能读」由 `readable` 说、「用户看不看得见」由 `visible` 说 ——
  *   两个都不进结构指纹，所以切标签页只回一条补丁，而不是整页重发。
@@ -41,7 +41,7 @@ const BOM_MATRIX_GUIDE: UIGuide = {
         '三张表是**同一批子项行的三种看法**，但界面同一时刻只渲染一个标签页：' +
             '要读哪一张先用 tab.switch 切过去，切过去之后那张表的 total 才是真的',
         '取数各用各的前缀：子项物料 items.page、配色 colors.page、配码 sizes.page（行号从 0 起，与屏幕一致）',
-        'data 段永远是「子项物料」这张主表；切到配色/配码后 data.visible 会变成 false —— ' +
+        'tables 里 name=items 的那张永远是「子项物料」；切到配色/配码后它的 visible 会变成 false —— ' +
             '用户说的「这一行」指的是 visible 为 true 的那张表',
         'colors / sizes 的行与 items 一一对应（同一个子项物料一行），跨表对行用 VRowNo，不要拿 rowId 互相套',
     ],
@@ -232,12 +232,15 @@ export function createBomMatrixBridge(read: () => BomMatrixBridgeContext): UIBri
             guide: BOM_MATRIX_GUIDE,
             actions: actions(),
             /*
-             * data = 子项物料（业务主表，也是唯一可编辑的一张）。它**不随标签页变**：
-             * 一旦让 data 跟着切，表的 name 与 columns 就会变，结构指纹跟着变，
-             * 每次切标签页都会退化成整页快照 —— 那正是这套设计要避免的。
+             * 三张表都进 `tables`（没有「主表」这个特权位置了），定位只认各自的 name。
+             *
+             * 数组顺序保持恒定（items → colors → sizes）：结构指纹里按 name 排序，
+             * 但页面自己别去重排 —— 一份快照读下来，模型按顺序认表更省事。
+             *
+             * 三张表的 `visible` 都跟着标签页走：只有一张为 true，其余为 false。
              */
-            data: items.data({visible: visibleOf('items')}),
             tables: [
+                items.data({visible: visibleOf('items')}),
                 colors.data({visible: visibleOf('colors')}),
                 sizes.data({visible: visibleOf('sizes')}),
             ],

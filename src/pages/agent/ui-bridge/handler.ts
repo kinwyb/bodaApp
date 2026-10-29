@@ -235,23 +235,29 @@ function toSnapshotPatch(snapshot: SnapshotContent, structure: string): UISnapsh
     enabled: snapshot.actions.filter((item) => !item.disabled).map((item) => item.id),
   };
   if (snapshot.mode) patch.mode = snapshot.mode;
-  if (snapshot.selection) patch.selection = snapshot.selection;
 
   /*
    * 弹窗那一层的补丁就是表单本身：字段值、锁、报错。
-   * 此时 filters / data 被弹窗挡住（full 快照里也是置空的），补丁不重复表达「看不见」。
+   * 此时 tables 被弹窗挡住（full 快照里也是置空的），补丁不重复表达「看不见」。
    */
   if (snapshot.form) {
     patch.form = toFormPatch(snapshot.form);
     return patch;
   }
 
-  if (snapshot.filters && snapshot.filters.length > 0) {
-    patch.filters = snapshot.filters.map(toFieldPatch);
+  /*
+   * 数据查询条件（页面级，业务层负责）：只列变了的那几项。
+   * 表的筛选不走这里 —— 它在表段里（`tables[].filters`），由表桥自动读写。
+   */
+  if (snapshot.query && snapshot.query.length > 0) {
+    patch.query = snapshot.query.map(toFieldPatch);
   }
-  if (snapshot.data) patch.data = toTablePatch(snapshot.data, snapshot.selection?.activeRowId ?? null);
+  /*
+   * 表段：`tables` 是唯一容器，单表页面也走这里。
+   * 表的筛选 / 选中由 `toTablePatch` 以「当前值」形式带上（见那个函数）。
+   */
   if (snapshot.tables && snapshot.tables.length > 0) {
-    patch.tables = snapshot.tables.map((table) => toTablePatch(table));
+    patch.tables = snapshot.tables.map(toTablePatch);
   }
   return patch;
 }
@@ -363,11 +369,10 @@ function diffPatch(prev: UISnapshotPatch | null | undefined, next: UISnapshotPat
   if (!prev || prev.basedOn !== next.basedOn) return next;
   const out: UISnapshotPatch = { view: next.view, basedOn: next.basedOn };
   if (!same(prev.mode, next.mode)) out.mode = next.mode;
-  if (!same(prev.selection, next.selection)) out.selection = next.selection;
   if (!same(prev.enabled, next.enabled)) out.enabled = next.enabled;
 
-  if (!same(prev.filters, next.filters) && next.filters) {
-    out.filters = diffEntries(prev.filters, next.filters);
+  if (!same(prev.query, next.query) && next.query) {
+    out.query = diffEntries(prev.query, next.query);
   }
 
   if (next.form) {
@@ -389,10 +394,6 @@ function diffPatch(prev: UISnapshotPatch | null | undefined, next: UISnapshotPat
     return out;
   }
 
-  if (!same(prev.data, next.data) && next.data) {
-    const data = diffTable(prev.data, next.data);
-    if (data) out.data = data;
-  }
   if (next.tables && next.tables.length > 0 && !same(prev.tables, next.tables)) {
     const prevByName = new Map((prev.tables ?? []).map((table) => [table.name, table]));
     const tables = next.tables
@@ -411,9 +412,11 @@ function diffPatch(prev: UISnapshotPatch | null | undefined, next: UISnapshotPat
  * `navigation` 也算结构：补丁表达不了菜单变化，菜单一变就得给 full。
  */
 function structureKey(snapshot: SnapshotContent): string {
-  const tables = [snapshot.data, ...(snapshot.tables ?? [])].filter(
-    (table): table is UIDataSummary => table !== null && table !== undefined,
-  );
+  /*
+   * 按 `name` 排序再算：表在数组里的位置对模型没有意义（定位只认 name），
+   * 但 `stableStringify` 对顺序敏感 —— 页面重排一次数组不该换来一次整页重发。
+   */
+  const tables = [...(snapshot.tables ?? [])].sort((a, b) => (a.name < b.name ? -1 : 1));
   return hash8(
     stableStringify({
       view: snapshot.view,
@@ -428,12 +431,16 @@ function structureKey(snapshot: SnapshotContent): string {
         danger: item.danger,
         params: item.params,
       })),
-      filterSchema: (snapshot.filters ?? []).map(fieldSchema),
+      /*
+       * 查询条件的**目录**（字段表）进指纹，取值不进 —— 加一个查询字段属于结构变化。
+       */
+      querySchema: (snapshot.query ?? []).map(fieldSchema),
       /*
        * 表的目录只有「有哪些表、主键是什么、有哪些列」。
        *
-       * **`readable` / `visible` / `total` / `sorts` 绝对不能进来**：它们是「此刻怎么样」，
-       * 进了指纹就等于「切一次标签页 = 整页重发一次」。一页多表页面正是靠这条省下来的。
+       * **`readable` / `visible` / `total` / `sorts` / `filters` / `selection` 绝对不能进来**：
+       * 它们是「此刻怎么样」，进了指纹就等于「切一次标签页 = 整页重发一次」、
+       * 「筛一个条件 = 整页重发一次」。一页多表页面正是靠这条省下来的。
        */
       tableSchema: tables.map((table) => ({
         name: table.name,
@@ -480,8 +487,8 @@ function hash8(text: string): string {
   return (hash >>> 0).toString(16).padStart(8, '0');
 }
 
-/** 表格段里会变的是行数、排序、分组、统计行位置、激活行与可读/可见；列目录不变（它属于 full） */
-function toTablePatch(table: UIDataSummary, activeRowId?: string | null): UITablePatch {
+/** 表格段里会变的是行数、排序、分组、筛选、选中、统计行位置、激活行与可读/可见；列目录不变（它属于 full） */
+function toTablePatch(table: UIDataSummary): UITablePatch {
   const patch: UITablePatch = {
     name: table.name,
     total: table.total,
@@ -489,25 +496,25 @@ function toTablePatch(table: UIDataSummary, activeRowId?: string | null): UITabl
     sorts: table.sorts,
     grouped: table.grouped,
     /*
-     * 可读/可见**给当前值，不给「变化量」**：省略只能表示「没变」，
-     * 那么从读不到恢复到读得到就永远发不出去，模型会一直以为那张表是空的。
-     * 单个布尔，diff 时没变就自动不发，不会因此变胖。
+     * 可读/可见、筛选、选中**都给当前值，不给「变化量」**：省略只能表示「没变」，
+     * 那么「从读不到恢复到读得到」「筛完又清空」「取消选中」就永远发不出去，
+     * 模型会一直以为那张表还是空的 / 还在筛 / 还选着。
+     * 没变时 `diffTable` 自动不发给模型，所以这里给全不会让补丁变胖。
      */
     readable: table.readable !== false,
     visible: table.visible !== false,
+    filters: table.filters ?? [],
+    selection: table.selection ?? { count: 0, activeRowId: null, rowIds: [] },
   };
   if (patch.readable === false && table.readableReason) {
     patch.readableReason = table.readableReason;
   }
   if (table.summaryRow !== undefined) patch.summaryRow = table.summaryRow;
   /*
-   * 激活行只给「行号 + 主键」，不给整条记录：一份 active 是 52 个键，
-   * 而它变化的那一刻模型往往只想知道「现在选中的是谁」，完整一行用 `<name>.row` 取。
+   * 激活行只给「行号」：主键在 `selection.activeRowId` 里，
+   * 完整一行用 `<name>.row` 按主键取（补丁不带整条记录）。
    */
-  if (table.activeRowIndex !== undefined) {
-    patch.activeRowIndex = table.activeRowIndex;
-    if (activeRowId !== undefined) patch.activeRowId = activeRowId;
-  }
+  if (table.activeRowIndex !== undefined) patch.activeRowIndex = table.activeRowIndex;
   return patch;
 }
 
@@ -563,7 +570,7 @@ function composeSnapshot(workbench: UIWorkbenchHost, view: string): UISnapshot {
 
   /*
    * 弹窗打开时，它才是用户此刻的视野：动作、模式、form 段都换成弹窗自己的，
-   * 列表的筛选条件与数据收起（它们被弹窗挡住，发出去只会让模型对着看不见的内容推理）。
+   * 列表的查询条件与表格收起（它们被弹窗挡住，发出去只会让模型对着看不见的内容推理）。
    * 这条覆盖规则写在桥里，所以页面和弹窗都不用各自实现一遍。
    */
   const content: SnapshotContent = {
@@ -575,9 +582,8 @@ function composeSnapshot(workbench: UIWorkbenchHost, view: string): UISnapshot {
     mode: 'form',
     guide: dialog.guide ?? base.guide,
     actions: dialog.actions(),
-    filters: [],
-    selection: base.selection,
-    data: null,
+    query: [],
+    tables: [],
     form: dialog.snapshot(),
   };
   return { ...content, fp: structureKey(content) };
@@ -616,7 +622,6 @@ function baseSnapshot(workbench: UIWorkbenchHost, view: string): UISnapshotData 
       view: HOME_VIEW,
       title: '工作台',
       actions: [],
-      data: null,
       navigation: workbench.navigation().slice(0, NAVIGATION_LIMIT),
     };
   }
@@ -635,7 +640,6 @@ function baseSnapshot(workbench: UIWorkbenchHost, view: string): UISnapshotData 
         ? `${view}（没有对应页面，渲染的是通用列表页）`
         : `${view}（页面没有接入界面桥）`,
     actions: [],
-    data: null,
     navigation: workbench.navigation().slice(0, NAVIGATION_LIMIT),
   };
 }
@@ -768,7 +772,7 @@ function searchNavigation(workbench: UIWorkbenchHost, query: string): UINavItem[
  * 以及页面自己声明的 `ready()`（没声明就是挂载即就绪）。
  *
  * 别把「首屏接口回来没有」写进 ready()：列表页的快照里只有列目录 / 行数，
- * 数据行要用 `data.page` 现取，拿接口当就绪条件只会让导航跟着接口一起慢，
+ * 数据行要用 `<name>.page` 现取，拿接口当就绪条件只会让导航跟着接口一起慢，
  * 慢过超时时间就报成「打开页面超时」，看起来像页面挂了。
  */
 async function waitForReady(view: string, timeoutMs: number): Promise<boolean> {

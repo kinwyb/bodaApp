@@ -49,6 +49,13 @@ export interface FilterTableApi extends GridTableApi {
     /** 当前生效的筛选条件（受控时就是 `filters` 属性的值） */
     getFilters: () => FilterModel;
     /**
+     * **某一个 enum 字段**的候选值（从当前 `records` 去重而来，不受当前筛选影响）。
+     *
+     * 按字段给、不给整份：调用方（界面桥）每次只需要一个字段的值，
+     * 一次返回所有字段的候选值既是无用的开销，也容易被误当成「全部可筛字段」。
+     */
+    getFilterOptions: (field: string) => Array<string | number>;
+    /**
      * 当前**用户看到的那批行**：筛选后喂给表格的数据。
      *
      * 与页面 `dataSource` 的区别只有筛选 —— 被筛掉的行在这里不存在（排序 / 分组 / 搜索高亮不影响它，
@@ -536,12 +543,14 @@ export const FilterTable = React.forwardRef<FilterTableApi, FilterTableProps>(
                     // 外部写回 filters 才生效（见 FilterTableApi.setFilters）
                     getFilters: () => currentFilters,
                     setFilters: (next: FilterModel) => handleFilterChange(next),
+                    // 枚举候选值：面板用整份，桥只要某个字段（按字段给，别返回整份）
+                    getFilterOptions: (field: string) => autoOptions[field] ?? [],
                     // 用户看到的行（筛选后）：命令 / 界面桥拼快照时用它，别用页面的 dataSource
                     getFilteredRecords: () => filteredRecords,
                 }) satisfies FilterTableApi,
             // 依赖带上筛选条件、变更函数与筛选结果：handle 重建只是重新赋值 ref.current，
             // 表格实例由 tableRef 单独持有，与这里无关，不会重挂载
-            [currentFilters, handleFilterChange, filteredRecords],
+            [autoOptions, currentFilters, handleFilterChange, filteredRecords],
         );
 
         const hasFilter = filterFields.length > 0;

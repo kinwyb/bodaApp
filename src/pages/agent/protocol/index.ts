@@ -44,6 +44,8 @@ export type {
   UISnapshot,
   UISnapshotData,
   UISnapshotPatch,
+  UITableFilter,
+  UITableFilterType,
   UITablePatch,
   UIWindow,
 } from './ui';

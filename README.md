@@ -104,7 +104,7 @@ docs/               # 分主题的开发文档（见文末索引）
 | 层       | 挂在哪                   | 回答什么                                              | 注册方式                                                             |
 |----------|--------------------------|-------------------------------------------------------|----------------------------------------------------------------------|
 | 工作台级 | `MainLayout`，全局唯一   | 你在哪个页面、能打开哪些页面、怎么打开                | `useWorkbenchBridge({ currentView, navigation, canOpen, openView })` |
-| 页面级   | 各业务页面，按 view 索引 | 这一页的 guide / actions / filters / data / selection | `useUIBridgeHost(view, host)`                                        |
+| 页面级   | 各业务页面，按 view 索引 | 这一页的 guide / actions / query / tables              | `useUIBridgeHost(view, host)`                                        |
 | 弹窗级   | 弹窗组件，**仅打开期间** | 表单字段、表单内命令、提交语义                        | `useUIBridgeDialog(view, host, open)`                                |
 
 三点设计后果，值得先记住：
@@ -113,7 +113,7 @@ docs/               # 分主题的开发文档（见文末索引）
    至少知道"你在工作台，这些页面可以打开"，不会因为"没在任何页面里"就哑火。
 2. **弹窗自己注册自己**。一个页面上有五个弹窗，如果让页面转述，`index.tsx` 里就要写五份字段映射 + 动作表 +
    处理函数，页面文件立刻成为瓶颈。现在弹窗的字段与提交语义都留在弹窗自己的文件里。
-3. **覆盖规则在桥里统一实现**：弹窗打开时，它的 actions 顶掉页面工具栏动作、`mode` 变 `form`、`filters` / `data`
+3. **覆盖规则在桥里统一实现**：弹窗打开时，它的 actions 顶掉页面工具栏动作、`mode` 变 `form`、`query` / `tables`
    被清空（它们确实被弹窗挡住了）。页面与弹窗都不用各写一遍。
 
 ### 一次往返的完整时序
@@ -154,23 +154,31 @@ Agent 侧有三个工具（后端 `buibuiCodex` 实现），全部由一条 **�
   "mode": "list",
   "guide": { "steps": ["..."], "terms": { "第几条": "offset = N-1" } },
   "actions": [{ "id": "publish", "label": "发布", "disabled": true, "disabledReason": "需要先选中一行" }],
-  "filters": [{ "id": "WorkPlace", "label": "生产产地", "type": "text", "value": "" }],
-  "selection": { "count": 0, "activeRowId": null, "rowIds": [] },
-  "data": {
+  "query": [{ "id": "WorkPlace", "label": "生产产地", "type": "text", "value": "" }],
+  "tables": [{
     "name": "data", "rowKey": "ID", "total": 3281, "loaded": 3281,
-    "columns": [{ "field": "OrderCode", "title": "订单号", "type": "text" }],
+    "columns": [{ "field": "WorkPlace", "title": "产地", "filter": "enum" }],
     "sorts": [{ "field": "YPDate", "order": "desc" }],
+    "filters": [{ "field": "WorkPlace", "value": ["越南工厂"] }],
+    "selection": { "count": 1, "activeRowId": "1001", "rowIds": ["1001"] },
     "grouped": false, "summaryRow": 3280
-  }
+  }]
 }
 ```
+
+两个容易搞混的点，这里一次说清：
+
+- **`query` 与 `tables[].filters` 是两件事**。前者是数据查询（改完重新请求，业务层负责，命令通常是 `query.set`）；
+  后者是表上的筛选面板（纯前端隐掉几行，由桥自动读写，命令是 `<表名>.filter`）。`total` 是两者叠加后的结果。
+- **`filters` 只给 `field` + 当前值**，不给中文名、类型和候选项：那些都在 `columns` 里（`filter` 键表示这列能不能筛、
+  用哪种控件）。enum 的候选值动辄几十上百个，下发等于白烧 token，而模型只需要知道「能按产地筛」。
 
 为什么不是"顺手把前 20 行也塞进去"：
 
 - 那 20 行 **和用户屏幕上的 20 行不是一回事**（排序、分组、统计行都在表格内部），模型会拿错行；
 - 每行 50 多列全塞进去，一帧就是几万 token，而绝大多数判断只看认单、状态、数量那几列。
 
-所以数据按需取：`data.page({ offset, limit, fields })`。 **`offset` 是显示行号，0 就是用户屏幕第一行** —— 用户说"第 5 条"就传
+所以数据按需取：`data.page({ offset, limit, fields })`（表名默认 `data`，单表页面也是 `tables` 里的一个元素）。 **`offset` 是显示行号，0 就是用户屏幕第一行** —— 用户说"第 5 条"就传
 `offset: 4`，`getRowByIndex` 跟随表格的显示顺序，这条语义由表格桥保证（见下）。要整单核对时用 `data.row({ rowId })`
 按业务主键取完整记录（含表格没显示的字段）。
 
@@ -178,7 +186,7 @@ Agent 侧有三个工具（后端 `buibuiCodex` 实现），全部由一条 **�
 
 - **模型能做的任何事都必须出现在 `actions` 里**。只发数据不发命令，模型只能干猜 —— 筛选条件就踩过这个坑。
 - **`guide` 只写快照里推不出来的东西**：操作顺序、前置条件、业务术语映射、陷阱。不写命令清单（会与 `actions`
-  平行维护且必然对不上），也不从页面数据生成（它是可信内容，`data` 是不可信内容，混起来等于把用户文本当指令）。
+  平行维护且必然对不上），也不从页面数据生成（它是可信内容，`tables` 里的行数据是不可信内容，混起来等于把用户文本当指令）。
 
 ### 回执三档：full / patch / result
 
@@ -226,16 +234,25 @@ const tableBridge = createTableBridge({
     columnHints: {WorkPlace: '可选值：越南工厂 / 义乌工厂'},
     waitSelected: (rowId) => waitForActiveRow(rowId), // 页面按钮 disabled 读 state，要等它落地
 });
-// 快照里 data: tableBridge.data()；动作拼 tableBridge.actions()；处理函数拼 tableBridge.handlers
+// 快照里 tables: [tableBridge.data()]；动作拼 tableBridge.actions()；处理函数拼 tableBridge.handlers
 ```
 
-它固定提供三条命令，前缀是表名（默认 `data`，一页两表时给不同 `name` 避免撞 ID）：
+它固定提供三条命令，**列上配了 `filterType` 时再加两条筛选命令**（前缀是表名，默认 `data`，
+一页两表时给不同 `name` 避免撞 ID）：
 
-| 命令          | 用途                     | 关键语义                                                                             |
-|---------------|--------------------------|--------------------------------------------------------------------------------------|
-| `data.page`   | 按**显示行号**取数据     | `offset` 0 = 屏幕第一行；默认只回 `keyFields`，要全部列传 `fields: "*"`；上限 200 行 |
-| `data.row`    | 按**业务主键**取完整一行 | 不做列白名单（表格没显示的字段也在内），用于核对整单                                 |
-| `data.select` | 选中行                   | 只认当前显示里的 rowId，命中数交给表格判定并翻译成人话                               |
+| 命令                 | 用途                     | 关键语义                                                                             |
+|----------------------|--------------------------|--------------------------------------------------------------------------------------|
+| `data.page`          | 按**显示行号**取数据     | `offset` 0 = 屏幕第一行；默认只回 `keyFields`，要全部列传 `fields: "*"`；上限 200 行 |
+| `data.row`           | 按**业务主键**取完整一行 | 不做列白名单（表格没显示的字段也在内），用于核对整单                                 |
+| `data.select`        | 选中行                   | 只认当前显示里的 rowId，命中数交给表格判定并翻译成人话                               |
+| `data.filter`        | 按字段筛本表             | `field` + `value`；value 写法看列的 `filterType`（枚举逗号分隔、日期/数字 `起~止`）  |
+| `data.filter.clear`  | 清空本表筛选             | 不给 `field` = 全部清空                                                              |
+| `data.filter.options`| 取枚举列的候选值         | `field` 必填、`match` 可选；纯读，一次最多 100 个（超了用 `match` 缩小）             |
+
+筛选是**全自动**的：读走 `readTable().getFilters()`、写走 `setFilters()`，页面不用为此写一行代码；
+「能筛哪些字段」标在列目录上（`columns[].filter`），**候选值不随快照下发** ——
+枚举值可能几十上百个，模型要填值时用 `data.filter.options` 按需取，省 token 又不猜。
+候选值来自当前已加载的数据（`FilterTable` 的 `autoOptions`），服务端分页时只覆盖已加载的那几页。
 
 同时做了三件"必然的收缩"：空值不出现（省略即未填，不是 0）、长文本截断（默认 120 字）、分页上限。`total` 与用户屏幕行数一致（含分组组行与统计行），
 `summaryRow` 单独标出来 —— 否则模型会把"共 3281 条"的合计行当成一条单据。
@@ -283,8 +300,8 @@ export function createYupaiOrderBridge(read: () => YupaiOrderBridgeContext): UIB
             mode: 'list',
             guide: PREORDER_GUIDE,
             actions: [...read().commands.map(toAction), ...tableBridge.actions()],
-            filters: currentFilters(read().filter),
-            data: tableBridge.data({active: read().activeRow}),
+            query: currentQuery(read().filter),
+            tables: [tableBridge.data({active: read().activeRow})],
         }),
         handlers: {...buildHandlers(read), ...tableBridge.handlers},
         ready: () => read().ready,   // ui_navigate 会等它变 true 再回执
@@ -321,7 +338,7 @@ useUIBridgeDialog(view, dialogBridge, open);   // open 为 false 时自动让位
 
 **第 5 步：一页多表（标签页 / 折叠区）。** 一个页面上的多张表**不需要**多层宿主、也不需要谁"只注册激活的那个"：
 
-- 三张表的**目录全部常驻**快照（`data` + `tables[]`），每张表自带 `name`，命令按名字前缀区分（`items.page` / `colors.page`）；
+- 三张表的**目录全部常驻**快照（`tables[]` 的三个元素），每张表自带 `name`，命令按名字前缀区分（`items.page` / `colors.page`）；
   数据仍然按需取。切标签页只改两个状态字段，不换宿主，所以只回一条补丁。
 - 两个状态字段都在表上，**都不进结构指纹**（进了就等于"切一次标签页整页重发"）：
   - `readable` / `readableReason`：此刻读不读得到。标签页是懒挂载的，没切过去的那张表实例是 null ——

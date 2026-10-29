@@ -17,7 +17,7 @@
  *
  * 两条关键语义（用户与 agent 之间最容易对不上的地方）：
  *
- * 1. **行号 = 用户屏幕上的第几行**。`data.page({offset: 4, limit: 1})` 取到的就是用户说的
+ * 1. **行号 = 用户屏幕上的第几行**。`<name>.page({offset: 4, limit: 1})` 取到的就是用户说的
  *    「第 5 条」，因为 `getRowByIndex` 跟随表格的显示顺序（排序、分组都在表格里）。
  * 2. **快照不带数据行**。只给列目录 + 行数 + 排序，数据按需取：
  *    一次全塞进去既占上下文，又必然与用户屏幕上的顺序不一致。
@@ -26,8 +26,17 @@
  */
 
 import type { ColumnSource, GridTableApi } from '@/components/grid-table';
+import type { FilterCondition, FilterModel } from '@/components/grid-table/TableFilter';
+import { isEmptyFilterCondition } from '@/components/grid-table/filtering';
 import { isBlank, toNumberOrZero, toStringOrEmpty } from '@/utils';
-import type { UIAction, UIColumn, UIDataSummary } from '@/pages/agent/protocol';
+import type {
+  UIAction,
+  UIColumn,
+  UIDataSummary,
+  UISelection,
+  UITableFilter,
+  UITableFilterType,
+} from '@/pages/agent/protocol';
 import type { UIBridgeHandler } from './types';
 
 /** 一次取多少行。默认小、上限也小：单条 ui_act 的结果不适合塞满上下文 */
@@ -37,20 +46,44 @@ const MAX_LIMIT = 200;
 /** 一个单元格最多给多少字符：自由文本（备注、款式描述）能写几百字，一次 20 行就爆上下文 */
 const DEFAULT_CELL_CHARS = 120;
 
+/**
+ * `<name>.filter.options` 一次最多给多少个候选值。
+ *
+ * 枚举列的取值可能上百个（款号、客户名），全给就又把省下的 token 还回去了；
+ * 要精确命中就传 `match` 缩小范围。
+ */
+const MAX_OPTION_VALUES = 100;
+
 /** 页面没给原因时的兜底：够模型判断「这不是空表，是读不到」，但不猜具体成因 */
 const UNREADABLE_FALLBACK = '这张表此刻读不到（控件还没挂载或已经卸载），稍后重试或重新 observe';
 
 /**
- * 桥实际用到表格实例的**这五个方法**。
+ * 桥实际用到表格实例的**这几个方法**。
  *
  * 不直接要 `FilterTableApi`：`GridTable`（没有筛选面板的单表）与 `FilterTable` 都满足它，
  * 页面不必为了接桥而改用某个特定组件。这也让「一页多表」里的每张小表都能单独接桥 ——
  * 标签页里的表通常就是裸 `GridTable`，套一层 `FilterTable` 反而多余。
+ *
+ * `getFilters` / `setFilters` 是**可选**的：只有 `FilterTable` 有筛选面板。快照里的表筛选
+ * 靠它们自动读写 —— 页面不必为筛选写一行代码，配了 `filterType` 的列自然就有了。
+ * 裸 `GridTable` 没有这两个方法，就当这张表没筛过（它本来也没有筛选这个概念）。
  */
 export type TableReadApi = Pick<
   GridTableApi,
-  'getDisplayInfo' | 'getRowByIndex' | 'getRowByKey' | 'getActiveRow' | 'selectRowsByKeys'
->;
+  | 'getDisplayInfo'
+  | 'getRowByIndex'
+  | 'getRowByKey'
+  | 'getActiveRow'
+  | 'getSelection'
+  | 'selectRowsByKeys'
+> & {
+  /** 当前生效的筛选条件（受控时就是页面 `filters` 属性的值） */
+  getFilters?: () => FilterModel;
+  /** 设置筛选条件（等价于用户在筛选面板上点确定；受控时只回调 `onFilterChange`） */
+  setFilters?: (filters: FilterModel) => void;
+  /** 某个 enum 字段的候选值（`<name>.filter.options` 用它；快照里不下发） */
+  getFilterOptions?: (field: string) => Array<string | number>;
+};
 
 /** 列定义里可能出现的形状（原生列与项目列定义都覆盖） */
 type ColumnLike = {
@@ -58,9 +91,20 @@ type ColumnLike = {
   title?: unknown;
   dataType?: unknown;
   hint?: unknown;
+  /** 列上的筛选类型（FilterField.type）；有它这一列才会出现在筛选面板里 */
+  filterType?: unknown;
   children?: unknown;
   columns?: unknown;
 };
+
+/** 列的 `filterType` → 筛选控件类型（决定 `<name>.filter` 怎么解释 value） */
+const FILTER_TYPES = ['enum', 'text', 'date', 'number'] as const;
+
+function toFilterType(value: unknown): UITableFilterType | undefined {
+  return typeof value === 'string' && (FILTER_TYPES as readonly string[]).includes(value)
+    ? (value as UITableFilterType)
+    : undefined;
+}
 
 /**
  * 列的 `dataType` → 给模型的类型提示。
@@ -81,8 +125,14 @@ function toColumnType(dataType: unknown): UIColumn['type'] | undefined {
  *
  * 两种写法都要认：`AppColumnDef[]` 的分组用 `children`，原生 `ColumnsDefine` 用 `columns`。
  * 只看叶子（有 `field` 的），分组表头本身不是一列。
+ *
+ * `filterTypes` 是顺手收的私货：`UIColumn` 里不写它（模型不需要知道列能怎么筛），
+ * 但表内筛选要把「筛了哪个字段、值怎么理解」讲清楚，就得有类型。
  */
-function collectColumns(columns: ColumnSource): UIColumn[] {
+function collectColumns(
+  columns: ColumnSource,
+  filterTypes: Map<string, UITableFilterType>,
+): UIColumn[] {
   const result: UIColumn[] = [];
   const seen = new Set<string>();
   const walk = (cols: unknown) => {
@@ -104,6 +154,8 @@ function collectColumns(columns: ColumnSource): UIColumn[] {
       }
       if (typeof col.field !== 'string' || !col.field || seen.has(col.field)) continue;
       seen.add(col.field);
+      const filterType = toFilterType(col.filterType);
+      if (filterType) filterTypes.set(col.field, filterType);
       const rawTitle = col.title;
       const title =
         typeof rawTitle === 'function'
@@ -112,6 +164,11 @@ function collectColumns(columns: ColumnSource): UIColumn[] {
       const spec: UIColumn = { field: col.field, title };
       const type = toColumnType(col.dataType);
       if (type) spec.type = type;
+      /*
+       * 能不能筛、用哪种控件 —— 就标在列上（一个短键）。
+       * 不另发一份筛选字段清单：那是同一份信息的第二份拷贝。
+       */
+      if (filterType) spec.filter = filterType;
       if (typeof col.hint === 'string' && col.hint) spec.hint = col.hint;
       result.push(spec);
     }
@@ -179,6 +236,64 @@ function toRowIdList(value: unknown): string[] {
 }
 
 /**
+ * 生效中的筛选条件 → 快照形状（只有 `field` + 当前值）。
+ *
+ * 字段名、中文名、能不能筛、用哪种控件，全在**列目录**里（`columns[].filter`），
+ * 这里再写一遍就是同一份信息的第二份拷贝；enum 的候选项更不下发 ——
+ * 几十上百个取值纯占上下文，而模型需要知道的只是「能按这个字段筛」。
+ *
+ * 空条件不出现：`isEmptyFilterCondition` 与筛选面板、过滤用的是同一份判定。
+ */
+function toTableFilters(model: FilterModel): UITableFilter[] {
+  const out: UITableFilter[] = [];
+  Object.entries(model).forEach(([field, condition]) => {
+    if (isEmptyFilterCondition(condition)) return;
+    if (condition.values && condition.values.length > 0) {
+      out.push({ field, value: condition.values });
+      return;
+    }
+    if (condition.text) {
+      out.push({ field, value: condition.text });
+      return;
+    }
+    const min = isBlank(condition.min) ? '' : String(condition.min);
+    const max = isBlank(condition.max) ? '' : String(condition.max);
+    if (!min && !max) return;
+    out.push({ field, value: min === max || !max ? min || max : `${min}~${max}` });
+  });
+  return out;
+}
+
+/**
+ * 命令里的 `value` → 单个字段的筛选条件，怎么解释看列的 `filterType`：
+ * - `text`：包含；
+ * - `date` / `number`：`起~止` 是区间，只给一个值就是等值；
+ * - `enum`（或不认识类型）：逗号分隔多值，按等值匹配。
+ */
+function parseFilterCondition(value: string, type: UITableFilterType | undefined): FilterCondition {
+  if (type === 'text') return { text: value };
+  if (type === 'date' || type === 'number') {
+    const [min, max] = value.split('~').map((part) => part.trim());
+    return max && max !== min ? { min, max } : { min, max: min };
+  }
+  const values = value
+    .split(/[,，、;；]+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  return { values: values.length > 0 ? values : [value] };
+}
+
+/** 条件 → 一句人话（回执用），说法与筛选面板上的条件标签保持一致 */
+function describeValue(condition: FilterCondition): string {
+  if (condition.values && condition.values.length > 0) return condition.values.join('、');
+  if (condition.text) return `包含「${condition.text}」`;
+  const min = isBlank(condition.min) ? '' : String(condition.min);
+  const max = isBlank(condition.max) ? '' : String(condition.max);
+  if (min && max && min !== max) return `${min} ~ ${max}`;
+  return min || max;
+}
+
+/**
  * 空单元格判定：`null` / `undefined` / 空串。
  *
  * `0` 与 `false` 是真实值（阶段列就是 0/1），不能当空丢掉。
@@ -233,7 +348,7 @@ export type TableBridgeOptions = {
    * 这张表的对象名，也是命令前缀：`order` → 取数 `order.page`、选中 `order.select`。
    *
    * **一页两表时必须给不同的名字**，否则命令 ID 撞在一起，模型分不清在读哪张表。
-   * 单表页面不用管（默认 `data`，命令就是 `data.page`）。
+   * 单表页面不用管（默认 `data`，命令就是 `data.page`；容器里它仍是 `tables` 的一个元素）。
    */
   name?: string;
   /**
@@ -274,7 +389,7 @@ export type TableBridgeOptions = {
   /**
    * 行主键字段名（默认 `ID`），与表格的 `rowKey` 属性保持一致。
    *
-   * 会作为 `data.rowKey` 告诉模型「rowId 的值来自哪个字段」—— 主键一般不显示在表格列里，
+   * 会作为 这张表的 `rowKey` 告诉模型「rowId 的值来自哪个字段」—— 主键一般不显示在表格列里，
    * 所以这份信息在列目录里查不到。`<name>.row` 也用它反查整行。
    */
   rowKey?: string;
@@ -295,11 +410,15 @@ export type TableBridge = {
   /** 这张表的对象名（命令前缀）；页面拼 `tables` 段或写 guide 时要用 */
   name: string;
   /**
-   * 快照里的 data 段：**目录**（列 + 行数 + 排序 + 能不能读），不含数据行。
+   * 快照里这张表的那一段（`tables[]` 的一个元素）：**目录**（列 + 行数 + 排序 + 筛选 + 选中 +
+   * 能不能读），不含数据行。
    *
    * `override.active` 给页面一个「换掉激活行」的口子：表格判定的激活行未必等于业务认可的
    * （点到底部统计行时，页面通常会把它当成「没有选中任何单据」）。不传就用表格自己的判定。
    * 无论哪来的，都按列白名单裁剪，并做同样的空值/长文本收缩。
+   *
+   * `override.selection` 同理，换掉「选中了什么」：表格里亮着的行未必等于业务认可的选中。
+   * 不传就从表格的 `getSelection()` 派生（没有选中就省略这个字段）。
    *
    * `override.visible` 是多表 / 标签页页面才需要给的：用户此刻看不看得见这张表。
    * 不给 = 看得见（单表页面不必关心）。
@@ -309,10 +428,11 @@ export type TableBridge = {
    */
   data: (override?: {
     active?: Record<string, unknown> | null;
+    selection?: UISelection;
     visible?: boolean;
     unreadableReason?: string | null;
   }) => UIDataSummary;
-  /** 数据读取 + 选中行两条命令。拼进页面的 actions */
+  /** 取数、取整行、选中行三条命令；列上配了 `filterType` 时再加两条筛选命令。拼进页面的 actions */
   actions: () => UIAction[];
   /** 对应处理函数。拼进页面的 handlers */
   handlers: Record<string, UIBridgeHandler>;
@@ -321,9 +441,10 @@ export type TableBridge = {
 /**
  * 装配表格的通用桥能力。
  *
- * 只做「读」：选中、筛选、命令按钮属于页面业务，仍在页面自己的 bridged.ts 里。
- * 这样拆的理由是「读」有硬性要求（顺序必须等于用户屏幕），适合统一实现；
- * 「写」各有各的语义（改完要不要重新查库、要不要校验），不能一概而论。
+ * 「读」有硬性要求（行号顺序必须等于用户屏幕），适合统一实现；
+ * 「写」里**选中与筛选也与业务无关**（筛什么由列上的 `filterType` 决定、选中只是表格状态），
+ * 所以一并接管 —— 页面配了 `filterType` 就自动拥有筛选读写，不用写一行筛选代码。
+ * 剩下的命令按钮属于页面业务，仍在页面自己的 bridged.ts 里。
  */
 export function createTableBridge(options: TableBridgeOptions): TableBridge {
   const name = options.name?.trim() || 'data';
@@ -331,7 +452,12 @@ export function createTableBridge(options: TableBridgeOptions): TableBridge {
   const pageCmd = `${name}.page`;
   const rowCmd = `${name}.row`;
   const selectCmd = `${name}.select`;
-  const columns = collectColumns(options.columns);
+  const filterCmd = `${name}.filter`;
+  const clearFilterCmd = `${name}.filter.clear`;
+  const optionsCmd = `${name}.filter.options`;
+  /** 列字段 → 筛选控件类型（只有配了 `filterType` 的列才有）；同时标在列目录上 */
+  const filterTypes = new Map<string, UITableFilterType>();
+  const columns = collectColumns(options.columns, filterTypes);
   const hints = options.columnHints ?? {};
   if (Object.keys(hints).length > 0) {
     columns.forEach((column) => {
@@ -341,6 +467,9 @@ export function createTableBridge(options: TableBridgeOptions): TableBridge {
   }
   /** 允许取的列（白名单）：record 里可能有 Batchs 这类整棵子树，不能原样吐出去 */
   const columnFields = columns.map((column) => column.field);
+  /** 字段 → 列头文字（回执里说人话用；查询表单的字段可能不在列上，退回字段名） */
+  const titleOf = (field: string): string =>
+    columns.find((column) => column.field === field)?.title ?? field;
   /**
    * 默认投影列：只认这张表真有的列，一个都不认时就退回全部列（别把取数取成空行）。
    * 主键不在这里补 —— 每行都带 `rowId`，再放一份同值的列是纯重复。
@@ -365,9 +494,86 @@ export function createTableBridge(options: TableBridgeOptions): TableBridge {
     return null;
   };
 
+  /**
+   * 这张表有没有筛选能力 —— **只看列定义里有没有 `filterType`**（静态判断）。
+   *
+   * 不看实例在不在：命令表进了结构指纹，按实例判断会让表在没挂载时少两条命令、
+   * 挂上又多两条，切一次标签页就整页重发一次。列上配了 `filterType` 就是声明
+   * 「这列参与筛选」，与 `FilterTable` 面板的字段来源是同一份定义。
+   */
+  const canFilter = filterTypes.size > 0;
+  /** 有枚举列才提供「取候选值」入口：其它类型不需要（直接给值） */
+  const hasEnumFilter = [...filterTypes.values()].includes('enum');
+
+  /**
+   * 这张表此刻的筛选条件（自动读 `FilterTable` 的面板条件，页面零代码）。
+   *
+   * 裸 `GridTable` 没有筛选面板，自然读不到 —— 返回空就是「没筛」。
+   */
+  const readFilters = (): UITableFilter[] => {
+    const table = readTable();
+    return table?.getFilters ? toTableFilters(table.getFilters()) : [];
+  };
+
+  /**
+   * 改**一个字段**的筛选条件（`condition` 为 null 表示去掉它）。
+   *
+   * 直接写表格的筛选面板：非受控的 `FilterTable` 立刻生效；受控的页面在
+   * `onFilterChange` 里写回自己的 state（受控组件的固有要求，桥不替它记）。
+   * 只改这一个字段，其余条件原样保留 —— 与用户点面板的行为一致。
+   */
+  const setFilterField = async (
+    field: string,
+    condition: FilterCondition | null,
+  ): Promise<void> => {
+    const table = requireTable();
+    if (!table.setFilters) {
+      throw new Error(
+        '这张表不支持程序化筛选：列上配了 filterType，但用的不是 FilterTable。' +
+          '这种表只能由用户在界面上点筛选',
+      );
+    }
+    const model: FilterModel = { ...(table.getFilters?.() ?? {}) };
+    if (condition) model[field] = condition;
+    else delete model[field];
+    table.setFilters(model);
+  };
+
+  /** 清空筛选：给了字段就只清这一个，否则全部清掉 */
+  const clearFilters = async (field?: string): Promise<void> => {
+    const table = readTable();
+    if (!table?.setFilters) return;
+    if (!field) {
+      table.setFilters({});
+      return;
+    }
+    const model: FilterModel = { ...(table.getFilters?.() ?? {}) };
+    if (field in model) {
+      delete model[field];
+      table.setFilters(model);
+    }
+  };
+
+  /**
+   * 从表格派生选中态。没有选中返回 undefined（快照里就省略这个字段）。
+   *
+   * 「选中的行集合」与「激活行」是两件事：Ctrl+A 会选中很多行但只有一个激活行。
+   * `activeRowId` 放在这里（而不是表格段的另一个字段）：同一件事两处给，
+   * 迟早出现「补丁里 activeRowId 变了、selection 还是旧的」。
+   */
+  const deriveSelection = (table: TableReadApi | null): UISelection | undefined => {
+    const active = table?.getActiveRow();
+    const rows = table?.getSelection()?.rows ?? [];
+    const rowIds = rows.map((row) => toStringOrEmpty(row[rowKeyField])).filter(Boolean);
+    const activeRowId = active?.record ? toStringOrEmpty(active.rowKey) || null : null;
+    if (rowIds.length === 0 && !activeRowId) return undefined;
+    return { count: rowIds.length, activeRowId, rowIds };
+  };
+
   const data = (
     override?: {
       active?: Record<string, unknown> | null;
+      selection?: UISelection;
       visible?: boolean;
       unreadableReason?: string | null;
     },
@@ -397,6 +603,17 @@ export function createTableBridge(options: TableBridgeOptions): TableBridge {
     if (override?.visible === false) summary.visible = false;
 
     /*
+     * 筛选：没筛就省略（省略 = 没筛，与「筛了个空条件」是两回事）。
+     * 条件从哪来由 `readFilters` 决定（页面接管 / FilterTable 面板）。
+     */
+    const filters = readFilters();
+    if (filters.length > 0) summary.filters = filters;
+
+    /* 选中态：页面给了就用页面的（业务判定优先），否则按表格的选中派生 */
+    const selection = override?.selection ?? deriveSelection(table);
+    if (selection) summary.selection = selection;
+
+    /*
      * 最后一行的性质要说清楚：统计行确实占一个行号（用户屏幕上看得见），
      * 但它是合计不是单据 —— 不说的话模型会把「共 3281 条」当成业务条数，多算一行。
      */
@@ -407,7 +624,7 @@ export function createTableBridge(options: TableBridgeOptions): TableBridge {
     const activeRecord = hasOverride ? override.active : tableActive?.record;
     if (activeRecord) {
       const picked = toCells(activeRecord, columnFields, maxCellChars);
-      // 行标识统一叫 rowId（与 data.page 的行一致），后续命令直接拿去用
+      // 行标识统一叫 rowId（与 `<name>.page` 的行一致），后续命令直接拿去用
       if (tableActive?.record) picked.rowId = tableActive.rowKey;
       summary.active = picked;
     }
@@ -449,7 +666,7 @@ export function createTableBridge(options: TableBridgeOptions): TableBridge {
       /*
        * 「按主键取完整一行」——与取数分开的理由：
        *
-       * `data.page` 只回列目录里的字段（轻量扫描用），而编辑 / 核对往往要看表格**没显示**的
+       * `<name>.page` 只回列目录里的字段（轻量扫描用），而编辑 / 核对往往要看表格**没显示**的
        * 字段（主键、批量明细、状态位、内部备注）。两者的返回体量差一个量级，
        * 合成一条命令只会让模型在「顺手多给点」和「别把上下文塞爆」之间反复试。
        *
@@ -487,10 +704,79 @@ export function createTableBridge(options: TableBridgeOptions): TableBridge {
           name: 'rowIds',
           type: 'text',
           required: true,
-          hint: `要选中的行 rowId，多个用逗号分隔（取 ${pageCmd} 或 ${name} 段 active.rowId）`,
+          hint: `要选中的行 rowId，多个用逗号分隔（取 ${pageCmd} 或 ${name} 段的 active.rowId）`,
         },
       ],
     },
+    /*
+     * 筛选——筛选能力是**静态**的（页面接管，或列上配了 filterType），与表格此刻在不在无关：
+     * 命令表进了结构指纹，按实例判断会让表在没挂载时少两条命令、挂上又多两条，
+     * 切一次标签页就整页重发一次。
+     */
+    ...(canFilter
+      ? [
+          {
+            id: filterCmd,
+            label: '设置本表筛选',
+            group: 'filter' as const,
+            params: [
+              {
+                name: 'field',
+                type: 'text' as const,
+                required: true,
+                hint: '要筛的列字段名（见快照里这张表的 columns[].field）',
+              },
+              {
+                name: 'value',
+                type: 'text' as const,
+                required: true,
+                hint:
+                  '筛选值：枚举多值用逗号分隔；date / number 区间写「起~止」（如 2026-01-01~2026-03-31）；' +
+                  '其余按等值处理。传空串 = 去掉这个字段的条件',
+              },
+            ],
+          },
+          {
+            id: clearFilterCmd,
+            label: '清空本表筛选',
+            group: 'filter' as const,
+            params: [
+              {
+                name: 'field',
+                type: 'text' as const,
+                hint: '只清这个字段的条件；不给 = 清空本表全部筛选',
+              },
+            ],
+          },
+          /*
+           * 候选值**不发快照、按需取**：枚举列动辄几十上百个取值，全量下发纯占上下文，
+           * 而模型真正需要准确值时又要得到 —— 所以给一个显式入口，还能按 `match` 缩小。
+           */
+          ...(hasEnumFilter
+            ? [
+                {
+                  id: optionsCmd,
+                  label: '取可筛选项',
+                  group: 'filter' as const,
+                  returns: 'result' as const,
+                  params: [
+                    {
+                      name: 'field',
+                      type: 'text' as const,
+                      required: true,
+                      hint: '哪一列的候选值（`columns` 里 filter 为 enum 的列）',
+                    },
+                    {
+                      name: 'match',
+                      type: 'text' as const,
+                      hint: '按子串过滤（不区分大小写）；值很多时用它缩小范围，一次最多回 100 个',
+                    },
+                  ],
+                },
+              ]
+            : []),
+        ]
+      : []),
   ];
 
   /**
@@ -525,7 +811,7 @@ export function createTableBridge(options: TableBridgeOptions): TableBridge {
         wanted?.filter((field) => field !== rowKeyField && !columnFields.includes(field)) ?? [];
       if (unknown.length > 0) {
         throw new Error(
-          `没有这些列：${unknown.join('、')}。可用的列见快照 data.columns[].field`,
+          `没有这些列：${unknown.join('、')}。可用的列见快照里这张表的 columns[].field`,
         );
       }
       /*
@@ -650,6 +936,89 @@ export function createTableBridge(options: TableBridgeOptions): TableBridge {
       if (!landed) parts.push('（页面按钮尚未解除禁用；若下条命令被拒，再选中一次）');
       return parts.join('；');
     },
+
+    /*
+     * 设置本表的筛选条件（一个字段）。其余字段原样保留 —— 与筛选面板「改一个、别的还在」一致。
+     *
+     * 语义由 `applyFilters` 决定：页面接管时可能重新查库，全自动时只在前端隐藏行。
+     * 所以回执文字里**不报行数**：行数的真实值由桥随后取的补丁给（那才是准的）。
+     */
+    ...(canFilter
+      ? {
+          [filterCmd]: async (params) => {
+            const field = toStringOrEmpty(params.field).trim();
+            if (!field) {
+              throw new Error(`${filterCmd} 需要 field：列字段名见快照里这张表的 columns[].field`);
+            }
+            if (!columnFields.includes(field)) {
+              throw new Error(`没有这一列：${field}。可筛的列见快照里这张表的 columns[].field`);
+            }
+            const value = toStringOrEmpty(params.value).trim();
+            if (!value) {
+              await setFilterField(field, null);
+              return `已清空「${titleOf(field)}」的筛选条件`;
+            }
+            const condition = parseFilterCondition(value, filterTypes.get(field));
+            await setFilterField(field, condition);
+            return `已把「${titleOf(field)}」筛成 ${describeValue(condition)}`;
+          },
+          [clearFilterCmd]: async (params) => {
+            const field = toStringOrEmpty(params.field).trim();
+            if (!field) {
+              if (readFilters().length === 0) return '本表本来就没有筛选条件';
+              await clearFilters();
+              return '已清空本表全部筛选条件';
+            }
+            if (!readFilters().some((item) => item.field === field)) {
+              return `「${titleOf(field)}」本来就没有筛选条件`;
+            }
+            await clearFilters(field);
+            return `已清空「${titleOf(field)}」的筛选条件`;
+          },
+          /*
+           * 取某个枚举列的候选值（纯读）。
+           *
+           * 数据来自筛选面板内部那份「从 records 去重算出来」的清单（不是快照里的东西），
+           * 所以它反映的是**当前这批数据里真实出现过的值** —— 比列定义的静态候选更准。
+           */
+          ...(hasEnumFilter
+            ? {
+                [optionsCmd]: (params) => {
+                  const table = requireTable();
+                  const field = toStringOrEmpty(params.field).trim();
+                  if (!field) {
+                    throw new Error(`${optionsCmd} 需要 field：见快照里这张表的 columns[].filter`);
+                  }
+                  const type = filterTypes.get(field);
+                  if (type !== 'enum') {
+                    throw new Error(
+                      `「${field}」不是枚举列${type ? `（按 ${type} 筛）` : '（列上没有 filterType）'}：` +
+                        `${optionsCmd} 只用于 enum，其它类型直接把值传给 ${filterCmd}`,
+                    );
+                  }
+                  const all = table.getFilterOptions?.(field) ?? [];
+                  const match = toStringOrEmpty(params.match).trim().toLowerCase();
+                  const hit = match
+                    ? all.filter((value) => String(value).toLowerCase().includes(match))
+                    : all;
+                  const values = hit.slice(0, MAX_OPTION_VALUES);
+                  const result: Record<string, unknown> = {
+                    field,
+                    total: hit.length,
+                    count: values.length,
+                    values,
+                  };
+                  if (all.length === 0) {
+                    result.note = '这一列当前没有可选值（这批数据里全是空的）';
+                  } else if (hit.length > values.length) {
+                    result.note = `共 ${hit.length} 个，只给前 ${MAX_OPTION_VALUES} 个：传 match 缩小范围`;
+                  }
+                  return result;
+                },
+              }
+            : {}),
+        }
+      : {}),
   };
 
   return { name, data, actions, handlers };
