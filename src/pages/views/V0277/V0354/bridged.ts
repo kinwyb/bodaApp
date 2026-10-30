@@ -43,7 +43,8 @@ const BOM_MATRIX_GUIDE: UIGuide = {
         '取数各用各的前缀：子项物料 items.page、配色 colors.page、配码 sizes.page（行号从 0 起，与屏幕一致）',
         'tables 里 name=items 的那张永远是「子项物料」；切到配色/配码后它的 visible 会变成 false —— ' +
             '用户说的「这一行」指的是 visible 为 true 的那张表',
-        'colors / sizes 的行与 items 一一对应（同一个子项物料一行），跨表对行用 VRowNo，不要拿 rowId 互相套',
+        'colors / sizes 的行与 items 一一对应（同一个子项物料一行）：三张表的 rowId 都是明细主键，' +
+            '跨表对行直接用 rowId；行号（VRowNo）是业务排序键，改了行号 rowId 不变',
     ],
     terms: {
         子项物料: 'items，包装 BOM 的明细行，一行一个物料（唯一在界面上可编辑的一张）',
@@ -55,7 +56,7 @@ const BOM_MATRIX_GUIDE: UIGuide = {
     cautions: [
         'readable 为 false 的表，total 是 0 但意思是「不知道」——别回答「这一页没有数据」，先 tab.switch',
         '切过去后如果还是 0 行，可能是表格还在渲染，重试一次那张表的 page；仍然 0 行才是真的没有匹配数据',
-        'colors / sizes 的 rowId 是「行号_物料VID」拼出来的，items 的 rowId 是明细主键 —— 两套键不通用',
+        '配色/配码的格子可以编辑（色号、损耗数量、尺码用量），改完保存时才会汇总进 ColorMatch / SizeMatch',
         '配色与配码的列随数据变（有几个颜色/尺码就有几列），换一份 BOM 后列目录会整份刷新',
     ],
 };
@@ -183,7 +184,8 @@ export function createBomMatrixBridge(read: () => BomMatrixBridgeContext): UIBri
     const colors = createTableBridge({
         name: 'colors',
         columns: buildColorColumns(bomMatrix),
-        rowKey: 'Key',
+        // 三张表用同一个行标识（明细主键）：跨表对行可以直接拿 rowId，见 guide
+        rowKey: 'PackBomMatrixDetailID',
         readTable: () => read().readTable('colors'),
         unreadableReason: () => unreadableReason(read(), 'colors'),
         columnHints: hints,
@@ -191,7 +193,7 @@ export function createBomMatrixBridge(read: () => BomMatrixBridgeContext): UIBri
     const sizes = createTableBridge({
         name: 'sizes',
         columns: buildSizeColumns(bomMatrix),
-        rowKey: 'Key',
+        rowKey: 'PackBomMatrixDetailID',
         readTable: () => read().readTable('sizes'),
         unreadableReason: () => unreadableReason(read(), 'sizes'),
         columnHints: hints,

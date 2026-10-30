@@ -19,7 +19,7 @@ import {BackFlushTypeLabel, ItemSourceLabel} from './common.ts';
  * 子项物料：一行一个子项物料，是这份矩阵的主数据（也是唯一可编辑的一张表）。
  *
  * 三张表里只有它用明细主键 `PackBomMatrixDetailID`；配色/配码是按
- * 「行号 + 物料VID」拼出来的行标识，见 `@/components/nc/bomMatrix/bridge`。
+ * 「行号 + 物料VID」拼出来的行标识，见 `./match.ts` 的 `matchRowKey`。
  */
 export const ITEM_COLUMNS: AppColumnDef[] = [
     {field: 'VRowNo', title: '行号'},
