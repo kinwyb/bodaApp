@@ -24,7 +24,12 @@ import {
   type GridTableSelectedRowChangeInfo,
   type GridTableSelection,
 } from './selection';
-import type { EditCellTrigger, GridTableCellValueChangeInfo } from './editing';
+import type {
+  EditCellTrigger,
+  GridTableCellValueChangeInfo,
+  GridTableCanEditCellHook,
+  GridTableEditableCellInfo,
+} from './editing';
 import { resolveAutoEditor } from './editors/register';
 import type { GridTableExportCsvOptions, GridTableExportExcelOptions } from './export';
 import { prepareBottomFrozen, scheduleBottomFrozen } from './frozen';
@@ -81,6 +86,23 @@ import { shallowEqualRecord } from './utils';
  * 所以业务不需要自己塞这个值；要判断统计行，用回调参数里的 isSummaryRow 即可。
  */
 export const SUMMARY_ROW_KEY = '__summary__';
+
+/**
+ * 编辑前判断拿得到的表格上下文：`@visactor/vtable` 在三种场合给的是**不同的参数对象**
+ * —— 函数形态 `editor` 传的是 `{col,row,dataValue,value,table}`，checkbox 的 `disable`
+ * 传的是 `{col,row,dataValue,table}`（见 list-table/define/checkbox-define）。
+ * 两者只有这几个成员有用，取交集声明成一份，判定函数就能共用。
+ */
+type EditableGateArgs = {
+  col: number;
+  row: number;
+  dataValue?: unknown;
+  table: {
+    columnHeaderLevelCount: number;
+    rowCount?: number;
+    getCellOriginRecord?: (col: number, row: number) => unknown;
+  };
+};
 
 /** 表格实例对外暴露的方法 */
 export interface GridTableApi {
@@ -315,6 +337,26 @@ export interface GridTableProps {
   editableFields?: Record<string, string | true>;
   /** 进入编辑的触发方式，默认双击 */
   editCellTrigger?: EditCellTrigger;
+  /**
+   * 编辑前逐格判断：返回 `false` 的单元格**不进编辑态**（双击 / 单击 / 回车都没反应）。
+   *
+   * 与 `validator` 的分工：这个是「这一格让不让改」（编辑器还没创建），
+   * `validator` 是「改成的这个值行不行」（提交时才跑）。要「某行已审核就不许改」
+   * 这类按行/按格的规则，写在这里；写进 `validator` 只会让用户改完再被弹回去。
+   *
+   * 管得到的三条路，都不改数据、不改样式，纯拦：
+   * - 文本 / 数字 / 下拉 / 日期列：vtable 的 `editor` 变成函数形态，这一格返回
+   *   `undefined` 即「没有编辑器」，`startEditCell` 直接 return；
+   * - `dataType: 'boolean'` 列（原生勾选框）：落成该格的 `disable`，勾选框显示为禁用、
+   *   点击不派发 `checkbox_state_change`，所以也不会写回 1 / 0；
+   * - 粘贴 / 剪切（vtable 用它判断「哪些格子可写入」）同样按这个判断走。
+   *
+   * ⚠️ 拦下来是**静默**的（双击就是没反应），用户不知道为什么点不动 ——
+   * 配 `cellStyle` 灰显 + `cellTooltip` 写明原因，别让表格看起来像坏了。
+   *
+   * ⚠️ 它在渲染路径上被调用（勾选框列每帧每格问一次），只做内存判断，别在这里发请求。
+   */
+  canEditCell?: GridTableCanEditCellHook;
   /** 单元格编辑完成回调（含行索引与新值），用于把编辑结果同步回页面 */
   onCellValueChange?: (info: GridTableCellValueChangeInfo) => void;
   rowHeight?: number;
@@ -403,6 +445,7 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
   cellTooltip,
   editableFields,
   editCellTrigger = 'doubleclick',
+  canEditCell,
   onCellValueChange,
   rowHeight = 28,
   headerRowHeight = 32,
@@ -615,6 +658,57 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
     },
     [],
   );
+  /** 编辑前判断的最新值：判定函数会被锁进列配置、也被建表时的 checkbox 监听捕获，一律现读 ref */
+  const canEditCellRef = useRef(canEditCell);
+  canEditCellRef.current = canEditCell;
+  /** 行主键字段的最新值（同上：判定函数是常驻闭包，不能锁死首次渲染的 rowKey） */
+  const rowKeyFieldRef = useRef(rowKey);
+  rowKeyFieldRef.current = rowKey;
+  /**
+   * 把「当前这一格」翻译成业务能看懂的参数。
+   *
+   * 两个取数口径与 cellStyle / cellTooltip 完全一致：
+   * - 分组下显示行号与顶层数组下标不再对应，行对象向表格要（`getCellOriginRecord`）；
+   * - 非分组时直接取渲染用的那份数据，省掉一次表格查询。
+   *
+   * ⚠️ 不用 `getCellRawRecord`：改过的行它会返回 `beforeChangedRecordsMap` 里的 cloneDeep 快照，
+   * 判定会读到旧值（编辑器写回锚点也是踩的这个坑，见 editors/antd-editors.tsx）。
+   */
+  const readEditableCellInfo = useCallback(
+    (args: EditableGateArgs, field: string): GridTableEditableCellInfo => {
+      const rowIndex = args.row - args.table.columnHeaderLevelCount;
+      const record = hasGroupRef.current
+        ? (args.table.getCellOriginRecord?.(args.col, args.row) as
+            | Record<string, unknown>
+            | undefined)
+        : rowsRef.current[rowIndex];
+      return {
+        field,
+        record,
+        rowIndex,
+        rowKey: String(record?.[rowKeyFieldRef.current] ?? ''),
+        dataValue: args.dataValue,
+        isSummaryRow: isSummaryRow(args.row, args.table),
+        isGroupRow: isGroupRow(record),
+      };
+    },
+    [isSummaryRow],
+  );
+  /**
+   * 编辑前判断：没配 `canEditCell` 一律放行（等于保持旧行为，连表头也不参与判断）。
+   *
+   * 引用恒定（依赖都是稳定的），所以可以安全地被「只建一次」的建表 effect 捕获。
+   */
+  const isEditableCell = useCallback(
+    (args: EditableGateArgs, field: string): boolean => {
+      const hook = canEditCellRef.current;
+      if (!hook) return true;
+      // 表头（含表头勾选框的「全选」）不归业务管
+      if (args.row < args.table.columnHeaderLevelCount) return true;
+      return hook(readEditableCellInfo(args, field));
+    },
+    [readEditableCellInfo],
+  );
   const finalColumns = useMemo<ColumnsDefine>(() => {
     const decorate = (cols: ColumnsDefine): ColumnsDefine =>
       cols.map((col) => {
@@ -638,16 +732,30 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
           : configured === true || configured === 'auto'
             ? resolveAutoEditor(cell)
             : configured;
+        /**
+         * `canEditCell` 的落点：vtable 的 `editor` 支持**函数形态**，每格调用一次，
+         * 返回 `undefined` 就是「这一格没有编辑器」—— `startEditCell` 因此直接 return
+         * （es/edit/edit-manager.js 的 `if (editor) { ... }`），双击连编辑态都不进。
+         * 顺带白拿一条：`isHasEditorDefine` 也走同一个函数，粘贴 / 剪切写不进被拦下的格子。
+         *
+         * 判定函数只闭包住字段名，规则本身现读 ref —— 页面换回调引用不会让这份列配置失效。
+         */
+        const resolveEditor = (args: EditableGateArgs) =>
+          isEditableCell(args, String(cell.field ?? '')) ? editor : undefined;
+        // checkbox 列：放开只读（buildColumns 里写死 disable: () => true）
+        const checkDisable = (args: StyleArgs) => !isEditableCell(args, String(cell.field ?? ''));
         // 树形分组的入口：@visactor/vtable 要求至少一列 `tree: true` 才会走层级模式，
         // 展开箭头就画在这一列文字的左侧。它必须是绑定分组字段的那一列。
         const isGroupColumn = Boolean(groupField) && cell.field === groupField;
         return {
           ...cell,
           ...(isGroupColumn ? { tree: true } : {}),
-          // 配置了编辑器的列允许就地编辑，未配置的列保持只读
-          ...(editor ? { editor } : {}),
-          // checkbox 列：放开只读（buildColumns 里写死 disable: () => true）
-          ...(clickToggle ? { disable: () => false } : {}),
+          // 配置了编辑器的列允许就地编辑，未配置的列保持只读。
+          // 一律包成函数：里面按 canEditCell 逐格放行（没配那个 prop 时等价于直接返回名字）
+          ...(editor ? { editor: resolveEditor } : {}),
+          // checkbox 列：放开只读，但每一格都问一次 canEditCell —— 被拦下的勾选框是禁用态、
+          // 点击不派发 checkbox_state_change（buildColumns 里写死的是 `disable: () => true`）
+          ...(clickToggle ? { disable: checkDisable } : {}),
           style: (args: StyleArgs) => {
             const base =
               typeof previous === 'function'
@@ -723,6 +831,8 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
     isSummaryRow,
     hasExpandable,
     renderExpandButton,
+    // 引用恒定（内部现读 ref），放进来只是为了让 lint 满意；它变化不会真的重建列配置
+    isEditableCell,
   ]);
 
   /**
@@ -1475,6 +1585,14 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
       if (table.isHeader(col, row)) return;
       const field = args.field === undefined ? '' : String(args.field);
       if (!field) return;
+      /**
+       * `canEditCell` 已经通过该格的 `disable` 把点击挡在门外（禁用态不派发本事件），
+       * 这里只是兜底：上游一旦改成「先派发再判断」，也不能把值写回去。
+       * 读的是**当前数据值**（事件派发时 vtable 还没动数据源）。
+       */
+      if (!isEditableCell({ col, row, table, dataValue: table.getCellOriginValue(col, row) }, field)) {
+        return;
+      }
       const index = table.getRecordIndexByCell(col, row);
       const recordIndex = Array.isArray(index) ? index[0] : index;
       if (typeof recordIndex !== 'number' || recordIndex < 0) return;

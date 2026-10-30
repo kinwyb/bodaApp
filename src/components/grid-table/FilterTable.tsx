@@ -23,6 +23,7 @@ import type {
     GridTableCellStyleHook,
     GridTableCellTooltipHook,
     GridTableCellValueChangeInfo,
+    GridTableCanEditCellHook,
     GridTableExpandableOptions,
     GridTableMenuConfig,
     GridTableSelectedRowChangeInfo,
@@ -149,6 +150,11 @@ export interface FilterTableProps {
     editableFields?: Record<string, string | true>;
     /** 进入编辑的触发方式，默认双击 */
     editCellTrigger?: EditCellTrigger;
+    /**
+     * 编辑前逐格判断：返回 false 的单元格不进编辑态（双击没反应）。
+     * boolean 列的单击勾选同样受控。详见 GridTable.canEditCell。
+     */
+    canEditCell?: GridTableCanEditCellHook;
     /** 单元格编辑完成回调（含行索引与新值），用于把编辑结果同步回页面 */
     onCellValueChange?: (info: GridTableCellValueChangeInfo) => void;
     /** 行高 */
@@ -264,6 +270,7 @@ export const FilterTable = React.forwardRef<FilterTableApi, FilterTableProps>(
             heightMode,
             editableFields,
             editCellTrigger,
+            canEditCell,
             onCellValueChange,
             rowHeight,
             headerRowHeight,
@@ -720,6 +727,7 @@ export const FilterTable = React.forwardRef<FilterTableApi, FilterTableProps>(
                         heightMode={heightMode}
                         editableFields={editableFields}
                         editCellTrigger={editCellTrigger}
+                        canEditCell={canEditCell}
                         onCellValueChange={onCellValueChange}
                         rowHeight={rowHeight}
                         headerRowHeight={headerRowHeight}

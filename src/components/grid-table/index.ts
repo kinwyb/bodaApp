@@ -48,7 +48,12 @@ export type {
   GridTableMenuContext,
   GridTableMenuItem,
 } from './menu';
-export type { EditCellTrigger, GridTableCellValueChangeInfo } from './editing';
+export type {
+  EditCellTrigger,
+  GridTableCanEditCellHook,
+  GridTableCellValueChangeInfo,
+  GridTableEditableCellInfo,
+} from './editing';
 export type {
   TableExportPluginOptions,
   GridTableExportCsvOptions,
