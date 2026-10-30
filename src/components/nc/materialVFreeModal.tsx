@@ -5,6 +5,7 @@ import {RegisterInputModal, type RegisterModalProps} from "@/components/register
 import {App} from "antd";
 import {ErrorMessage} from "@/api/request.ts";
 import {ncMaterialApi} from "@/api/modules/nc/material.ts";
+import type {EditorRowAccessor} from "@/components/grid-table/editors/antd-editors.tsx";
 
 /**
  * 物料辅助属性弹窗
@@ -22,6 +23,7 @@ const NCMaterialVFreeView: React.FC<NCMaterialVFreeViewProps> = ({materialVID, v
     const {message} = App.useApp();
     const [datas, setDatas] = useState<NCMaterialVFree[]>([]);
     const [isLoading, setIsLoading] = useState<boolean>(false);
+    const useVFree = ['vfree1', 'vfree4', 'vfree5', 'vfree6', 'vfree7', 'vfree8', 'vfree9', 'vfree10'];
     /**
      * 属性列
      */
@@ -34,6 +36,10 @@ const NCMaterialVFreeView: React.FC<NCMaterialVFreeViewProps> = ({materialVID, v
     const tableRef = useRef<GridTableApi>(null);
 
     const loadData = useCallback(async () => {
+        if (!useVFree.includes(vfreeField)) { //不是有效的辅助属性字段，直接返回不请求后端
+            setDatas([]);
+            return;
+        }
         setIsLoading(true);
         try {
             const res = await ncMaterialApi.vfree({fieldName: vfreeField, pkMaterial: materialVID})
@@ -75,7 +81,9 @@ const NCMaterialVFreeView: React.FC<NCMaterialVFreeViewProps> = ({materialVID, v
     );
 }
 
-export type NCMaterialVFreeModalProps = RegisterModalProps<NCMaterialVFree, NCMaterialVFreeViewProps>
+export type NCMaterialVFreeModalProps = RegisterModalProps<NCMaterialVFree, {
+    viewProps: (record?: EditorRowAccessor) => Omit<NCMaterialVFreeViewProps, "onSelect">;
+}>
 
 /**
  * 物料辅助属性弹窗
@@ -86,8 +94,7 @@ const NCMaterialVFreeModal: React.FC<NCMaterialVFreeModalProps> = ({
                                                                        isEditor,
                                                                        onCancel,
                                                                        onSelect,
-                                                                       materialVID,
-                                                                       vfreeField
+                                                                       viewProps
                                                                    }) => {
 
     return (
@@ -100,8 +107,9 @@ const NCMaterialVFreeModal: React.FC<NCMaterialVFreeModalProps> = ({
             onSelect={onSelect}
             title={'辅助属性'}
             width={450}
+            readOnly={true}
             View={NCMaterialVFreeView}
-            viewProps={{materialVID, vfreeField}}
+            updateViewProps={(_, row) => viewProps(row)}
         />
     );
 }

@@ -29,13 +29,13 @@ export const ITEM_COLUMNS: AppColumnDef[] = [
     {field: 'MaterialVersion', title: '物料版本'},
     {field: 'MaterialSpec', title: '物料规格'},
     {field: 'MaterialType', title: '物料型号'},
-    {field: 'VFree5Name', title: '季度号/通用'},
-    {field: 'VFree1Name', title: '款号'},
-    {field: 'VFree9Name', title: '色纱色'},
-    {field: 'Productor', title: '供应商'},
-    {field: 'VFree8Name', title: '特性'},
+    {field: 'VFree5Name', title: '季度号/通用', minWidth: 150},
+    {field: 'VFree1Name', title: '款号', minWidth: 150},
+    {field: 'VFree9Name', title: '色纱色', minWidth: 150},
+    {field: 'Productor', title: '供应商', minWidth: 150},
+    {field: 'VFree8Name', title: '特性', minWidth: 150},
     {field: 'Ndissipationum', title: '损耗系数'},
-    {field: 'VFree4Name', title: '批号'},
+    {field: 'VFree4Name', title: '批号', minWidth: 150},
     {field: 'CMeasure', title: '主单位'},
     {field: 'Nitemnum', title: '子项数量', dataType: 'int'},
     {field: 'Ibasenum', title: '底数', dataType: 'int'},
@@ -50,7 +50,7 @@ export const ITEM_COLUMNS: AppColumnDef[] = [
 ];
 
 /** 配色/配码共有的「物料」分组：三张表按同一批子项物料分行，这几列一模一样 */
-function materialGroup(fields: Array<{field: string; title: string}>): AppColumnGroupDef {
+function materialGroup(fields: Array<{ field: string; title: string }>): AppColumnGroupDef {
     return {
         title: '物料',
         children: fields.map((item) => ({...item})),

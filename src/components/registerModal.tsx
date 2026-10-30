@@ -11,12 +11,18 @@ interface registerModalProps<TRecord, TViewProps extends object = object> {
     title?: ReactNode;
     width?: number | string;
     height?: number | string;
+    readOnly?: boolean;
+    disabled?: boolean;
     onCancel?: () => void;
     onSelect?: (record: TRecord, editingRow: EditorRowAccessor | null) => void;
     onInput?: (input: string, editingRow: EditorRowAccessor) => void;
     View: React.ComponentType<TViewProps & { onSelect: (record: TRecord) => void }>;
     /** 透传给视图的 props，不要包含 onSelect */
-    viewProps: Omit<TViewProps, 'onSelect'>;
+    viewProps?: Omit<TViewProps, 'onSelect'>;
+    /**
+     * 根据行数据更新要透传给视图的 props，在open时触发
+     */
+    updateViewProps?: (viewProps?: Omit<TViewProps, 'onSelect'>, row?: EditorRowAccessor) => Omit<TViewProps, 'onSelect'>;
 }
 
 export type RegisterModalProps<TRecord, TViewProps extends object = object> = {
@@ -55,12 +61,15 @@ export function RegisterInputModal<TRecord, TViewProps extends object = object>(
                                                                                     editorPlaceholder,
                                                                                     title = '选择',
                                                                                     width = '60vw',
+                                                                                    readOnly = false,
+                                                                                    disabled = false,
                                                                                     height,
                                                                                     onCancel,
                                                                                     onSelect,
                                                                                     onInput,
                                                                                     View,
                                                                                     viewProps,
+                                                                                    updateViewProps,
                                                                                 }: registerModalProps<TRecord, TViewProps>) {
     const editor = isEditor ?? false;
     const [isOpen, setIsOpen] = useState(open);
@@ -69,6 +78,8 @@ export function RegisterInputModal<TRecord, TViewProps extends object = object>(
     // 编辑器是全局只注册一次的（registerOnce），注册时拿到的闭包不会跟着 props 更新，
     // 所以回调必须走 ref —— 否则页面里内联的 onInput 永远是第一版
     const onInputRef = useRef(onInput);
+    const [realViewProps, setRealViewProps] = useState<Omit<TViewProps, 'onSelect'> | undefined>(viewProps);
+
     useEffect(() => {
         onInputRef.current = onInput;
     }, [onInput]);
@@ -76,7 +87,11 @@ export function RegisterInputModal<TRecord, TViewProps extends object = object>(
     const openModal = useCallback((next: boolean, row?: EditorRowAccessor) => {
         if (next) setEditingRow(row ?? null);
         setIsOpen(next);
-    }, []);
+        const newViewProps = updateViewProps?.(viewProps, row);
+        if (newViewProps) {
+            setRealViewProps(newViewProps);
+        }
+    }, [viewProps]);
 
     // 编辑器模式：自动注册，editorKey 不同而已
     useEffect(() => {
@@ -84,6 +99,8 @@ export function RegisterInputModal<TRecord, TViewProps extends object = object>(
         registerAntdInputEditor(
             editorKey,
             {
+                readOnly: readOnly,
+                disabled: disabled,
                 placeholder: editorPlaceholder ?? '',
                 onSearch: () => openModal(true, activeRowRef.current ?? undefined),
             },
@@ -141,7 +158,7 @@ export function RegisterInputModal<TRecord, TViewProps extends object = object>(
                 onCancel?.();
             }}
         >
-            {isOpen && <View {...(viewProps as TViewProps)} onSelect={selectedAction}/>}
+            {isOpen && <View {...(realViewProps as TViewProps)} onSelect={selectedAction}/>}
         </Modal>
     );
 }
