@@ -133,6 +133,17 @@ export interface EditorRowAccessor {
   /** 数据行下标（不含表头）；拿不到时为 null */
   readonly recordIndex: number | null;
   /**
+   * 正在编辑的**列字段名**（取自列定义，与 `editableFields` / 校验规则里用的那个名字一致）。
+   *
+   * 什么时候需要它：一个编辑器实例被多列共用，而规则/联动要按列走不同分支 ——
+   * 例如 `validator` 里 `row.field === 'Qty'` 才查库存。按字段具名注册的写法用不上它
+   * （字段名在注册处就是常量）。
+   *
+   * 取值方式与 `record` 相同，是**拿到访问器那一刻的快照**：正常编辑期间恒为当列，
+   * 表格拿不到列定义时是空串（同 `recordIndex` 为 null 的降级口径）。
+   */
+  readonly field: string;
+  /**
    * 读本行某一列。
    *
    * 读的是**编辑前**的值 —— 这一格的新值还没写进表格，它在 validator 的第一个参数 /
@@ -839,6 +850,9 @@ export abstract class BaseAntdEditor<V = unknown> implements IEditor<V> {
     return {
       record,
       recordIndex: this.recordIndexRef.current ?? session?.recordIndex ?? null,
+      // editFieldRef 在 onStart 里就解析好了（早于 options.onStart），onEnd 也是先给回调再清空，
+      // 所以四个钩子拿到的都是当列
+      field: this.editFieldRef.current,
       getField: (field: string) => record?.[field],
       setField: (field: string, value: unknown) => this.writeRow([[field, value]], session),
       setFields: (fields: Record<string, unknown>) =>
