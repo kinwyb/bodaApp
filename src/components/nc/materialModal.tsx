@@ -255,6 +255,9 @@ const NCMaterialModal: React.FC<NCMaterialModalProps> = ({open, onCancel, isEdit
             onSelect={onSelect}
             onInput={onInput}
             width='60vw'
+            // 分栏布局（分类树 + 表格）要占满一屏：不传 height 时弹窗按内容高，
+            // 而这里的内容是 height:100% 的表格，没有确定高度就画不出来
+            height={'calc(100vh - 168px)'}
             View={NCMaterialView}
             viewProps={{filter}}
         />

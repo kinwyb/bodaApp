@@ -2,6 +2,14 @@ import React, {type ReactNode, useCallback, useEffect, useRef, useState} from "r
 import {type EditorRowAccessor, registerAntdInputEditor} from "@/components/grid-table/editors/register.ts";
 import {Modal} from "antd";
 
+/**
+ * 内容区「最多一屏」的高度：100vh 减窗口上下留白与标题栏。
+ *
+ * 没传 `height` 时按它封顶 —— 数据少时弹窗随内容变矮，数据多了就在表格内部滚动。
+ * 刻意不导出：本文件是 .tsx，多导出一个常量会让 Fast Refresh 退化成整页刷新。
+ */
+const MAX_BODY_HEIGHT = 'calc(100vh - 168px)';
+
 interface registerModalProps<TRecord, TViewProps extends object = object> {
     open: boolean;
     isEditor?: boolean;
@@ -140,12 +148,18 @@ export function RegisterInputModal<TRecord, TViewProps extends object = object>(
             open={isOpen}
             title={title}
             width={width}
-            height={height}
             destroyOnHidden
             style={{top: 24}}
             styles={{
                 body: {
-                    height: 'calc(100vh - 168px)',
+                    // 高度由调用方决定：
+                    // - 不传 height（默认）：只封一屏的上限，弹窗随内容变矮（数据少时别撑满整屏）；
+                    // - 传了 height：内容区固定那么高，View 里 height:100% 的表格直接撑满。
+                    // 两种情况下 body 都是 flex 列，子项（View 的根节点）要自己给出确定高度 ——
+                    // 里面是 canvas 表格，容器高度不定就画不出来。
+                    ...(height
+                        ? { height }
+                        : { maxHeight: MAX_BODY_HEIGHT }),
                     display: 'flex',
                     flexDirection: 'column',
                     overflow: 'hidden',
