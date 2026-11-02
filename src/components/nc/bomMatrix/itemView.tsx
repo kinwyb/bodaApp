@@ -1,4 +1,4 @@
-import React, {useCallback, useImperativeHandle, useMemo, useRef} from "react";
+import React, {useCallback, useEffect, useImperativeHandle, useMemo, useRef} from "react";
 import {message} from "antd";
 import {DeleteOutlined, PlusOutlined} from "@ant-design/icons";
 import type {BomMatrixDetail} from "@/api/schemas/nc/bomMatrix.ts";
@@ -6,6 +6,7 @@ import {
     GridTable,
     type GridTableApi,
     type GridTableCellValueChangeInfo,
+    type GridTableEditableCellInfo,
     type GridTableMenuConfig
 } from "@/components/grid-table";
 import {alignMenuIcons, toMenuIcon} from "@/components/grid-table/menuIcon";
@@ -14,6 +15,7 @@ import {nextRowNo} from "./rowNo.ts";
 import {type BomMatrixRow, rowKeyOf, toItemRows} from "./rows.ts";
 import type {BomMatrixGridApi, BomMatrixRowEvent} from "./gridApi.ts";
 import {useEditableRows} from "./useEditableRows.ts";
+import {ensureUseVFrees, primeUseVFrees, readUseVFrees} from "./vfreeCache.ts";
 import NCMaterialModal, {MATERIAL_EDITOR} from "@/components/nc/materialModal.tsx";
 import type {EditorRowAccessor} from "@/components/grid-table/editors/antd-editors";
 import type {NCMaterial, NCMaterialVFree} from "@/api/schemas/nc/NCMaterial.ts";
@@ -95,6 +97,48 @@ const BomMatrixItemView = React.forwardRef<BomMatrixGridApi, BomMatrixItemProps>
                 'VFree9Name': MATERIAL_VFREE_EDITOR,
             }
         }, [isEditable])
+
+        /**
+         * 按物料预取「这个物料能用哪些辅助属性项」，供 `canCellEdit` 同步查。
+         *
+         * 为什么不能等选中行再取：**选中和双击是同一个动作**，`onSelectedChange` 里的
+         * `await` 回来时 `canEditCell` 早问完了 —— 用户第一次双击永远被拦下
+         * （日志表现就是先两条 `canuse:undefined`）。所以改成行数据一变就预热：
+         * 换物料（`applyMaterial`）、换单、加行都会经过这里。
+         *
+         * 每行只是查一次 Map，命中直接跳过；请求去重与并发上限在 `vfreeCache` 里。
+         */
+        useEffect(() => {
+            if (!isEditable) {
+                return;
+            }
+            primeUseVFrees(rows.map((row) => toStringOrEmpty(row.MaterialVID)));
+        }, [isEditable, rows]);
+
+        /**
+         * 编辑前拦截：辅助属性列能不能改，取决于**这个物料**支持哪些 VFree 项。
+         *
+         * 必须同步（vtable 把返回值直接当「有没有编辑器」用，返回 Promise 等于全部放行），
+         * 所以这里只查内存缓存，不发请求、不改行对象。
+         */
+        const canCellEdit = useCallback((info: GridTableEditableCellInfo) => {
+            const field = info.field.toLowerCase();
+            if (!field.startsWith("vfree")) {
+                return true;
+            }
+            const materialVID = toStringOrEmpty((info.record as BomMatrixRow | undefined)?.MaterialVID);
+            if (!materialVID) {
+                return false;
+            }
+            const useVFrees = readUseVFrees(materialVID);
+            if (useVFrees === undefined) {
+                // 还没取回来：保守拦下，并补一次请求（去重 + 失败冷却）。
+                // 被拦下不会写 vtable 的编辑器缓存，数据到了之后下一次双击就能进编辑态。
+                void ensureUseVFrees(materialVID);
+                return false;
+            }
+            return useVFrees.includes(field.replace('name', ''));
+        }, []);
 
         /**
          * 把一条物料的基础资料回填到当前行。
@@ -274,7 +318,7 @@ const BomMatrixItemView = React.forwardRef<BomMatrixGridApi, BomMatrixItemProps>
                            rowKey={'PackBomMatrixDetailID'}
                            rowNumber={false} menu={menu}
                            onCellValueChange={handleCellValueChange}
-                           multiSelect={false} widthMode={'autoWidth'}/>
+                           multiSelect={false} widthMode={'autoWidth'} canEditCell={canCellEdit}/>
                 <NCMaterialModal open={false}
                                  isEditor={true}
                                  onSelect={(record: NCMaterial, activeRow: EditorRowAccessor | null) => {

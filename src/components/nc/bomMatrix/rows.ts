@@ -37,17 +37,17 @@ export const rowKeyOf = (row: Record<string, unknown> | undefined): string =>
  * 只此一份实现（保存时现算）。行号业务唯一所以不会撞；键里带物料，
  * 所以换物料等于换一行 —— 不同物料的尺码用量本来就不能沿用。
  */
-export function matchRowKey(row: {VRowNo?: unknown; MaterialVID?: unknown}): string {
+export function matchRowKey(row: { VRowNo?: unknown; MaterialVID?: unknown }): string {
     return toStringOrEmpty(row.VRowNo) + '_' + toStringOrEmpty(row.MaterialVID);
 }
 
 /** 尺码格子的四个列名：损耗数量 / 系数名 / 系数编码 / 尺码用量 */
-export function sizeCells(size: string): {sunhao: string; name: string; value: string; number: string} {
+export function sizeCells(size: string): { sunhao: string; name: string; value: string; number: string } {
     return {sunhao: `Sunhao${size}`, name: `S${size}`, value: `S${size}_val`, number: `N${size}`};
 }
 
 /** 颜色格子的两个列名：色号名 / 色号编码 */
-export function colorCells(color: string): {name: string; value: string} {
+export function colorCells(color: string): { name: string; value: string } {
     return {name: color, value: `${color}_val`};
 }
 

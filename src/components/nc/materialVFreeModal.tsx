@@ -61,6 +61,9 @@ const NCMaterialVFreeView: React.FC<NCMaterialVFreeViewProps> = ({materialVID, v
                 return;
             }
             setDatas(res.data);
+            if (res.data.length === 1) {
+                onSelect?.(res.data[0]);
+            }
         } catch (error) {
             void message.error(ErrorMessage(error, '加载失败'))
         } finally {

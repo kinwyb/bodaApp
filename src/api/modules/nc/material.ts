@@ -58,5 +58,11 @@ export const ncMaterialApi = {
             return {...res, data: undefined};
         }
         return {...res, data: NCMaterialVFreeSchema.array().parse(res.data)};
-    }
+    },
+
+    /**
+     * 物料可用的辅助属性
+     * @param materialVID
+     */
+    useVFree: async (materialVID: string) => http.get<string[]>('/nc/material/queryUseVFree', {materialPK: materialVID})
 };
