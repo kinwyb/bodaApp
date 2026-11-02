@@ -14,22 +14,29 @@
  * - 万一没命中，`ensureUseVFrees` 顺手补一次（去重 + 失败冷却），下次双击即可编辑。
  *
  * 缓存值统一转小写，与列字段的比对口径（`field.toLowerCase().replace('name','')`）一致。
+ *
+ * 缓存本体在 `@/utils/keyedCache`（**有容量上限，按 LRU 淘汰**）：这是模块级 Map，
+ * 跟着页面/进程走、不跟组件卸载释放，不设上限就是「用户改过的物料越多、条目越多」。
  */
 import {ncMaterialApi} from '@/api/modules/nc/material.ts';
+import {createKeyedAsyncCache} from '@/utils/keyedCache';
 
-/** 取到过的结果（可能为空数组：这个物料哪个辅助属性都不能用） */
-const cache = new Map<string, string[]>();
-/** 正在飞的请求：同一物料只发一次 */
-const pending = new Map<string, Promise<string[] | null>>();
-/** 失败时间：渲染路径会反复问，别把失败刷成请求风暴 */
-const failedAt = new Map<string, number>();
-const FAIL_COOLDOWN_MS = 5000;
+/** 缓存条目上限：一条只是几个字符串，500 条足够覆盖一张矩阵来回改的物料 */
+const MAX_ENTRIES = 500;
 /** 批量预热时的并发上限（一张矩阵可能几十行，逐行同时发太脏） */
 const BATCH_SIZE = 4;
 
+const useVFreeCache = createKeyedAsyncCache<string[]>({
+    maxEntries: MAX_ENTRIES,
+    load: async (materialVID) => {
+        const result = await ncMaterialApi.useVFree(materialVID);
+        return (result.data ?? []).map((item) => String(item).toLowerCase());
+    },
+});
+
 /** 取到过就返回数组；**没取到过返回 `undefined`**（调用方据此决定拦下还是放行） */
 export function readUseVFrees(materialVID: string): string[] | undefined {
-    return cache.get(materialVID);
+    return useVFreeCache.read(materialVID);
 }
 
 /**
@@ -41,19 +48,7 @@ export function readUseVFrees(materialVID: string): string[] | undefined {
 export function ensureUseVFrees(materialVID: string): Promise<string[] | null> {
     const id = materialVID.trim();
     if (!id) return Promise.resolve(null);
-    const cached = cache.get(id);
-    if (cached) return Promise.resolve(cached);
-    const running = pending.get(id);
-    if (running) return running;
-    const failedTime = failedAt.get(id);
-    if (failedTime !== undefined && Date.now() - failedTime < FAIL_COOLDOWN_MS) {
-        return Promise.resolve(null);
-    }
-    const task = fetchUseVFrees(id).finally(() => {
-        pending.delete(id);
-    });
-    pending.set(id, task);
-    return task;
+    return useVFreeCache.ensure(id);
 }
 
 /**
@@ -67,9 +62,7 @@ export function primeUseVFrees(materialVIDs: Iterable<string>): void {
     const seen = new Set<string>();
     for (const raw of materialVIDs) {
         const id = String(raw ?? '').trim();
-        if (!id || seen.has(id) || cache.has(id) || pending.has(id)) continue;
-        const failedTime = failedAt.get(id);
-        if (failedTime !== undefined && Date.now() - failedTime < FAIL_COOLDOWN_MS) continue;
+        if (!id || seen.has(id) || useVFreeCache.has(id)) continue;
         seen.add(id);
         todo.push(id);
     }
@@ -79,18 +72,4 @@ export function primeUseVFrees(materialVIDs: Iterable<string>): void {
             await Promise.all(todo.slice(i, i + BATCH_SIZE).map((id) => ensureUseVFrees(id)));
         }
     })();
-}
-
-async function fetchUseVFrees(materialVID: string): Promise<string[] | null> {
-    try {
-        const result = await ncMaterialApi.useVFree(materialVID);
-        const list = (result.data ?? []).map((item) => String(item).toLowerCase());
-        cache.set(materialVID, list);
-        failedAt.delete(materialVID);
-        return list;
-    } catch {
-        // 不弹提示：这是判定用的旁路数据，失败了只是这一格改不了
-        failedAt.set(materialVID, Date.now());
-        return null;
-    }
 }

@@ -40,7 +40,7 @@ export const ITEM_COLUMNS: AppColumnDef[] = [
     {field: 'Nitemnum', title: '子项数量', dataType: 'int', minWidth: 50},
     {field: 'Ibasenum', title: '底数', dataType: 'int', minWidth: 50},
     {field: 'VChangerate', title: '换算率'},
-    {field: 'Cassmeasure', title: '单位'},
+    {field: 'Cassmeasure', title: '单位', minWidth: 80},
     {
         field: 'Fitemsource',
         title: '备料来源',

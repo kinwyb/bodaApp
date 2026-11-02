@@ -180,12 +180,12 @@ const NCMaterialView: React.FC<NCMaterialViewProps> = ({filter, onSelect}) => {
                         if (!pkClass) {
                             pkClass = undefined;
                         }
-                        if (query.PkClass === pkClass || !pkClass) {
+                        if (query.pkClass === pkClass || !pkClass) {
                             return;
                         }
                         setSelectedNodes([pkClass]);
                         setQuery({
-                            PkClass: pkClass,
+                            pkClass: pkClass,
                         });
                     }}
                     treeData={treeData}
@@ -213,9 +213,9 @@ const NCMaterialView: React.FC<NCMaterialViewProps> = ({filter, onSelect}) => {
                         // 纯数字当作物料编码查，否则按名称模糊查（沿用原来的判定）
                         const mcode = toNumberOrNullIfZero(keyword);
                         if (mcode) {
-                            next.Code = keyword;
+                            next.code = keyword;
                         } else {
-                            next.Name = keyword;
+                            next.name = keyword;
                         }
                         setQuery(next);
                         setSelectedNodes([]);

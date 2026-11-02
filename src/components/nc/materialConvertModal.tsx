@@ -3,6 +3,8 @@ import {QuickSelectView} from '../QuickSelectModal';
 import type {AppColumnDef} from '../grid-table/columnBuilder';
 import type {NCMaterialConvert} from "@/api/schemas/nc/NCMaterial.ts";
 import {RegisterInputModal, type RegisterModalProps} from "@/components/registerModal.tsx";
+import type {EditorRowAccessor} from "@/components/grid-table/editors/antd-editors.tsx";
+import {ensureConverts, readConverts} from './convertCache.ts';
 
 
 /**
@@ -20,24 +22,42 @@ const MEASDOC_COLUMNS: AppColumnDef[] = [
 export interface NCMaterialConvertViewProps {
     /** 选择回调 */
     onSelect: (measdoc: NCMaterialConvert) => void;
-    converts?: NCMaterialConvert[];
+    /**
+     * 这一行是哪个物料 —— 可选单位**按物料**取。
+     *
+     * 不在外面把列表算好传进来（挂载时定死一份数组）：一张表里每行是不同的物料，
+     * 而且默认加载的行一开始根本没有列表，得现查。查询的时机交给视图自己（打开就加载），
+     * 表格那边就只负责回答「这一行是哪个物料」。
+     */
+    materialVID: string;
 }
 
-const NCMaterialConvertView: React.FC<NCMaterialConvertViewProps> = ({onSelect, converts}) => {
+const NCMaterialConvertView: React.FC<NCMaterialConvertViewProps> = ({onSelect, materialVID}) => {
 
-    const loadData = useCallback(() => {
-        return converts ?? [];
-    }, [converts]);
+    const loadData = useCallback(async () => {
+        const id = materialVID.trim();
+        if (!id) {
+            return [];
+        }
+        // 选过物料的话缓存里已经有了，直接给；没有就现查一次（同一物料只会查一次）
+        const cached = readConverts(id);
+        if (cached) {
+            return cached;
+        }
+        return (await ensureConverts(id)) ?? [];
+    }, [materialVID]);
 
     return (
         <QuickSelectView<NCMaterialConvert>
             columns={MEASDOC_COLUMNS}
             rowKey="pk_materialconvert"
             loadData={loadData}
-            searchFields={['Code', 'Name']}
+            // 过滤字段要对上 `NCMaterialConvert` 的字段名：原来是 Code/Name（物料的字段），
+            // 在这里一个都匹配不到，等于搜索框永远筛掉全部
+            searchFields={['measdocCode', 'measdoc']}
             searchLabel="快速选择:"
-            searchPlaceholder={'关键字'}
-            emptyTip={'请先选择物料'}
+            searchPlaceholder={'单位编码 / 名称'}
+            emptyTip={'该物料没有可选的换算单位'}
             autoFillWidth={true}
             onSelect={(row) => row && onSelect(row)}
         />
@@ -45,7 +65,18 @@ const NCMaterialConvertView: React.FC<NCMaterialConvertViewProps> = ({onSelect, 
 };
 
 
-export type NCMaterialConvertModalProps = RegisterModalProps<NCMaterialConvert, NCMaterialConvertViewProps>;
+export type NCMaterialConvertModalProps =
+    Omit<RegisterModalProps<NCMaterialConvert, NCMaterialConvertViewProps>, 'materialVID'>
+    & {
+        /**
+         * **打开弹窗那一刻**按当前编辑行算这一格属于哪个物料。
+         *
+         * 函数形态在点开弹窗时求值（`RegisterInputModal` 的 `updateViewProps`），读的是行上的字段 ——
+         * 所以**别在这种函数里读组件 state**：编辑器是全局只注册一次的，
+         * 注册时拿到的闭包不会跟着 props 更新。
+         */
+        viewProps: (record?: EditorRowAccessor) => Omit<NCMaterialConvertViewProps, 'onSelect'>;
+    };
 
 /**
  * 物料单位选择
@@ -55,7 +86,8 @@ const NCMaterialConvertModal: React.FC<NCMaterialConvertModalProps> = ({
                                                                            onCancel,
                                                                            isEditor,
                                                                            onSelect,
-                                                                           converts,
+                                                                           onInput,
+                                                                           viewProps,
                                                                        }) => {
     return (
         <RegisterInputModal<NCMaterialConvert, NCMaterialConvertViewProps>
@@ -66,10 +98,11 @@ const NCMaterialConvertModal: React.FC<NCMaterialConvertModalProps> = ({
             editorPlaceholder="单位"
             onCancel={onCancel}
             onSelect={onSelect}
+            onInput={onInput}
             width={600}
             height={400}
             View={NCMaterialConvertView}
-            viewProps={{converts}}
+            updateViewProps={(_, row) => viewProps(row)}
         />
     );
 }

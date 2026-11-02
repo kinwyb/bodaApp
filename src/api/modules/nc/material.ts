@@ -9,10 +9,10 @@ import {
 } from "@/api/schemas/nc/NCMaterial.ts";
 
 export type NCMaterialQuery = {
-    Code?: string;
-    Name?: string;
-    PkClass?: string;
-    ID?: string;
+    code?: string;
+    name?: string;
+    pkClass?: string;
+    materialPK?: string;
 }
 
 export type NCMaterialVFreeQuery = {

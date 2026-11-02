@@ -18,13 +18,14 @@ import {useEditableRows} from "./useEditableRows.ts";
 import {ensureUseVFrees, primeUseVFrees, readUseVFrees} from "./vfreeCache.ts";
 import NCMaterialModal, {MATERIAL_EDITOR} from "@/components/nc/materialModal.tsx";
 import type {EditorRowAccessor} from "@/components/grid-table/editors/antd-editors";
-import type {NCMaterial, NCMaterialVFree} from "@/api/schemas/nc/NCMaterial.ts";
+import type {NCMaterial, NCMaterialConvert, NCMaterialVFree} from "@/api/schemas/nc/NCMaterial.ts";
 import {ncMaterialApi} from "@/api/modules/nc/material.ts";
 import {ErrorMessage} from "@/api/request.ts";
 import NCMaterialVFreeModal, {MATERIAL_VFREE_EDITOR} from "@/components/nc/materialVFreeModal.tsx";
 import {toStringOrEmpty} from "@/utils";
 import {BOMMATRIX_BACKFLUSHTYPE_EDITOR, BOMMATRIX_ITEMSOURCE_EDITOR} from "@/components/nc/bomMatrix/common.ts";
-import NCMaterialConvertModal from "@/components/nc/materialConvertModal.tsx";
+import NCMaterialConvertModal, {MATERIAL_CONVERT_EDITOR} from "@/components/nc/materialConvertModal.tsx";
+import {ensureConverts, putConverts, readConverts} from "@/components/nc/convertCache.ts";
 
 /** bom矩阵子物料树形 */
 export interface BomMatrixItemProps {
@@ -106,6 +107,8 @@ const BomMatrixItemView = React.forwardRef<BomMatrixGridApi, BomMatrixItemProps>
                 'EndDate': 'auto',
                 'Bupint': 'auto',
                 'Bdeliver': 'auto',
+                // 单位：可选值来自**这个物料**的换算单位；没有物料的空行由 canCellEdit 拦下
+                'Cassmeasure': MATERIAL_CONVERT_EDITOR,
             }
         }, [isEditable])
 
@@ -118,6 +121,7 @@ const BomMatrixItemView = React.forwardRef<BomMatrixGridApi, BomMatrixItemProps>
          * 换物料（`applyMaterial`）、换单、加行都会经过这里。
          *
          * 每行只是查一次 Map，命中直接跳过；请求去重与并发上限在 `vfreeCache` 里。
+         * （单位列表不在这里预热：单位列不做拦截，弹窗打开时自己按物料取，见 `convertCache`。）
          */
         useEffect(() => {
             if (!isEditable) {
@@ -127,18 +131,27 @@ const BomMatrixItemView = React.forwardRef<BomMatrixGridApi, BomMatrixItemProps>
         }, [isEditable, rows]);
 
         /**
-         * 编辑前拦截：辅助属性列能不能改，取决于**这个物料**支持哪些 VFree 项。
+         * 编辑前拦截：辅助属性列能不能改，取决于**这个物料**支持哪些 VFree 项；
+         * 单位列要求这一行**有物料**（没有物料的空行没有可选单位）。
          *
          * 必须同步（vtable 把返回值直接当「有没有编辑器」用，返回 Promise 等于全部放行），
-         * 所以这里只查内存缓存，不发请求、不改行对象。
+         * 所以这里只读行上的字段与内存缓存，不发请求、不改行对象。
+         *
+         * 单位列**不检查「单位列表取回来没有」**：有物料就一律放行，列表由弹窗打开时
+         * 按物料取（缓存命中 / 现查一次，见 `@/components/nc/convertCache.ts`）。
          */
         const canCellEdit = useCallback((info: GridTableEditableCellInfo) => {
             const field = info.field.toLowerCase();
+            const record = info.record as BomMatrixRow | undefined;
+            const materialVID = toStringOrEmpty(record?.MaterialVID);
+            // 单位：空行（还没选物料）没有可选单位，不给进编辑态；有物料就放行
+            if (field === 'cassmeasure') {
+                return materialVID !== '';
+            }
             if (!field.startsWith("vfree")) {
                 return true;
             }
-            const materialVID = toStringOrEmpty((info.record as BomMatrixRow | undefined)?.MaterialVID);
-            if (!materialVID) {
+            if (materialVID === '') {
                 return false;
             }
             const useVFrees = readUseVFrees(materialVID);
@@ -162,6 +175,15 @@ const BomMatrixItemView = React.forwardRef<BomMatrixGridApi, BomMatrixItemProps>
          * 所以同步给另外两张表的也是这些字段（见 handleCellValueChange）。
          */
         const applyMaterial = useCallback((activeRow: EditorRowAccessor | null, material: NCMaterial) => {
+            const converts = material.materialconvert ?? [];
+            /**
+             * 单位列表当场登记进缓存 —— 之后这台机器上任何一行用到这个物料，
+             * 单位弹窗打开就是满的，不必再回查一次接口。
+             * 这就是「把物料信息存到行里」想达到的效果，只是存在按物料索引的缓存里：
+             * 行对象会被原样交给保存、也会被同步给另外两张表，见 `@/components/nc/convertCache.ts`。
+             */
+            putConverts(toStringOrEmpty(material.pk_material), converts);
+            const defaultConvert = converts[0];
             const updateFields: Record<string, unknown> = {
                 MaterialVID: material.pk_material,
                 MaterialCode: material.code,
@@ -171,13 +193,30 @@ const BomMatrixItemView = React.forwardRef<BomMatrixGridApi, BomMatrixItemProps>
                 MaterialType: material.materialtype,
                 CMeasureid: material.pk_measdoc,
                 CMeasure: material.measdoc,
+                // 换物料时单位一并换掉：没有默认换算单位就清空，
+                // 别把上一个物料的单位/换算率留在这一行上
+                Cassmeasure: defaultConvert?.measdoc ?? material.measdoc,
+                Cassmeasureid: defaultConvert?.pk_measdoc ?? material.pk_measdoc,
+                VChangerate: defaultConvert?.measrate ?? '1/1',
             }
-            if (material.materialconvert && material.materialconvert.length > 0) {
-                updateFields.Cassmeasure = material.materialconvert[0].measdoc;
-                updateFields.Cassmeasureid = material.materialconvert[0].pk_measdoc;
-                updateFields.VChangerate = material.materialconvert[0].measrate;
-            }
+
             activeRow?.setFields(updateFields);
+            activeRow?.endEdit();
+        }, [])
+
+        /**
+         * 选中一个换算单位：单位名 / 单位ID / 换算率一起换。
+         *
+         * 三个字段是**一组**（保存时后端按「单位 + 换算率」还原子项数量），
+         * 只改 `Cassmeasure` 会留下上一个单位的主键与比率，所以从弹窗选和格子里输入编码
+         * 回车都走这里。
+         */
+        const applyConvert = useCallback((activeRow: EditorRowAccessor | null, convert: NCMaterialConvert) => {
+            activeRow?.setFields({
+                Cassmeasure: convert.measdoc,
+                Cassmeasureid: convert.pk_measdoc,
+                VChangerate: convert.measrate,
+            });
             activeRow?.endEdit();
         }, [])
 
@@ -194,13 +233,37 @@ const BomMatrixItemView = React.forwardRef<BomMatrixGridApi, BomMatrixItemProps>
         }, [])
 
         /**
+         * 用户没开弹窗、直接在单位格里输入并回车：在这**个物料**的可选单位里按编码/名称找一条。
+         *
+         * 单位候选集本来就是物料自带的（`materialconvert`）：选过物料的缓存里已经有了，
+         * 默认加载的行现查一次（与弹窗走同一个 `ensureConverts`，不会重复请求）。
+         * 找不到只提示，不动行里其他字段。
+         */
+        const handleInputConvert = useCallback(async (input: string, activeRow: EditorRowAccessor) => {
+            const materialVID = toStringOrEmpty(activeRow.record?.MaterialVID);
+            const converts = readConverts(materialVID)
+                ?? (await ensureConverts(materialVID, toStringOrEmpty(activeRow.record?.MaterialCode)))
+                ?? [];
+            const keyword = input.trim();
+            const matched = converts.find((item) =>
+                toStringOrEmpty(item.measdocCode).trim() === keyword
+                || toStringOrEmpty(item.measdoc).trim() === keyword,
+            );
+            if (!matched) {
+                void message.warning(`该物料没有单位：${input}`);
+                return;
+            }
+            applyConvert(activeRow, matched);
+        }, [applyConvert])
+
+        /**
          * 用户没开弹窗、直接在单元格里输入编码回车：按编码查一次物料，查到就回填整行。
          *
          * 查不到只提示、不动这一行的其他字段（用户可能就是要填一个临时编码）。
          */
         const handleInputCode = useCallback(async (code: string, activeRow: EditorRowAccessor) => {
             try {
-                const result = await ncMaterialApi.query({Code: code});
+                const result = await ncMaterialApi.query({code: code});
                 const materials = result.data ?? [];
                 const material = materials.find((item) => item.code === code) ?? materials[0];
                 if (!material) {
@@ -356,12 +419,17 @@ const BomMatrixItemView = React.forwardRef<BomMatrixGridApi, BomMatrixItemProps>
                                           console.log("onInput", code, activeRow);
                                       }}/>
                 <NCMaterialConvertModal open={false} isEditor={true}
-                                        onSelect={(code, activeRow) => {
-                                            console.log("onSelect", code, activeRow);
+                                        onSelect={(convert: NCMaterialConvert, activeRow) => {
+                                            applyConvert(activeRow, convert);
                                         }}
-                                        converts={[]}
-                                        onInput={(code, activeRow) => {
-                                            console.log("onInput", code, activeRow);
+                                        // 只告诉弹窗「这一行是哪个物料」，列表由它按物料取
+                                        // （缓存命中 / 现查一次）。这里只读行，不读组件 state ——
+                                        // 编辑器注册一次，这个闭包不会跟着渲染更新
+                                        viewProps={(row) => ({
+                                            materialVID: toStringOrEmpty(row?.record?.MaterialVID),
+                                        })}
+                                        onInput={(input, activeRow) => {
+                                            void handleInputConvert(input, activeRow);
                                         }}/>
             </>
         );
