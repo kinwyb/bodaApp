@@ -22,7 +22,7 @@ import type {NCMaterial, NCMaterialConvert, NCMaterialVFree} from "@/api/schemas
 import {ncMaterialApi} from "@/api/modules/nc/material.ts";
 import {ErrorMessage} from "@/api/request.ts";
 import NCMaterialVFreeModal, {MATERIAL_VFREE_EDITOR} from "@/components/nc/materialVFreeModal.tsx";
-import {toStringOrEmpty} from "@/utils";
+import {now, toDayjs, toStringOrEmpty} from "@/utils";
 import {BOMMATRIX_BACKFLUSHTYPE_EDITOR, BOMMATRIX_ITEMSOURCE_EDITOR} from "@/components/nc/bomMatrix/common.ts";
 import NCMaterialConvertModal, {MATERIAL_CONVERT_EDITOR} from "@/components/nc/materialConvertModal.tsx";
 import {ensureConverts, putConverts, readConverts} from "@/components/nc/convertCache.ts";
@@ -62,9 +62,25 @@ const createItemRow = (rowNo: string): BomMatrixRow => ({
     PackBomMatrixDetailID: nextDraftRowKey(),
     VRowNo: rowNo,
     MaterialVID: '',
-    BeginDate: undefined,
-    EndDate: undefined,
+    BeginDate: now(),
+    EndDate: toDayjs('2999-12-31'),
+    ProjectMaterial: true,
+    Ndissipationum: '0.02',
+    Fitemsource: 1,
+    Fbackflushtype: 2,
+    Bdeliver: true,
+    Nitemnum: '1',
+    Ibasenum: 1,
 });
+
+/**
+ * 底部补空行时用的行号：接着末尾那行走（10、20、30 → 40），空表给 10。
+ *
+ * 走 `nextRowNo` 而不是「最大值 + 1」：这张表的行号是三张表对齐行的键，
+ * 留出 10 的间隔，用户中途插行才有位置可用（见 `./rowNo.ts`）。
+ */
+const blankRowNoAfter = (row: BomMatrixRow | undefined): string =>
+    nextRowNo(row?.VRowNo, undefined) ?? '10';
 
 /**
  * 子项物料表。
@@ -111,6 +127,81 @@ const BomMatrixItemView = React.forwardRef<BomMatrixGridApi, BomMatrixItemProps>
                 'Cassmeasure': MATERIAL_CONVERT_EDITOR,
             }
         }, [isEditable])
+
+        /**
+         * 插入一行：`afterKey` 给了就插到那行后面，否则追加到末尾。
+         *
+         * 行主键由**调用方造好**（`draft-N`）：父级要把同一行的物料字段同步给配色 / 配码，
+         * key 必须在这三张表里是同一个。
+         *
+         * ⚠️ 定义得比用它的命令早（`ensureBlankAfter` / `insertRowBelow` 都在后面）：
+         * 这些是 `const`，先用后定义会在渲染期撞 TDZ。
+         */
+        const addRow = useCallback((row: Record<string, unknown>, afterKey?: string) => {
+            commit((prev) => {
+                const anchor = afterKey ? prev.findIndex((item) => rowKeyOf(item) === afterKey) : -1;
+                const index = anchor >= 0 ? anchor + 1 : prev.length;
+                const next = [...prev];
+                next.splice(index, 0, row as BomMatrixRow);
+                return next;
+            });
+            onRowEvent?.({type: 'insert', row, afterKey});
+        }, [commit, onRowEvent]);
+
+        /** 按行标识删一行 */
+        const removeRow = useCallback((rowKey: string) => {
+            commit((prev) => prev.filter((row) => rowKeyOf(row) !== rowKey));
+            onRowEvent?.({type: 'remove', rowKey});
+        }, [commit, onRowEvent]);
+
+        /**
+         * **编辑模式下底部永远留一行空白**，等用户选物料 —— 这是「进 / 出编辑模式」那一半。
+         *
+         * 进编辑：末尾还是数据行就补一行空行；**从编辑切回只读**：末尾那行还没填物料就收掉
+         * （它是「等输入」的占位，不是明细，不该跟着保存一起提交）。
+         *
+         * 只读那一路要区分「切回来的」和「一进来就是只读」：后者不动数据 ——
+         * 接口明细末尾真有空行也是接口给的，页面一打开就删掉太霸道。
+         *
+         * 另一半在 `ensureBlankAfter`：用户刚在这行选好物料 → 立刻再补一行。
+         * 两半分开写是有原因的：写成「监听 rows、末尾没空行就补」的话，
+         * ① 用户手动删掉空行会被立刻补回来（像删不掉）；
+         * ② StrictMode 会把挂载时的 effect 连跑两次，一次补出两行。
+         */
+        const prevEditableRef = useRef<boolean | null>(null);
+        useEffect(() => {
+            if (prevEditableRef.current === isEditable) return;
+            const wasEditable = prevEditableRef.current === true;
+            prevEditableRef.current = isEditable;
+            const last = rows[rows.length - 1];
+            /**
+             * 用「有没有物料」判断是不是空行，不看 `VRowNo`/其他列：
+             * 用户可能先填了损耗系数再选物料，那还是同一行「待选物料」的行。
+             */
+            const hasMaterial = last ? toStringOrEmpty(last.MaterialVID) !== '' : false;
+            if (!isEditable) {
+                // 从编辑切回只读：末尾那行「待输入」的空行收掉，别让它跟着明细一起保存
+                if (wasEditable && last && !hasMaterial) {
+                    removeRow(rowKeyOf(last));
+                }
+                return;
+            }
+            // 进编辑：末尾没有可填的空行就补一行（空表也给一行 —— 那是唯一的入口）
+            if (!last || hasMaterial) {
+                addRow(createItemRow(blankRowNoAfter(last)));
+            }
+        }, [isEditable, rows, addRow, removeRow]);
+
+        /**
+         * 刚给**末尾那行**填好物料 → 底部再补一行等下一笔。
+         *
+         * 只在末尾发生时才补：在中间行选物料时，底部本来就有空行，再加就多一行。
+         */
+        const ensureBlankAfter = useCallback((rowKey: string) => {
+            const last = rows[rows.length - 1];
+            if (!last || rowKeyOf(last) !== rowKey) return;
+            addRow(createItemRow(blankRowNoAfter(last)));
+        }, [rows, addRow]);
 
         /**
          * 按物料预取「这个物料能用哪些辅助属性项」，供 `canCellEdit` 同步查。
@@ -202,7 +293,13 @@ const BomMatrixItemView = React.forwardRef<BomMatrixGridApi, BomMatrixItemProps>
 
             activeRow?.setFields(updateFields);
             activeRow?.endEdit();
-        }, [])
+            /**
+             * 填的正好是底部那行空行 → 再补一行等下一笔（见 `ensureBlankAfter`）。
+             * 用行对象上的主键判断，不依赖闭包里 rows 的位置。
+             */
+            const rowKey = rowKeyOf(activeRow?.record);
+            if (rowKey) ensureBlankAfter(rowKey);
+        }, [ensureBlankAfter])
 
         /**
          * 选中一个换算单位：单位名 / 单位ID / 换算率一起换。
@@ -293,29 +390,6 @@ const BomMatrixItemView = React.forwardRef<BomMatrixGridApi, BomMatrixItemProps>
                 return row;
             }));
             onRowEvent?.({type: 'update', rowKey, fields});
-        }, [commit, onRowEvent]);
-
-        /**
-         * 插入一行：`afterKey` 给了就插到那行后面，否则追加到末尾。
-         *
-         * 行主键由**调用方造好**（`draft-N`）：父级要把同一行的物料字段同步给配色 / 配码，
-         * key 必须在这三张表里是同一个。
-         */
-        const addRow = useCallback((row: Record<string, unknown>, afterKey?: string) => {
-            commit((prev) => {
-                const anchor = afterKey ? prev.findIndex((item) => rowKeyOf(item) === afterKey) : -1;
-                const index = anchor >= 0 ? anchor + 1 : prev.length;
-                const next = [...prev];
-                next.splice(index, 0, row as BomMatrixRow);
-                return next;
-            });
-            onRowEvent?.({type: 'insert', row, afterKey});
-        }, [commit, onRowEvent]);
-
-        /** 按行标识删一行 */
-        const removeRow = useCallback((rowKey: string) => {
-            commit((prev) => prev.filter((row) => rowKeyOf(row) !== rowKey));
-            onRowEvent?.({type: 'remove', rowKey});
         }, [commit, onRowEvent]);
 
         /**
