@@ -65,32 +65,6 @@ export const BackFlushTypeValue = (title: unknown): number => {
 export const BackFlushTypeOptions = Object.entries(BackFlushType).map((k) => ({value: k[0], label: k[1]}));
 
 /**
- * 物料辅助属性编辑器
- */
-export const BOMMATRIX_MATERIAL_VFREE_EDITOR = 'bomMatrix-material-vfree-editor';
-registerAntdInputEditor(
-    BOMMATRIX_MATERIAL_VFREE_EDITOR,
-    {
-        onSearch: (value: string) => {
-            console.log('material vfree search', value);
-        }
-    }
-);
-
-/**
- * 单位编辑器
- */
-export const BOMMATRIX_MEASURE_EDITOR = 'bomMatrix-measure-editor';
-registerAntdInputEditor(
-    BOMMATRIX_MEASURE_EDITOR,
-    {
-        onSearch: (value: string) => {
-            console.log('measure search', value);
-        }
-    }
-);
-
-/**
  * 供应商编辑器
  */
 export const BOMMATRIX_PRODUCTOR_EDITOR = 'bomMatrix-productor-editor';
@@ -126,19 +100,6 @@ registerAntdSelectEditor(
 )
 
 /**
- * 颜色编辑器
- */
-export const BOMMATRIX_COLOR_EDITOR = 'bomMatrix-color-editor';
-registerAntdInputEditor(
-    BOMMATRIX_COLOR_EDITOR,
-    {
-        onSearch: (value: string) => {
-            console.log('color search', value);
-        }
-    }
-);
-
-/**
  * 配色表的「色号」编辑器 —— **必须和 `MATERIAL_VFREE_EDITOR` 分开**。
  *
  * 原因不是「推不出字段名」那点小事，而是编辑器注册是「同名先到先得」
@@ -160,17 +121,4 @@ export const BOMMATRIX_COLOR_VFREE_EDITOR = 'bomMatrix-color-vfree-editor';
  * 注册由 `NCMaterialVFreeModal` 挂载时完成（`isEditor` 模式）。
  */
 export const BOMMATRIX_SIZE_VFREE_EDITOR = 'bomMatrix-size-vfree-editor';
-
-/**
- * 尺码编辑器
- */
-export const BOMMATRIX_SIZE_EDITOR = 'bomMatrix-size-editor';
-registerAntdInputEditor(
-    BOMMATRIX_SIZE_EDITOR,
-    {
-        onSearch: (value: string) => {
-            console.log('size search', value);
-        }
-    }
-);
 

@@ -23,6 +23,8 @@ import {ncMaterialApi} from "@/api/modules/nc/material.ts";
 import {ErrorMessage} from "@/api/request.ts";
 import NCMaterialVFreeModal, {MATERIAL_VFREE_EDITOR} from "@/components/nc/materialVFreeModal.tsx";
 import {toStringOrEmpty} from "@/utils";
+import {BOMMATRIX_BACKFLUSHTYPE_EDITOR, BOMMATRIX_ITEMSOURCE_EDITOR} from "@/components/nc/bomMatrix/common.ts";
+import NCMaterialConvertModal from "@/components/nc/materialConvertModal.tsx";
 
 /** bom矩阵子物料树形 */
 export interface BomMatrixItemProps {
@@ -95,6 +97,15 @@ const BomMatrixItemView = React.forwardRef<BomMatrixGridApi, BomMatrixItemProps>
                 'VFree5Name': MATERIAL_VFREE_EDITOR,
                 'VFree8Name': MATERIAL_VFREE_EDITOR,
                 'VFree9Name': MATERIAL_VFREE_EDITOR,
+                'Ndissipationum': 'auto',
+                'Nitemnum': 'auto',
+                'Ibasenum': 'auto',
+                'Fitemsource': BOMMATRIX_ITEMSOURCE_EDITOR,
+                'Fbackflushtype': BOMMATRIX_BACKFLUSHTYPE_EDITOR,
+                'BeginDate': 'auto',
+                'EndDate': 'auto',
+                'Bupint': 'auto',
+                'Bdeliver': 'auto',
             }
         }, [isEditable])
 
@@ -344,6 +355,14 @@ const BomMatrixItemView = React.forwardRef<BomMatrixGridApi, BomMatrixItemProps>
                                       onInput={(code, activeRow) => {
                                           console.log("onInput", code, activeRow);
                                       }}/>
+                <NCMaterialConvertModal open={false} isEditor={true}
+                                        onSelect={(code, activeRow) => {
+                                            console.log("onSelect", code, activeRow);
+                                        }}
+                                        converts={[]}
+                                        onInput={(code, activeRow) => {
+                                            console.log("onInput", code, activeRow);
+                                        }}/>
             </>
         );
     });

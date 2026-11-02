@@ -34,18 +34,28 @@ export const ITEM_COLUMNS: AppColumnDef[] = [
     {field: 'VFree9Name', title: '色纱色', minWidth: 150},
     {field: 'Productor', title: '供应商', minWidth: 150},
     {field: 'VFree8Name', title: '特性', minWidth: 150},
-    {field: 'Ndissipationum', title: '损耗系数'},
+    {field: 'Ndissipationum', title: '损耗系数', dataType: 'double'},
     {field: 'VFree4Name', title: '批号', minWidth: 150},
     {field: 'CMeasure', title: '主单位'},
-    {field: 'Nitemnum', title: '子项数量', dataType: 'int'},
-    {field: 'Ibasenum', title: '底数', dataType: 'int'},
+    {field: 'Nitemnum', title: '子项数量', dataType: 'int', minWidth: 50},
+    {field: 'Ibasenum', title: '底数', dataType: 'int', minWidth: 50},
     {field: 'VChangerate', title: '换算率'},
     {field: 'Cassmeasure', title: '单位'},
-    {field: 'Fitemsource', title: '备料来源', fieldFormat: (record) => ItemSourceLabel(record.Fitemsource)},
+    {
+        field: 'Fitemsource',
+        title: '备料来源',
+        fieldFormat: (record) => ItemSourceLabel(record.Fitemsource),
+        minWidth: 80
+    },
     {field: 'Bdeliver', title: '发料', dataType: 'boolean'},
-    {field: 'Fbackflushtype', title: '倒冲方式', fieldFormat: (record) => BackFlushTypeLabel(record.Fbackflushtype)},
-    {field: 'BeginDate', title: '生效日期', dataType: 'date'},
-    {field: 'EndDate', title: '失效日期', dataType: 'date'},
+    {
+        field: 'Fbackflushtype',
+        title: '倒冲方式',
+        fieldFormat: (record) => BackFlushTypeLabel(record.Fbackflushtype),
+        minWidth: 100
+    },
+    {field: 'BeginDate', title: '生效日期', dataType: 'date', minWidth: 100},
+    {field: 'EndDate', title: '失效日期', dataType: 'date', minWidth: 100},
     {field: 'Bupint', title: '向上取整', dataType: 'boolean'},
 ];
 
@@ -80,7 +90,7 @@ export function buildColorColumns(bomMatrix: BomMatrix): AppColumnDef[] {
         materialGroup([...MATCH_MATERIAL_FIELDS, {field: 'VFree4Name', title: '批号'}]),
         {
             title: '颜色',
-            children: colors.map((color) => ({field: color, title: color, minWidth: 50})),
+            children: colors.map((color) => ({field: color, title: color, minWidth: 150})),
         },
     ];
 }
@@ -100,8 +110,8 @@ export function buildSizeColumns(bomMatrix: BomMatrix): AppColumnDef[] {
             children: sizes.map((size) => ({
                 field: `Sunhao${size}`,
                 title: size,
-                dataType: 'int' as const,
-                minWidth: 50,
+                dataType: 'double' as const,
+                minWidth: 100,
                 // 0 不显示：这张表大部分格子是 0，全画出来等于一片噪声
                 fieldFormat: (record: Record<string, unknown>) => {
                     const value = toNumberOrZero(record[`Sunhao${size}`]);
@@ -111,15 +121,15 @@ export function buildSizeColumns(bomMatrix: BomMatrix): AppColumnDef[] {
         },
         {
             title: '尺码系数',
-            children: sizes.map((size) => ({field: `S${size}`, title: size, minWidth: 50})),
+            children: sizes.map((size) => ({field: `S${size}`, title: size, minWidth: 150})),
         },
         {
             title: '尺码用量',
             children: sizes.map((size) => ({
                 field: `N${size}`,
                 title: size,
-                dataType: 'int' as const,
-                minWidth: 50,
+                dataType: 'double' as const,
+                minWidth: 100,
             })),
         },
     ];
