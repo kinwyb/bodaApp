@@ -79,5 +79,11 @@ export interface GridTableEditableCellInfo {
  *
  * ⚠️ 它是**渲染路径上的回调**（勾选框列的 `disable` 每帧每格都会问一次），
  * 只做内存判断，别在这里发请求。
+ *
+ * ⚠️ **必须是同步函数**：vtable 把返回值直接当「有没有编辑器」用（`editor = editor(arg)`、
+ * `isValid(editorDefine)`），`async` 返回的 Promise 是 truthy 且 isValid 判它有效，
+ * 结果就是**任何 `false` 都不再生效、所有格子全部放行**（TS 也会直接报
+ * `Promise<boolean>` 不能赋给 `boolean`）。要按异步数据判断，先取到数据再判断 ——
+ * 选中行 / 加载数据时预取，把结果挂到行上或缓存里，这里只查内存。
  */
 export type GridTableCanEditCellHook = (info: GridTableEditableCellInfo) => boolean;

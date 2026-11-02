@@ -733,10 +733,19 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
             ? resolveAutoEditor(cell)
             : configured;
         /**
-         * `canEditCell` 的落点：vtable 的 `editor` 支持**函数形态**，每格调用一次，
-         * 返回 `undefined` 就是「这一格没有编辑器」—— `startEditCell` 因此直接 return
+         * `canEditCell` 的落点：vtable 的 `editor` 支持**函数形态**，返回 `undefined`
+         * 就是「这一格没有编辑器」—— `startEditCell` 因此直接 return
          * （es/edit/edit-manager.js 的 `if (editor) { ... }`），双击连编辑态都不进。
          * 顺带白拿一条：`isHasEditorDefine` 也走同一个函数，粘贴 / 剪切写不进被拦下的格子。
+         *
+         * ⚠️ 但**不是「每格调用一次」**（1.26.8 实测）：一次双击会问两遍 ——
+         * 先由 `dblclickHandler → FocusInput.setFocusRect` 里的 `getEditor` 问一次
+         * （`input.select()` 同步派发 blur，blur 监听里又查编辑器），
+         * 再由 `EditManager.startEditCell → getEditor` 问一次。
+         * 第二遍能不能免掉取决于第一遍的返回值：`getEditor` 只把**解析成编辑器对象**的
+         * 返回值写进 `cacheLastSelectedCellEditor`，于是放行的格子第二遍走缓存（共 1 次），
+         * **被拦下的格子（返回 undefined）每次双击都问 2 次**。
+         * 结论：判定函数必须是纯内存判断、可重复调用（别发请求、别拿它计数）。
          *
          * 判定函数只闭包住字段名，规则本身现读 ref —— 页面换回调引用不会让这份列配置失效。
          */
