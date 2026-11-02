@@ -212,10 +212,20 @@ const BomMatrixSizeView = React.forwardRef<BomMatrixGridApi, BomMatrixSizeViewPr
                 open={false}
                 isEditor={true}
                 editorKey={BOMMATRIX_SIZE_VFREE_EDITOR}
-                viewProps={(row) => ({
-                    materialVID: toStringOrEmpty(row?.record?.MaterialVID),
-                    vfreeField: SIZE_VFREE_FIELD,
-                })}
+                viewProps={(row) => {
+                    const field = toStringOrEmpty(row?.field);
+                    /**
+                     * 这一格**原来是空的**才自动匹配：把尺码名（列名去掉 `S`，如 `S260` → `260`）
+                     * 传给弹窗，加载完直接选中同名字典项 —— 少一次手点。
+                     * 已经有值时不传：用户可能就是想换一个，替他重选会把已选的值冲掉。
+                     */
+                    const current = field ? toStringOrEmpty(row?.getField(field)) : '';
+                    return {
+                        materialVID: toStringOrEmpty(row?.record?.MaterialVID),
+                        vfreeField: SIZE_VFREE_FIELD,
+                        autoMatch: current ? undefined : field.replace(/^S/, ''),
+                    };
+                }}
                 onSelect={(record, activeRow) => {
                     applySize(activeRow, record);
                 }}/>

@@ -6,6 +6,7 @@ import {App} from "antd";
 import {ErrorMessage} from "@/api/request.ts";
 import {ncMaterialApi} from "@/api/modules/nc/material.ts";
 import type {EditorRowAccessor} from "@/components/grid-table/editors/antd-editors.tsx";
+import {toStringOrEmpty} from "@/utils";
 
 /**
  * 物料辅助属性弹窗
@@ -28,10 +29,22 @@ const MIN_TABLE_HEIGHT = 160;
 export type NCMaterialVFreeViewProps = {
     materialVID: string;
     vfreeField: string;
+    /**
+     * 自动匹配的名称：给了就在加载结果里按 `name` **精确匹配**，命中就直接选中
+     * （等同于用户点了一下那一行 → 回填 + 结束编辑）。
+     *
+     * 用途是「原值为空时替用户选一个默认项」：比如配码表的 `S260` 这格原来是空的，
+     * 调用方把尺码名 `260` 传进来，弹窗一打开就选中 260 对应的字典项，省一次手点。
+     *
+     * 语义上很克制：**匹配不到什么都不做**，弹窗照常开着让用户自己选；
+     * 也不会因为传了这个值就跳过「只有一条候选」的兜底（那是另一条规则，见下）。
+     * 调用方自己决定传不传 —— 一般只在「这一格原来是空」时才传，否则会把用户已选的值改掉。
+     */
+    autoMatch?: string;
     onSelect?: (material: NCMaterialVFree) => void;
 }
 
-const NCMaterialVFreeView: React.FC<NCMaterialVFreeViewProps> = ({materialVID, vfreeField, onSelect}) => {
+const NCMaterialVFreeView: React.FC<NCMaterialVFreeViewProps> = ({materialVID, vfreeField, autoMatch, onSelect}) => {
 
     const {message} = App.useApp();
     const [datas, setDatas] = useState<NCMaterialVFree[]>([]);
@@ -61,6 +74,18 @@ const NCMaterialVFreeView: React.FC<NCMaterialVFreeViewProps> = ({materialVID, v
                 return;
             }
             setDatas(res.data);
+            /**
+             * 传了 `autoMatch` 就按名称找一条直接选中 —— 打开即回填，用户不用再点。
+             * 找不到**不打扰**：弹窗照常开着，让用户自己选（也继续走下面「只有一条」的兜底）。
+             */
+            const autoName = toStringOrEmpty(autoMatch).trim();
+            if (autoName) {
+                const matched = res.data.find((item) => toStringOrEmpty(item.name).trim() === autoName);
+                if (matched) {
+                    onSelect?.(matched);
+                    return;
+                }
+            }
             if (res.data.length === 1) {
                 onSelect?.(res.data[0]);
             }
@@ -69,7 +94,7 @@ const NCMaterialVFreeView: React.FC<NCMaterialVFreeViewProps> = ({materialVID, v
         } finally {
             setIsLoading(false);
         }
-    }, [materialVID, vfreeField])
+    }, [materialVID, vfreeField, autoMatch])
 
     useEffect(() => {
         void loadData();
