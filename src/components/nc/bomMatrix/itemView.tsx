@@ -26,6 +26,9 @@ import {now, toDayjs, toStringOrEmpty} from "@/utils";
 import {BOMMATRIX_BACKFLUSHTYPE_EDITOR, BOMMATRIX_ITEMSOURCE_EDITOR} from "@/components/nc/bomMatrix/common.ts";
 import NCMaterialConvertModal, {MATERIAL_CONVERT_EDITOR} from "@/components/nc/materialConvertModal.tsx";
 import {ensureConverts, putConverts, readConverts} from "@/components/nc/convertCache.ts";
+import NCProductorModal, {PRODUCTOR_EDITOR} from "@/components/nc/productorModal.tsx";
+import type {NCProductor} from "@/api/schemas/nc/NCBase.ts";
+import {ncBaseApi} from "@/api/modules/nc/base.ts";
 
 /** bom矩阵子物料树形 */
 export interface BomMatrixItemProps {
@@ -125,6 +128,8 @@ const BomMatrixItemView = React.forwardRef<BomMatrixGridApi, BomMatrixItemProps>
                 'Bdeliver': 'auto',
                 // 单位：可选值来自**这个物料**的换算单位；没有物料的空行由 canCellEdit 拦下
                 'Cassmeasure': MATERIAL_CONVERT_EDITOR,
+                // 供应商：基础档案里选一条，回填名称 + 主键（见 applyProductor）
+                'Productor': PRODUCTOR_EDITOR,
             }
         }, [isEditable])
 
@@ -317,6 +322,20 @@ const BomMatrixItemView = React.forwardRef<BomMatrixGridApi, BomMatrixItemProps>
             activeRow?.endEdit();
         }, [])
 
+        /**
+         * 选中一个生产厂商：名称 + 主键一起回填。
+         *
+         * `Productor` 是列上显示的供应商名称，`ProductorID` 是基础档案主键（不在列里，
+         * 保存时要带上）。只写名称的话落库的厂商主键还是上一家，等于没换。
+         */
+        const applyProductor = useCallback((activeRow: EditorRowAccessor | null, productor: NCProductor) => {
+            activeRow?.setFields({
+                Productor: productor.name,
+                ProductorID: productor.pk_defdoc,
+            });
+            activeRow?.endEdit();
+        }, [])
+
         const applyVFree = useCallback((activeRow: EditorRowAccessor | null, vfree: NCMaterialVFree) => {
             const updateFields: Record<string, unknown> = {}
             const fieldName = toStringOrEmpty(activeRow?.field);
@@ -352,6 +371,31 @@ const BomMatrixItemView = React.forwardRef<BomMatrixGridApi, BomMatrixItemProps>
             }
             applyConvert(activeRow, matched);
         }, [applyConvert])
+
+        /**
+         * 用户没开弹窗、直接在供应商格里输入编码/名称回车。
+         *
+         * 厂商是基础档案，接口是**全量返回**（没有按编码查的参数），所以这里拉一次列表
+         * 在内存里精确匹配 —— 与弹窗打开时走的是同一个接口。
+         * 找不到只提示，不动行里其他字段。
+         */
+        const handleInputProductor = useCallback(async (input: string, activeRow: EditorRowAccessor) => {
+            const keyword = input.trim();
+            try {
+                const result = await ncBaseApi.productor();
+                const matched = (result.data ?? []).find((item) =>
+                    toStringOrEmpty(item.code).trim() === keyword
+                    || toStringOrEmpty(item.name).trim() === keyword,
+                );
+                if (!matched) {
+                    void message.warning(`未找到生产厂商：${input}`);
+                    return;
+                }
+                applyProductor(activeRow, matched);
+            } catch (error) {
+                void message.error(ErrorMessage(error, '生产厂商查询失败'));
+            }
+        }, [applyProductor])
 
         /**
          * 用户没开弹窗、直接在单元格里输入编码回车：按编码查一次物料，查到就回填整行。
@@ -505,6 +549,13 @@ const BomMatrixItemView = React.forwardRef<BomMatrixGridApi, BomMatrixItemProps>
                                         onInput={(input, activeRow) => {
                                             void handleInputConvert(input, activeRow);
                                         }}/>
+                <NCProductorModal open={false} isEditor={true}
+                                  onSelect={(productor: NCProductor, activeRow) => {
+                                      applyProductor(activeRow, productor);
+                                  }}
+                                  onInput={(input, activeRow) => {
+                                      void handleInputProductor(input, activeRow);
+                                  }}/>
             </>
         );
     });

@@ -1,7 +1,6 @@
 import React, {useCallback} from 'react';
 import {QuickSelectView} from '../QuickSelectModal';
 import type {AppColumnDef} from '../grid-table/columnBuilder';
-import type {NCMaterialConvert} from "@/api/schemas/nc/NCMaterial.ts";
 import {RegisterInputModal, type RegisterModalProps} from "@/components/registerModal.tsx";
 import type {NCProductor} from "@/api/schemas/nc/NCBase.ts";
 import {ncBaseApi} from "@/api/modules/nc/base.ts";
@@ -26,7 +25,6 @@ export interface NCProductorViewProps {
 const NCProductorView: React.FC<NCProductorViewProps> = ({onSelect}) => {
 
     const loadData = useCallback(async (): Promise<NCProductor[]> => {
-        console.log("请求");
         const result = await ncBaseApi.productor();
         if (!result.data) {
             return [];
@@ -42,7 +40,8 @@ const NCProductorView: React.FC<NCProductorViewProps> = ({onSelect}) => {
             searchFields={['code', 'name']}
             searchLabel="快速选择:"
             searchPlaceholder={'关键字'}
-            emptyTip={'请先选择生产厂商'}
+            // 列表是基础档案全量，不依赖别的选择：空就是真的没有档案
+            emptyTip={'暂无生产厂商档案'}
             autoFillWidth={true}
             onSelect={(row) => row && onSelect(row)}
         />
@@ -60,9 +59,10 @@ const NCProductorModal: React.FC<NCProductorModalProps> = ({
                                                                onCancel,
                                                                isEditor,
                                                                onSelect,
+                                                               onInput,
                                                            }) => {
     return (
-        <RegisterInputModal<NCMaterialConvert, NCProductorViewProps>
+        <RegisterInputModal<NCProductor, NCProductorViewProps>
             open={open}
             isEditor={isEditor}
             title={'选择生产厂商'}
@@ -70,10 +70,11 @@ const NCProductorModal: React.FC<NCProductorModalProps> = ({
             editorPlaceholder="生产厂商"
             onCancel={onCancel}
             onSelect={onSelect}
+            // 用户不走弹窗、直接在格子里输入编码/名称回车的那条路：不传下去就永远收不到
+            onInput={onInput}
             width={600}
             height={400}
             View={NCProductorView}
-            viewProps={{}}
         />
     );
 }
