@@ -3,6 +3,14 @@ import type {ApiResponse} from '../../types';
 import {type BomMatrix, BomMatrixSchema,} from '../../schemas/nc/bomMatrix.ts';
 
 /**
+ * 包装bom列表请求参数
+ */
+export type packBomMatrixListReq = {
+    PackMaterialName?: string;
+    PackMaterialCode?: string;
+}
+
+/**
  * 包装 BOM 矩阵。
  *
  * 类型与 schema 都来自后端 OpenAPI 规范生成，别手改：
@@ -18,6 +26,19 @@ import {type BomMatrix, BomMatrixSchema,} from '../../schemas/nc/bomMatrix.ts';
  */
 
 export const packBomMatrixApi = {
+
+    /**
+     * 包装 BOM 矩阵列表
+     * @param params
+     */
+    list: async (params: packBomMatrixListReq): Promise<ApiResponse<BomMatrix[]>> => {
+        const res = await http.post('/nc/bom/packBomMatrix/list', params);
+        if (res.data === undefined || res.data === null) {
+            return {...res, data: undefined};
+        }
+        return {...res, data: BomMatrixSchema.array().parse(res.data)};
+    },
+
     /**
      * 包装 BOM 矩阵详情。
      *

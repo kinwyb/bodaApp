@@ -1,6 +1,6 @@
 import React, {useCallback, useImperativeHandle, useMemo, useRef, useState} from "react";
 import type {BomMatrix, BomMatrixDetail} from "@/api/schemas/nc/bomMatrix.ts";
-import {Button, Tabs, type TabsProps} from "antd";
+import {Tabs, type TabsProps} from "antd";
 import BomMatrixItemView from "./itemView.tsx";
 import BomMatrixSizeView from "./sizeView.tsx";
 import BomMatrixColorView from "./colorView.tsx";
@@ -60,7 +60,7 @@ export const BomMatrixView = React.forwardRef<BomMatrixViewApi, BomMatrixViewPro
     ref,
 ) => {
 
-    const [isEdit, setIsEdit] = useState(isEditMode ?? false);
+    const [isEdit, _] = useState(isEditMode ?? false);
     const itemsRef = useRef<BomMatrixGridApi | null>(null);
     const colorsRef = useRef<BomMatrixGridApi | null>(null);
     const sizesRef = useRef<BomMatrixGridApi | null>(null);
@@ -147,9 +147,6 @@ export const BomMatrixView = React.forwardRef<BomMatrixViewApi, BomMatrixViewPro
 
     return (
         <>
-            <Button title={'编辑'} onClick={() => {
-                setIsEdit(!isEdit);
-            }}>编辑 </Button>
             <Tabs
                 className="grid-table-expand-tabs page-tabs-fill"
                 activeKey={activeKey}
