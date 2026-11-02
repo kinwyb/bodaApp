@@ -1,0 +1,27 @@
+/*
+ * 单元格编辑器（`createWrapper` 创建的 .gt-cell-editor 容器）内部控件的样式修正。
+ *
+ * 要解决的是「输入框和它的搜索按钮不一样高」：
+ *
+ * 编辑器 wrapper 是撑满单元格的绝对定位块，EditorShell 给控件注入 width/height:100%。
+ * 普通 Input / InputNumber / Select 的根元素就是控件本身，直接跟着长高；但 Input.Search
+ * （传了 onSearch 时用的那个）根元素是个 inline-flex 容器（antd 6 内部用 Compact 拼装），
+ * 里面的 <input> 会被 stretch 到 100%，而搜索按钮是 .ant-btn，高度写死成
+ * `--ant-input-search-btn-height`（= controlHeight，32px）。
+ * 结果就是「输入框撑满单元格、按钮还是 32px」，两个圆角框对不齐：按钮比输入框矮一截、
+ * 又因为重叠布局整体偏下，看起来就是「按钮超出去一块」。
+ *
+ * 这里把按钮拉到与输入框同高；宽度用 aspect-ratio 跟着高度走（别长成一根竖条），
+ * 上限 40px 是为了行高很大的表格里按钮别把输入区挤没。
+ */
+.gt-cell-editor .ant-input-search > .ant-input,
+.gt-cell-editor .ant-input-search .ant-input-search-btn {
+  height: 100%;
+}
+
+.gt-cell-editor .ant-input-search .ant-input-search-btn {
+  flex: none;
+  width: auto;
+  aspect-ratio: 1 / 1;
+  max-width: 40px;
+}

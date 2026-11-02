@@ -14,6 +14,7 @@ import { ConfigProvider, DatePicker, Input, InputNumber, Select } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import dayjs, { type Dayjs } from 'dayjs';
 import { DATE_FORMAT, toDayjs, toNumberOrNull } from '@/utils';
+import './editors.css';
 
 // ─── @visactor/vtable IEditor 接口（与 @visactor/vtable-editors 保持兼容） ──────────────
 
@@ -469,11 +470,25 @@ function createWrapper(
   rect: Rect,
 ): { wrapper: HTMLDivElement; root: Root } {
   const wrapper = document.createElement('div');
+  wrapper.className = 'gt-cell-editor';
+  /*
+   * z-index 只能「压过表格自己」，不能压过 antd 的浮层。
+   *
+   * 原先是 10000，结果点搜索按钮打开弹窗时，编辑框会浮在弹窗**上面**（用户报的
+   * 「输入出现在弹窗前面」）：编辑器的祖先链上没有任何元素创建层叠上下文（vtable 容器
+   * 是普通 div，antd 弹窗则是 portal 到 body 的 .ant-modal-wrap，z-index 1000），
+   * 于是这个 10000 直接和弹窗的 1000 比大小，赢了。
+   *
+   * 实际需要盖住的只有表格自己的画布（canvas 没有 z-index，本来就按 DOM 顺序在上面）
+   * 与行展开覆盖层（1）、加载遮罩（2），所以 10 够用。
+   * ⚠️ 别再往大改：antd 的浮层基线是 1000（Modal / Drawer 的 mask 与 wrap），
+   * 超过它编辑器就会跑到所有弹窗前面。
+   */
   wrapper.style.cssText =
     `position:absolute;` +
     `left:${rect.left}px;top:${rect.top}px;` +
     `width:${rect.width}px;height:${rect.height}px;` +
-    `z-index:10000;background:#fff;padding:0;box-sizing:border-box;`;
+    `z-index:10;background:#fff;padding:0;box-sizing:border-box;`;
   container.appendChild(wrapper);
   return { wrapper, root: createRoot(wrapper) };
 }
