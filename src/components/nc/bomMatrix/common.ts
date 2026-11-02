@@ -139,6 +139,29 @@ registerAntdInputEditor(
 );
 
 /**
+ * 配色表的「色号」编辑器 —— **必须和 `MATERIAL_VFREE_EDITOR` 分开**。
+ *
+ * 原因不是「推不出字段名」那点小事，而是编辑器注册是「同名先到先得」
+ * （`registerAntdInputEditor` 内部的 `registerOnce`）：两张表挂的是两个
+ * `NCMaterialVFreeModal` 实例，共用一个名字时只有**先挂载**的那个能注册成功，
+ * 点搜索按钮打开的就是它的弹窗、走它的 `viewProps` —— 于是配色表写死的
+ * `vfreeField: 'vfree6'` 根本不会生效，留给后端的是颜色名（`红`），查不到数据。
+ *
+ * 一个 key 对应一个弹窗实例、一套 `viewProps`/回填逻辑，想让两张表各写各的，
+ * 只能各用各的名字。注册本身由 `NCMaterialVFreeModal` 挂载时完成（`isEditor` 模式）。
+ */
+export const BOMMATRIX_COLOR_VFREE_EDITOR = 'bomMatrix-color-vfree-editor';
+
+/**
+ * 配码表的「尺码系数」编辑器 —— 同样与 `MATERIAL_VFREE_EDITOR` 分开。
+ *
+ * 理由与配色表那条完全一样（一个 key 只对应一个弹窗实例，见上）：
+ * 这张表按 `vfree7` 取尺码，子项物料表按列名取，混用会把字段带错。
+ * 注册由 `NCMaterialVFreeModal` 挂载时完成（`isEditor` 模式）。
+ */
+export const BOMMATRIX_SIZE_VFREE_EDITOR = 'bomMatrix-size-vfree-editor';
+
+/**
  * 尺码编辑器
  */
 export const BOMMATRIX_SIZE_EDITOR = 'bomMatrix-size-editor';

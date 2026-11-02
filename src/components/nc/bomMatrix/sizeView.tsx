@@ -1,10 +1,24 @@
-import React, {useCallback, useImperativeHandle, useMemo, useRef, useState} from "react";
+import React, {useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState} from "react";
 import type {BomMatrix, BomMatrixDetail} from "@/api/schemas/nc/bomMatrix.ts";
-import {type GridTableApi, GridTable, type GridTableCellValueChangeInfo} from "@/components/grid-table";
+import type {NCMaterialVFree} from "@/api/schemas/nc/NCMaterial.ts";
+import {type GridTableApi, GridTable, type GridTableCellValueChangeInfo, type GridTableEditableCellInfo} from "@/components/grid-table";
+import type {EditorRowAccessor} from "@/components/grid-table/editors/antd-editors";
+import NCMaterialVFreeModal from "@/components/nc/materialVFreeModal.tsx";
+import {toStringOrEmpty} from "@/utils";
 import {buildSizeColumns} from "./columns.ts";
 import {type BomMatrixRow, rowKeyOf, sizeCells, toSizeRows} from "./rows.ts";
 import type {BomMatrixGridApi} from "./gridApi.ts";
 import {useEditableRows} from "./useEditableRows.ts";
+import {BOMMATRIX_SIZE_VFREE_EDITOR} from "./common.ts";
+import {ensureUseVFrees, primeUseVFrees, readUseVFrees} from "./vfreeCache.ts";
+
+/**
+ * 尺码系数对应物料的哪个辅助属性项：**固定 `vfree7`**。
+ *
+ * 尺码列的列名是 `S{码}`（`S260`），没有 `VFreeXName` 可推 —— 与子项物料表
+ * 「列名去 Name」的规则不是一回事，所以这是本文件自己的常量。
+ */
+const SIZE_VFREE_FIELD = 'vfree7';
 
 export type BomMatrixSizeViewProps = {
     /** 矩阵：尺码列（`SizeSort`）与初始格子值（`SizeMatch`）都从它来 */
@@ -53,13 +67,14 @@ const BomMatrixSizeView = React.forwardRef<BomMatrixGridApi, BomMatrixSizeViewPr
     const columns = useMemo(() => buildSizeColumns(matrix), [matrix]);
 
     /**
-     * 可编辑列：每个尺码的四个格子（损耗数量 / 系数名 / 系数编码 / 尺码用量）。
+     * 可编辑列：每个尺码的三个可见格子（损耗数量 / 系数名 / 尺码用量）。
      *
-     * 只有损耗数量与尺码用量是数字（`dataType:'int'`，'auto' 走数字框），系数名/编码是文本。
+     * 损耗数量与尺码用量是数字（`'auto'` 走数字框）；**系数名那列走辅助属性弹窗**
+     * （`BOMMATRIX_SIZE_VFREE_EDITOR`）—— 尺码系数是有字典的（物料档案里的 `vfree7`），
+     * 让用户手敲会写进一个不存在的编码，而保存时 `VFree7` 取的就是这一列。
      *
-     * ⚠️ 系数「名字」与「编码」是两个字段（`S{码}` / `S{码}_val`），界面上只显示名字那列。
-     * 用户改名时编码不会跟着变，保存时 `VFree7` 仍是旧编码 —— 要做成「选系数」得换成
-     * 一个能同时写两列的编辑器（需要系数字典接口），别在保存时猜用户想选哪个。
+     * ⚠️ 系数「名字」与「编码」是两个字段（`S{码}` / `S{码}_val`），界面上只显示名字那列；
+     * `_val` 不在列定义里（所以这里不用配），选中后由 `applySize` 跟着名字一起写回。
      */
     const editableFields = useMemo(() => {
         if (!isEditable) {
@@ -70,12 +85,73 @@ const BomMatrixSizeView = React.forwardRef<BomMatrixGridApi, BomMatrixSizeViewPr
             if (!size) return;
             const cells = sizeCells(size);
             fields[cells.sunhao] = 'auto';
-            fields[cells.name] = 'auto';
-            fields[cells.value] = 'auto';
+            fields[cells.name] = BOMMATRIX_SIZE_VFREE_EDITOR;
             fields[cells.number] = 'auto';
         });
         return fields;
     }, [isEditable, matrix.SizeSort]);
+
+    /** 尺码「系数」列（`S{码}`）：这张表里只有它们要按物料的 `vfree7` 判断 */
+    const sizeNameFields = useMemo(() => {
+        const fields = new Set<string>();
+        (matrix.SizeSort ?? []).forEach((size) => {
+            if (!size) return;
+            fields.add(sizeCells(size).name);
+        });
+        return fields;
+    }, [matrix.SizeSort]);
+
+    /**
+     * 按物料预取「能用哪些辅助属性项」，供 `canCellEdit` 同步查（见 vfreeCache）。
+     * 与另外两张表同一套：行数据一变就预热，别等选中/双击现取。
+     */
+    useEffect(() => {
+        if (!isEditable) {
+            return;
+        }
+        primeUseVFrees(rows.map((row) => toStringOrEmpty(row.MaterialVID)));
+    }, [isEditable, rows]);
+
+    /**
+     * 编辑前拦截：**尺码系数是物料的辅助属性 `vfree7`，物料没开这一项就不允许选**。
+     *
+     * 只拦系数列：损耗数量 / 尺码用量是纯数字，跟辅助属性无关，照旧可编辑。
+     * 必须同步（vtable 把返回值当「有没有编辑器」用），所以只查缓存。
+     */
+    const canCellEdit = useCallback((info: GridTableEditableCellInfo) => {
+        if (!sizeNameFields.has(info.field)) {
+            return true;
+        }
+        const materialVID = toStringOrEmpty((info.record as BomMatrixRow | undefined)?.MaterialVID);
+        if (!materialVID) {
+            // 没物料就谈不上"它的尺码"，保守拦下
+            return false;
+        }
+        const useVFrees = readUseVFrees(materialVID);
+        if (useVFrees === undefined) {
+            void ensureUseVFrees(materialVID);
+            return false;
+        }
+        return useVFrees.includes(SIZE_VFREE_FIELD);
+    }, [sizeNameFields]);
+
+    /**
+     * 弹窗选中尺码：写回**两列** —— `S{码}` 放名字、`S{码}_val` 放编码。
+     *
+     * 列名是 `S{码}`（见 rows.ts 的 `sizeCells`），编码列就是它加 `_val`；
+     * 与子项物料表 `VFree7Name` → `VFree7` 那套不同，所以单独实现。
+     */
+    const applySize = useCallback((activeRow: EditorRowAccessor | null, vfree: NCMaterialVFree) => {
+        const sizeField = toStringOrEmpty(activeRow?.field);
+        if (!sizeField) {
+            return;
+        }
+        activeRow?.setFields({
+            [sizeField]: vfree.name,
+            [`${sizeField}_val`]: vfree.pk_defdoc,
+        });
+        activeRow?.endEdit();
+    }, []);
 
     /**
      * 按行标识改若干字段（编辑单元格 / 外部命令共用）。
@@ -124,10 +200,26 @@ const BomMatrixSizeView = React.forwardRef<BomMatrixGridApi, BomMatrixSizeViewPr
     }), [rows, addRow, removeRow, updateRow]);
 
     return (
-        <GridTable ref={tableRef} columns={columns} records={rows} rowKey={'PackBomMatrixDetailID'}
-                   editableFields={editableFields}
-                   onCellValueChange={handleCellValueChange}
-                   multiSelect={false} rowNumber={false} widthMode={'autoWidth'}/>
+        <>
+            <GridTable ref={tableRef} columns={columns} records={rows} rowKey={'PackBomMatrixDetailID'}
+                       editableFields={editableFields}
+                       canEditCell={canCellEdit}
+                       onCellValueChange={handleCellValueChange}
+                       multiSelect={false} rowNumber={false} widthMode={'autoWidth'}/>
+            {/* 尺码系数弹窗：本表专属 editorKey，取数固定 vfree7、回填写回
+                `S{码}` + `S{码}_val`（与子项物料表那套不是一回事） */}
+            <NCMaterialVFreeModal
+                open={false}
+                isEditor={true}
+                editorKey={BOMMATRIX_SIZE_VFREE_EDITOR}
+                viewProps={(row) => ({
+                    materialVID: toStringOrEmpty(row?.record?.MaterialVID),
+                    vfreeField: SIZE_VFREE_FIELD,
+                })}
+                onSelect={(record, activeRow) => {
+                    applySize(activeRow, record);
+                }}/>
+        </>
     );
 });
 

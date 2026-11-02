@@ -110,7 +110,17 @@ const NCMaterialVFreeView: React.FC<NCMaterialVFreeViewProps> = ({materialVID, v
 
 export type NCMaterialVFreeModalProps = RegisterModalProps<NCMaterialVFree, {
     viewProps: (record?: EditorRowAccessor) => Omit<NCMaterialVFreeViewProps, "onSelect">;
-}>
+}> & {
+    /**
+     * 编辑器注册名。默认 `MATERIAL_VFREE_EDITOR`。
+     *
+     * 需要传的场合：**同一页有多张表各挂一个本弹窗**，且它们的 `viewProps`/回填逻辑
+     * 不一样（比如子项物料表按列名推 `vfreeField`，配色表固定 `vfree6`）。
+     * 编辑器注册是「同名先到先得」（`registerOnce`），共用名字时只有先挂载的那个实例
+     * 会生效 —— 后挂载那张表的 `viewProps` 根本不会被调用。各用各的名字即可隔离。
+     */
+    editorKey?: string;
+}
 
 /**
  * 物料辅助属性弹窗
@@ -121,14 +131,15 @@ const NCMaterialVFreeModal: React.FC<NCMaterialVFreeModalProps> = ({
                                                                        isEditor,
                                                                        onCancel,
                                                                        onSelect,
-                                                                       viewProps
+                                                                       viewProps,
+                                                                       editorKey = MATERIAL_VFREE_EDITOR
                                                                    }) => {
 
     return (
         <RegisterInputModal<NCMaterialVFree, NCMaterialVFreeViewProps>
             open={open}
             isEditor={isEditor}
-            editorKey={MATERIAL_VFREE_EDITOR}
+            editorKey={editorKey}
             editorPlaceholder="辅助属性"
             onCancel={onCancel}
             onSelect={onSelect}
