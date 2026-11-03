@@ -34,7 +34,7 @@ export const AgentSettingsDrawer: React.FC<{
     agents.find((item) => item.name === agent)?.description ?? '由服务端 hello 下发的 agent 列表';
 
   return (
-    <Drawer title="对话参数" width={360} open={open} onClose={onClose} destroyOnHidden>
+    <Drawer title="对话参数" size={360} open={open} onClose={onClose} destroyOnHidden>
       <div className="agent-settings">
         <div className="agent-settings-item">
           <div className="agent-settings-label">
