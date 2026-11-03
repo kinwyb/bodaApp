@@ -18,7 +18,7 @@ import MaterialSelect from "@/components/nc/materialSelect.tsx";
 import ConvertSelect from "@/components/nc/convertSelect.tsx";
 import {putConverts} from "@/components/nc/convertCache.ts";
 import type {NCMaterial, NCMaterialConvert, NCMaterialVFree} from "@/api/schemas/nc/NCMaterial.ts";
-import {DEFAULT_BOM_MATRIX_SECTION} from "@/components/nc/bomMatrix/sections.ts";
+import {type BomMatrixSection, DEFAULT_BOM_MATRIX_SECTION} from "@/components/nc/bomMatrix/sections.ts";
 import {BOMMATRIX_COLOR_VFREE_FIELD, BOMMATRIX_SIZE_VFREE_FIELD,} from "@/components/nc/bomMatrix/common.ts";
 import {ncMaterialApi} from "@/api/modules/nc/material.ts";
 import {packBomMatrixApi} from "@/api/modules/nc/bomMatrix.ts";
@@ -30,11 +30,27 @@ import type {
     PackBomMatrixSizeMatch
 } from "@/api/schemas/nc/bomMatrix.ts";
 import {isBlank, toStringOrEmpty} from "@/utils";
+import {useUIBridgeDialog} from "@/pages/agent/ui-bridge";
 import type {FormMode} from "../command";
+import {
+    type BomMatrixEditBridgeContext,
+    type BomMatrixFieldGroup,
+    type BomMatrixFormField,
+    createBomMatrixEditBridge,
+    PACK_FIELDS,
+    SEW_FIELDS,
+} from "./bomMatrixEditBridge";
 import "./bomMatrixEdit.css";
 
 export type BomMatrixEditProps = {
     open: boolean;
+    /**
+     * 所属页面的 view（菜单的 View 字段）。
+     *
+     * 界面桥按 view 找「这一页上打开的是哪个弹窗」，所以弹窗必须知道自己站在哪个页面里 ——
+     * 打开期间它顶掉页面的工具栏动作与列表数据，关闭后把视野还给页面。
+     */
+    view: string;
     /** add / edit / copy；view 也支持（只读预览，复用同一份布局） */
     mode: FormMode;
     /** 编辑 / 复制时的底稿；新增为 null */
@@ -151,61 +167,16 @@ function readSewFields(record: PackBomMatrix): Record<string, unknown> {
 /**
  * 表单字段描述。
  *
+ * 字段表在 `./bomMatrixEditBridge`（`PACK_FIELDS` / `SEW_FIELDS`）——**同一份**既渲染界面、
+ * 又交给 agent。写在这里的话界面上加一个字段、agent 那儿就少一个，两边迟早对不上。
+ *
+ * 每个字段带两类信息：
  * - `readOnly`：只能由物料带出来，不让手填（名称 / 版本 / 规格 / 型号 / 主单位 / 转换率
  *   都是物料的属性，手改会出现「编码是 A、名称却是 B」这种自相矛盾的数据）；
- * - `material`：物料编码 —— 用 `MaterialSelect`（输入框 + 物料弹窗 + 输入编码查库三合一），
- *   `pack` / `sew` 决定选中后回填到哪一组字段；
- * - `convert`：单位 —— 用 `ConvertSelect`，可选单位是**这个物料的换算单位**
- *   （`NCMaterial.materialconvert`），`pack` / `sew` 决定去哪一组取物料。
+ * - `material` / `convert`：这个字段在界面上是 `MaterialSelect`（输入框 + 物料弹窗 + 输码查库）
+ *   还是 `ConvertSelect`（按**这个物料的**换算单位选），`pack` / `sew` 决定回填到哪一组。
  */
-type BomMatrixField = {
-    name: string;
-    label: string;
-    readOnly?: boolean;
-    material?: 'pack' | 'sew';
-    convert?: 'pack' | 'sew';
-};
-
-/**
- * 表单字段（包装成品那一组）。
- *
- * `PackMaterialVID` 在接口里是版本 ID，界面上按「物料版本」展示 —— 接保存时要么换成
- * 物料选择器回填，要么由后端按 VID 补齐，别在这里手填名字。
- */
-const PACK_FIELDS: BomMatrixField[] = [
-    {name: 'PackMaterialCode', label: '物料编码', material: 'pack'},
-    {name: 'PackMaterialName', label: '物料名称', readOnly: true},
-    {name: 'PackMaterialVersion', label: '物料版本', readOnly: true},
-    {name: 'PackMaterialSpec', label: '物料规格', readOnly: true},
-    {name: 'PackMaterialModel', label: '物料型号', readOnly: true},
-    {name: 'CMeasure', label: '主单位', readOnly: true},
-    {name: 'VChangerate', label: '转换率', readOnly: true},
-    {name: 'Cassmeasure', label: '单位', convert: 'pack'},
-    {name: 'PackMethod', label: '包装方法'},
-    {name: 'PackNum', label: '包装数量'},
-    {name: 'ProjectCode', label: '项目'},
-];
-
-/**
- * 产成品那一组。
- *
- * 接口目前只存 `SewMaterialVID`（缝制物料 ID），编码 / 名称 / 单位这些都是按 VID 带出来的，
- * 所以这里用 `Sew` 前缀占位：接保存时由物料选择器回填，或让后端补齐，别直接提交这些字段。
- *
- * 「物料编码」是这一组唯一的编辑入口 —— **它决定下面子项明细能不能编**（见 `canEditMatrix`）。
- */
-const SEW_FIELDS: BomMatrixField[] = [
-    {name: 'SewMaterialCode', label: '物料编码', material: 'sew'},
-    {name: 'SewMaterialName', label: '物料名称', readOnly: true},
-    {name: 'SewMaterialVersion', label: '物料版本', readOnly: true},
-    {name: 'SewMaterialSpec', label: '物料规格', readOnly: true},
-    {name: 'SewMaterialModel', label: '物料型号', readOnly: true},
-    {name: 'SewCMeasure', label: '主单位', readOnly: true},
-    {name: 'SewVChangerate', label: '转换率', readOnly: true},
-    {name: 'SewCassmeasure', label: '单位', convert: 'sew'},
-];
-
-const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, mode, record, onClose}) => {
+const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, onClose}) => {
     const {message} = App.useApp();
     const [form] = Form.useForm<Record<string, unknown>>();
     /**
@@ -340,6 +311,15 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, mode, record, onClos
     const [sewSort, setSewSort] = useState<{
         colors: string[];
         sizes: string[],
+        /**
+         * 字典原项（名称 + 编码），`colors` / `sizes` 只是它的名称那一列。
+         *
+         * 界面桥要用它：配色 / 配码表里可编辑的是**名称列**（`红` / `260`），
+         * 而保存时 `ColorMatch.VFree6` / `SizeMatch.VFree7` 要的是**编码**（存在 `{列名}_val`）。
+         * agent 只知道名称，得由这里按名查出编码一起写进去，否则保存时色号编码是空的。
+         */
+        colorItems: NCMaterialVFree[],
+        sizeItems: NCMaterialVFree[],
         colorMatch: Record<string, Record<string, PackBomMatrixColorMatch>>,
         sizeMatch: Record<string, Record<string, PackBomMatrixSizeMatch>>,
     } | null>(null);
@@ -522,6 +502,9 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, mode, record, onClos
             const next = {
                 colors: toSortNames(colors.data),
                 sizes: toSortNames(sizes.data),
+                // 字典原项留着：界面桥写色号 / 尺码系数时要按名查出编码（见 state 上的注释）
+                colorItems: colors.data ?? [],
+                sizeItems: sizes.data ?? [],
                 colorMatch: toColorMatch(materialVID, '10', colors.data),
                 sizeMatch: toSizeMatch(materialVID, '10', sizes.data),
             };
@@ -535,7 +518,7 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, mode, record, onClos
              * 取不到就按「没有列」处理，**不要**保留底稿那份：那是上一个产成品的颜色 / 尺码，
              * 留在屏幕上会让人以为新物料也是这些颜色。
              */
-            setSewSort({colors: [], sizes: [], colorMatch: {}, sizeMatch: {}});
+            setSewSort({colors: [], sizes: [], colorItems: [], sizeItems: [], colorMatch: {}, sizeMatch: {}});
             void message.error(ErrorMessage(err, '产成品的颜色 / 尺码清单加载失败'));
         }
     }, [message]);
@@ -651,13 +634,185 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, mode, record, onClos
     }, [form]);
 
     /**
+     * 详情就绪没有：编辑 / 复制 / 查看要先等详情，新增天生就绪。
+     *
+     * 界面桥的 `ready` 与「三张表能不能读」都问它 —— 详情没到之前字段是空的、表格也没渲染，
+     * 那时看快照的模型会以为「这份矩阵本来就这么空」。
+     */
+    const detailReady = useCallback(
+        () => !loadingDetail && !detailFailed,
+        [loadingDetail, detailFailed],
+    );
+
+    /**
+     * 某个字段此刻为什么改不了（null = 可以改）。
+     *
+     * **锁的唯一真相在这里**：界面上的 `disabled`（只读字段）与界面桥的 `fieldLock` 读同一份判断。
+     * 桥那边再推一遍「查看模式只读 / 详情没到别改」必然与界面漂移 —— 界面上能改、agent 那儿说不能。
+     */
+    const fieldLock = useCallback((_fieldId: string): string | null => {
+        if (mode === 'view') return '当前是查看模式：整张表单只读';
+        if (loadingDetail) return '矩阵详情还在加载：加载完会整体覆盖一次，改了也留不住';
+        if (detailFailed) return '矩阵详情没加载出来：先点表格位置的「重试」，否则改了会被覆盖';
+        return null;
+    }, [mode, loadingDetail, detailFailed]);
+
+    /**
+     * 按分组把物料属性带出来（界面桥的 form.set 写物料编码时走这里）。
+     *
+     * 就是用户在选择器里选中物料的同一条路 —— 产成品还会重铺明细第一行、按新物料重取颜色 / 尺码列，
+     * 桥要是自己回填那几个字段，产成品那一整套副作用就漏了。
+     */
+    const applyMaterialByGroup = useCallback((group: BomMatrixFieldGroup, material: NCMaterial) => {
+        if (group === 'sew') applySewMaterial(material);
+        else applyPackMaterial(material);
+    }, [applySewMaterial, applyPackMaterial]);
+
+    /** 按分组写「单位 + 换算率」（与界面上选单位同一条路） */
+    const applyConvertByGroup = useCallback((group: BomMatrixFieldGroup, convert: NCMaterialConvert) => {
+        if (group === 'sew') applySewConvert(convert);
+        else applyPackConvert(convert);
+    }, [applySewConvert, applyPackConvert]);
+
+    /**
+     * 某张矩阵表的当前行（含未保存的编辑）。
+     *
+     * 走控件的 `readRows` 而不是 `readTable`：面板是懒挂载的，没切过去的那两张读不到实例，
+     * 但它们的行数据可以按当前明细现算 —— 与第一次打开时看到的一致。
+     */
+    const readMatrixRows = useCallback(
+        (section: BomMatrixSection) => matrixRef.current?.readRows(section) ?? [],
+        [],
+    );
+
+    /**
+     * 某张矩阵表的**行级写能力**（`addRow` / `removeRow` / `updateRow`）。
+     *
+     * 界面桥的写命令走它而不是直接改行数组：子项物料表的行事件就是在这里发出的，
+     * 父级据此让配色 / 配码各改各的行 —— 绕过它改，三张表当场就对不上了。
+     * 面板没渲染过时是 null（写必须落到真实的表上）。
+     */
+    const readMatrixGrid = useCallback(
+        (section: BomMatrixSection) => matrixRef.current?.readGrid(section) ?? null,
+        [],
+    );
+
+    /**
+     * 下方三张表此刻为什么不能编（null = 能编）。
+     *
+     * 判据与界面上的「蒙层」同一条（`canEditMatrix`）：查看模式恒不能；其余模式要求先选产成品。
+     * 桥若自己另算一遍，就会出现「界面上蒙着、agent 却能改」。
+     */
+    const matrixEditLock = useCallback((): string | null => {
+        if (mode === 'view') return '当前是查看模式：下方三张表只读';
+        if (!hasSewMaterial) {
+            return '还没选产成品物料：先 form.set SewMaterialCode（它决定下方三张表能不能编）';
+        }
+        return null;
+    }, [mode, hasSewMaterial]);
+
+    /**
+     * 色号 / 尺码系数的字典（名称 → 编码）。
+     *
+     * 配色 / 配码表里可编辑的是**名称列**（`红` / `260`），而保存时 `ColorMatch.VFree6`、
+     * `SizeMatch.VFree7` 要的是**编码**（存在 `{列名}_val`）。agent 只知道名称，
+     * 所以桥写这两列时得由这里按名查出编码一起写 —— 否则保存时色号 / 系数编码是空的。
+     *
+     * 两个来源按顺序取：
+     * - `sewSort` 里的字典原项：刚按产成品取过，最全；
+     * - 底稿已有的匹配（`ColorMatch` / `SizeMatch`）：编辑已有矩阵、还没换过产成品时只有这一份
+     *   （它只含「已经填过的那些」，全新的色号在这里查不到，桥会如实拒绝）。
+     */
+    const readValueOptions = useCallback((kind: 'color' | 'size'): Array<{ name: string, id: string }> => {
+        const dict = new Map<string, string>();
+        const items = kind === 'color' ? sewSort?.colorItems : sewSort?.sizeItems;
+        (items ?? []).forEach((item) => {
+            const name = toStringOrEmpty(item.name).trim();
+            if (name) dict.set(name, toStringOrEmpty(item.pk_defdoc));
+        });
+        if (dict.size === 0) {
+            const matches = kind === 'color' ? matrix.ColorMatch : matrix.SizeMatch;
+            Object.values(matches ?? {}).forEach((cells) => {
+                Object.values(cells ?? {}).forEach((cell) => {
+                    const name = toStringOrEmpty(kind === 'color'
+                        ? (cell as PackBomMatrixColorMatch).VFree6Name
+                        : (cell as PackBomMatrixSizeMatch).VFree7Name).trim();
+                    if (!name) return;
+                    dict.set(name, toStringOrEmpty(kind === 'color'
+                        ? (cell as PackBomMatrixColorMatch).VFree6
+                        : (cell as PackBomMatrixSizeMatch).VFree7));
+                });
+            });
+        }
+        return [...dict.entries()].map(([name, id]) => ({name, id}));
+    }, [sewSort, matrix]);
+
+    /** 表单级提示：详情加载失败不属于任何一个字段，界面只画在表格位置 */
+    const formErrors = useCallback(
+        () => (detailFailed ? ['矩阵详情没加载出来，下方三张表当前不可用（让用户点「重试」）'] : []),
+        [detailFailed],
+    );
+
+    /**
+     * 保存（界面桥的 form.submit 走这里）。
+     *
+     * 接口没接：**如实回失败**。假装成功的话模型会当成已入库，接着去核对一份不存在的记录。
+     */
+    const submit = useCallback(async (): Promise<{ ok: boolean; message: string }> => ({
+        ok: false,
+        message: '保存：矩阵保存接口还没接入（当前只做了界面）—— 这一份没有落库能力，别重试，如实告诉用户',
+    }), []);
+
+    /**
+     * 交给弹窗桥的状态与能力：字段表、动作表、提交语义都在 `./bomMatrixEditBridge`。
+     *
+     * 传取值函数而不是对象本身 —— 桥在 snapshot / 命令执行的那一刻才读，
+     * 所以宿主不必跟着每次渲染重建。
+     */
+    const bridgeContext = useMemo<BomMatrixEditBridgeContext>(() => ({
+        title: MODE_TITLE[mode],
+        mode,
+        recordId: matrixID || null,
+        form,
+        isReady: detailReady,
+        fieldLock,
+        applyMaterial: applyMaterialByGroup,
+        applyConvert: applyConvertByGroup,
+        matrixReadable: detailReady,
+        matrix,
+        activeKey,
+        setActiveKey,
+        readRows: readMatrixRows,
+        readGrid: readMatrixGrid,
+        matrixEditLock,
+        readValueOptions,
+        formErrors,
+        submit,
+        close: onClose,
+    }), [
+        mode, matrixID, form, detailReady, fieldLock, applyMaterialByGroup, applyConvertByGroup,
+        matrix, activeKey, readMatrixRows, readMatrixGrid, matrixEditLock, readValueOptions,
+        formErrors, submit, onClose,
+    ]);
+
+    const dialogBridge = useMemo(
+        () => createBomMatrixEditBridge(() => bridgeContext),
+        [bridgeContext],
+    );
+    /*
+     * 弹窗自己注册到界面桥：打开期间顶掉页面的工具栏动作、查询条件与列表数据，guide 也换成表单那份；
+     * 关闭后自动让位 —— 覆盖规则由桥统一实现，见 ui-bridge/handler.ts 的 composeSnapshot。
+     */
+    useUIBridgeDialog(view, dialogBridge, open);
+
+    /**
      * 渲染一个字段的控件。
      *
      * - 物料编码：`MaterialSelect`（输入框 + 弹窗 + 输入编码查库，组件自己管这几个交互）；
      * - 单位：`ConvertSelect`（按**这个物料的**换算单位选，选完带出换算率）；
      * - 其余：普通输入框，`readOnly` 的禁用（值由物料带出）。
      */
-    const renderControl = useCallback((field: BomMatrixField) => {
+    const renderControl = useCallback((field: BomMatrixFormField) => {
         if (field.material) {
             const isSew = field.material === 'sew';
             return (
@@ -733,7 +888,7 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, mode, record, onClos
                     <div className="bom-matrix-group-title">包装成品</div>
                     <div className="bom-matrix-fields">
                         {PACK_FIELDS.map((field) => (
-                            <Form.Item key={field.name} name={field.name} label={field.label}>
+                            <Form.Item key={field.id} name={field.id} label={field.label}>
                                 {renderControl(field)}
                             </Form.Item>
                         ))}
@@ -748,7 +903,7 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, mode, record, onClos
                             <Input/>
                         </Form.Item>
                         {SEW_FIELDS.map((field) => (
-                            <Form.Item key={field.name} name={field.name} label={field.label}>
+                            <Form.Item key={field.id} name={field.id} label={field.label}>
                                 {renderControl(field)}
                             </Form.Item>
                         ))}

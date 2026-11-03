@@ -43,6 +43,16 @@ export type BomMatrixViewApi = {
      * 现算的结果与它第一次打开时会看到的完全一致。
      */
     readRows: (section: string) => Record<string, unknown>[];
+    /**
+     * 取某个标签页的**行级命令 API**（`addRow` / `removeRow` / `updateRow` / `getRows`）。
+     *
+     * 界面桥靠它给 agent 开写入口：**故意走这一套而不是直接改行数组** ——
+     * 子项物料表的行事件（`onRowEvent`）就在这里发出，父级据此让配色 / 配码各改各的行，
+     * 绕过它改数据 = 三张表当场对不上（`readRows('colors')` 还是旧行）。
+     *
+     * 返回 null = 这一页还没渲染过（懒挂载）：写之前得先让它挂载（切到那一页）。
+     */
+    readGrid: (section: string) => BomMatrixGridApi | null;
 };
 
 /**
@@ -125,6 +135,18 @@ export const BomMatrixView = React.forwardRef<BomMatrixViewApi, BomMatrixViewPro
             if (section === 'colors') return colorsRef.current?.getRows() ?? toColorRows(bomMatrix, currentDetail());
             if (section === 'sizes') return sizesRef.current?.getRows() ?? toSizeRows(bomMatrix, currentDetail());
             return [];
+        },
+        /*
+         * 写能力的入口：三张表各自的命令 API 在 ref 里。
+         *
+         * 面板没挂载时给 null（不是「现造一份」）：写操作必须落到真实的表上，
+         * 现算出来的行只适合读 —— 往一个临时数组里写，屏幕上什么都不会变。
+         */
+        readGrid: (section: string) => {
+            if (section === 'items') return itemsRef.current;
+            if (section === 'colors') return colorsRef.current;
+            if (section === 'sizes') return sizesRef.current;
+            return null;
         },
     }), [bomMatrix, currentDetail, detailItems]);
 

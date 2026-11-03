@@ -429,8 +429,11 @@ const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({view, trail}) => {
                     </Splitter.Panel>
                 </Splitter>
             </div>
-            {/* 新增 / 编辑 / 复用的表单弹窗：打开期间顶掉页面这一层（保存不接后端） */}
-            <BomMatrixEdit key={formKey} open={formOpen} mode={formMode} record={formRecord} onClose={handleCloseForm}/>
+            {/* 新增 / 编辑 / 复用的表单弹窗：打开期间顶掉页面这一层（保存不接后端）。
+                传 view 是因为弹窗自己注册界面桥：打开时它顶掉页面的动作表与列表数据，
+                关闭后再让位回来 —— 桥按 view 找「这一页上打开的是哪个弹窗」。 */}
+            <BomMatrixEdit key={formKey} open={formOpen} view={view} mode={formMode} record={formRecord}
+                           onClose={handleCloseForm}/>
         </div>
     );
 }
