@@ -100,6 +100,20 @@ registerAntdSelectEditor(
 )
 
 /**
+ * 缝制颜色 / 缝制尺码对应的物料辅助属性项：**固定 `vfree6` / `vfree7`**。
+ *
+ * 三个地方必须同一口径：配色表的色号字典、配码表的尺码系数字典、
+ * 以及「选了产成品后按它铺出颜色列 / 尺码列」（见 `models/bomMatrixEdit` 的 `sewSort`）。
+ * 各写一份的话，某天改字段只会改到其中一处 —— 表现就是「按 vfree6 生成了列、
+ * 双击却去查 vfree7 的字典」，格子里永远选不出东西。
+ *
+ * 配色 / 配码的**列名**就是字典项的 `name`（`红`、`260`），不是编码：
+ * 两份 `Match` 里存的也是 `VFree6Name` / `VFree7Name`，编码只留在 `{列名}_val`。
+ */
+export const BOMMATRIX_COLOR_VFREE_FIELD = 'vfree6';
+export const BOMMATRIX_SIZE_VFREE_FIELD = 'vfree7';
+
+/**
  * 配色表的「色号」编辑器 —— **必须和 `MATERIAL_VFREE_EDITOR` 分开**。
  *
  * 原因不是「推不出字段名」那点小事，而是编辑器注册是「同名先到先得」

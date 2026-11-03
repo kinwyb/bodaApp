@@ -49,7 +49,15 @@ const NCProductorView: React.FC<NCProductorViewProps> = ({onSelect}) => {
 };
 
 
-export type NCProductorModalProps = RegisterModalProps<NCProductor, NCProductorViewProps>;
+export type NCProductorModalProps = RegisterModalProps<NCProductor, NCProductorViewProps> & {
+    /**
+     * 编辑器注册名，默认 `PRODUCTOR_EDITOR`。
+     *
+     * 同一页面有多个表格实例时（页面只读一张 + 弹窗可编辑一张）必须各用各的名字：
+     * 注册表全局、同名先到先得，后注册的会被忽略（见 `bomMatrix/editorScope.ts`）。
+     */
+    editorKey?: string;
+};
 
 /**
  * 生产厂商选择
@@ -60,13 +68,14 @@ const NCProductorModal: React.FC<NCProductorModalProps> = ({
                                                                isEditor,
                                                                onSelect,
                                                                onInput,
+                                                               editorKey = PRODUCTOR_EDITOR,
                                                            }) => {
     return (
         <RegisterInputModal<NCProductor, NCProductorViewProps>
             open={open}
             isEditor={isEditor}
             title={'选择生产厂商'}
-            editorKey={PRODUCTOR_EDITOR}
+            editorKey={editorKey}
             editorPlaceholder="生产厂商"
             onCancel={onCancel}
             onSelect={onSelect}

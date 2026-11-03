@@ -14,16 +14,9 @@ import {buildColorColumns} from "./columns.ts";
 import {type BomMatrixRow, colorCells, rowKeyOf, toColorRows} from "./rows.ts";
 import type {BomMatrixGridApi} from "./gridApi.ts";
 import {useEditableRows} from "./useEditableRows.ts";
-import {BOMMATRIX_COLOR_VFREE_EDITOR} from "./common.ts";
+import {BOMMATRIX_COLOR_VFREE_EDITOR, BOMMATRIX_COLOR_VFREE_FIELD} from "./common.ts";
+import {scopedEditorKey, useEditorScope} from "./editorScope.ts";
 import {ensureUseVFrees, primeUseVFrees, readUseVFrees} from "./vfreeCache.ts";
-
-/**
- * 色号对应物料的哪个辅助属性项：**固定 `vfree6`**。
- *
- * 颜色列的列名就是颜色本身（`红`、`蓝`），没有 `VFreeXName` 可推 —— 与子项物料表
- * 那套「列名去 Name」的规则不是一回事，所以这是本文件自己的常量，别往上抽。
- */
-const COLOR_VFREE_FIELD = 'vfree6';
 
 export type BomMatrixColorViewProps = {
     /** 矩阵：颜色列（`ColorSort`）与初始色号（`ColorMatch`）都从它来 */
@@ -51,12 +44,35 @@ const BomMatrixColorView = React.forwardRef<BomMatrixGridApi, BomMatrixColorView
         /* 首帧按「当前明细」铺（可能已经比 props.items 多/少几行），这份同时是第一份本地改动 */
         const [initialRows] = useState(() => toColorRows(matrix, getItems()));
 
-        /* 行 = 派生一份 + 本地改动优先；换一份矩阵自动重置（详见 useEditableRows） */
+        /*
+         * 行 = 派生一份 + 本地改动优先。
+         *
+         * ⚠️ `source` 传的是 **`items`（明细引用）而不是 `matrix`**，这是「少行」那类问题的开关：
+         * 这张表的行是子项物料的投影，什么时候该整块重铺只取决于**明细换没换**
+         * （换单 / 换产成品）。用 `matrix` 当判据时，颜色列一到（选了产成品、字典异步回来）
+         * 就会重铺一次，而重铺用的是 `props.items` —— 那是接口那份明细，
+         * **不含子项物料表里本地新加的行**，屏幕上就凭空少一行
+         * （用户实测：子项物料 10/20/30，配色只剩 10/30）。
+         *
+         * 列变化本身不需要重铺：新列在行上本来就没有字段（显示空），旧列上的本地编辑也该留着。
+         */
         const baseRows = useMemo(() => toColorRows(matrix, items), [matrix, items]);
-        const {rows, commit} = useEditableRows(baseRows, matrix, initialRows);
+        const {rows, commit} = useEditableRows(baseRows, items, initialRows);
         const tableRef = useRef<GridTableApi | null>(null);
 
+        /** 本实例前缀：同一页面可能同时有页面那张和弹窗那张（见 `./editorScope.ts`） */
+        const editorScope = useEditorScope();
+
         const columns = useMemo(() => buildColorColumns(matrix), [matrix]);
+
+        /**
+         * 本实例专属的编辑器名（见 `./editorScope.ts`）。
+         *
+         * 这个 key 是「配色表固定 vfree6」与「子项物料表按列名推字段」两套逻辑的分界：
+         * 只有各用各的名字，弹窗里那张配色表才不会拿到页面上那张的回调闭包
+         * （否则点开色号弹窗、选完却写不回这一格）。
+         */
+        const colorEditorKey = scopedEditorKey(BOMMATRIX_COLOR_VFREE_EDITOR, editorScope);
 
         /**
          * 可编辑列：每个颜色的色号（名字列；编码列不在列定义里，改不到）。
@@ -64,10 +80,11 @@ const BomMatrixColorView = React.forwardRef<BomMatrixGridApi, BomMatrixColorView
          * 走辅助属性弹窗而不是普通输入框：色号是有字典的（物料档案里的 `vfree6`），
          * 让用户手敲会写进一个不存在的编码。
          *
-         * ⚠️ 用的是**本表专属**的 `BOMMATRIX_COLOR_VFREE_EDITOR`，不能复用子项物料表的
-         * `MATERIAL_VFREE_EDITOR`：编辑器注册同名先到先得，共用名字时只有先挂载的那个
-         * 弹窗实例生效，这张表写死的 `vfreeField: 'vfree6'` 会被对方的 viewProps 顶掉
-         * （结果就是拿颜色名去查色号字典）。详见 common.ts 的常量注释。
+         * ⚠️ 用的是**本表专属**的编辑器名（`BOMMATRIX_COLOR_VFREE_EDITOR` + 实例前缀），
+         * 不能复用子项物料表的 `MATERIAL_VFREE_EDITOR`：编辑器注册同名先到先得，
+         * 共用名字时只有先挂载的那个弹窗实例生效，这张表写死的 `vfreeField: 'vfree6'`
+         * 会被对方的 viewProps 顶掉（结果就是拿颜色名去查色号字典）。
+         * 详见 common.ts 与 editorScope.ts 的注释。
          */
         const editableFields = useMemo(() => {
             if (!isEditable) {
@@ -77,10 +94,10 @@ const BomMatrixColorView = React.forwardRef<BomMatrixGridApi, BomMatrixColorView
             (matrix.ColorSort ?? []).forEach((color) => {
                 if (!color) return;
                 const cells = colorCells(color);
-                fields[cells.name] = BOMMATRIX_COLOR_VFREE_EDITOR;
+                fields[cells.name] = colorEditorKey;
             });
             return fields;
-        }, [isEditable, matrix.ColorSort]);
+        }, [isEditable, matrix.ColorSort, colorEditorKey]);
 
         /**
          * 按物料预取「能用哪些辅助属性项」，供 `canCellEdit` 同步查（见 vfreeCache）。
@@ -112,7 +129,7 @@ const BomMatrixColorView = React.forwardRef<BomMatrixGridApi, BomMatrixColorView
                 void ensureUseVFrees(materialVID);
                 return false;
             }
-            return useVFrees.includes(COLOR_VFREE_FIELD);
+            return useVFrees.includes(BOMMATRIX_COLOR_VFREE_FIELD);
         }, []);
 
         /**
@@ -188,10 +205,10 @@ const BomMatrixColorView = React.forwardRef<BomMatrixGridApi, BomMatrixColorView
                 <NCMaterialVFreeModal
                     open={false}
                     isEditor={true}
-                    editorKey={BOMMATRIX_COLOR_VFREE_EDITOR}
+                    editorKey={colorEditorKey}
                     viewProps={(row) => ({
                         materialVID: toStringOrEmpty(row?.record?.MaterialVID),
-                        vfreeField: COLOR_VFREE_FIELD,
+                        vfreeField: BOMMATRIX_COLOR_VFREE_FIELD,
                     })}
                     onSelect={(record, activeRow) => {
                         applyColor(activeRow, record);

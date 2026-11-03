@@ -241,15 +241,33 @@ const NCMaterialView: React.FC<NCMaterialViewProps> = ({filter, onSelect}) => {
     );
 }
 
-export type NCMaterialModalProps = RegisterModalProps<NCMaterial, NCMaterialViewProps>;
+export type NCMaterialModalProps = RegisterModalProps<NCMaterial, NCMaterialViewProps> & {
+    /**
+     * 编辑器注册名，默认 `MATERIAL_EDITOR`。
+     *
+     * 需要传的场合：**同一页面同时存在多个会用到本弹窗的表格实例**
+     * （比如页面上只读一张、弹窗里可编辑一张）。注册表是全局且同名先到先得，
+     * 后挂载的实例会拿到前一个实例的回调闭包，选完物料写不回自己那张表。
+     * 各实例用各自的名字即可隔离（见 `bomMatrix/editorScope.ts`）。
+     */
+    editorKey?: string;
+};
 
-const NCMaterialModal: React.FC<NCMaterialModalProps> = ({open, onCancel, isEditor, onSelect, onInput, filter}) => {
+const NCMaterialModal: React.FC<NCMaterialModalProps> = ({
+                                                             open,
+                                                             onCancel,
+                                                             isEditor,
+                                                             onSelect,
+                                                             onInput,
+                                                             filter,
+                                                             editorKey = MATERIAL_EDITOR,
+                                                         }) => {
     return (
         <RegisterInputModal<NCMaterial, NCMaterialViewProps>
             open={open}
             isEditor={isEditor}
             title={'物料选择'}
-            editorKey={MATERIAL_EDITOR}
+            editorKey={editorKey}
             editorPlaceholder="物料"
             onCancel={onCancel}
             onSelect={onSelect}

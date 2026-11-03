@@ -12,10 +12,17 @@
  * ```
  *
  * 交互约定（与 BOM 矩阵里格子的物料编辑保持一致）：
- * - 直接输入编码后回车（或点放大镜）→ 按编码查一次 `nc/material/query`；
- *   **正好一条**就当场回填并回调 `onSelect`，多条/零条才打开弹窗；
+ * - **点放大镜 = 打开物料选择框**（不管输入框里现在有没有编码）。用户的动作是「我要换个物料」，
+ *   不该拿旧编码去查一遍再悄悄回填同一个 —— 以前两种情况混在一起，选了物料之后再点放大镜
+ *   就只剩一串请求、弹窗死活不出来（像是坏了）；
+ * - **输入编码后回车 = 按编码查一次** `nc/material/query`：**正好一条**就当场回填并回调
+ *   `onSelect`，多条/零条才打开弹窗（替用户选第一条等于赌运气）；
  * - 清空输入框 → 编码变成空串，`material` 传 `null`，调用方据此清掉名称、单位这些关联字段；
  * - 弹窗只是辅助入口：分类树 + 关键字查库，双击一行选中（弹窗自己的行为）。
+ *
+ * 「点按钮」与「回车」靠 `onSearch` 的事件类型区分（antd 两种情况都给 `onSearch`，
+ * `event.type` 分别是 `click` / `keydown`）；点清除按钮也会走一次 `onSearch`（`info.source === 'clear'`），
+ * 那一次必须忽略，否则清空时又弹出选择框。
  */
 
 import React, {useCallback, useState} from 'react';
@@ -90,8 +97,13 @@ export const MaterialSelect: React.FC<MaterialSelectProps> = ({
     /**
      * 回车 / 点放大镜。
      *
-     * 空着点放大镜 = 想从弹窗里挑，直接打开；有编码先查一次 ——
-     * 只有「正好一条」才敢替用户定下来，多条让它进弹窗挑（替它选第一条等于赌运气）。
+     * 两种情况都落到 `onSearch`，但**不是一回事**：
+     * - 点放大镜（`event.type === 'click'`）→ 直接开选择框：用户的意图是「换个物料」，
+     *   拿输入框里那个旧编码再查一遍、命中就回填同一个物料，看起来就是「点了没反应」；
+     * - 回车（`keydown`）→ 按编码查一次，只有「正好一条」才敢替用户定下来，
+     *   多条让它进弹窗挑（替它选第一条等于赌运气）；
+     * - 点清除按钮也会触发一次 `onSearch`（`info.source === 'clear'`），必须忽略 ——
+     *   清空由 `onChange` 那条路负责，这里再弹框就成了「点 X 反而打开选择框」。
      */
     const handleSearch = useCallback(async (raw: string) => {
         const code = raw.trim();
@@ -141,7 +153,16 @@ export const MaterialSelect: React.FC<MaterialSelectProps> = ({
                 placeholder={placeholder}
                 // 手输与清空都只回编码，material 传 null：关联字段该不该清由调用方判断
                 onChange={(event) => handleInput(event.target.value)}
-                onSearch={(raw) => void handleSearch(raw)}
+                onSearch={(raw, event, info) => {
+                    // 点清除按钮时 antd 也会回调一次：那是“清空”，不是“查一下”，更不能弹框
+                    if (info?.source === 'clear') return;
+                    if (event?.type === 'click') {
+                        // 点放大镜 = 打开选择框（见文件头的交互约定）
+                        setOpen(true);
+                        return;
+                    }
+                    void handleSearch(raw);
+                }}
             />
             <NCMaterialModal
                 open={open}

@@ -14,16 +14,9 @@ import {buildSizeColumns} from "./columns.ts";
 import {type BomMatrixRow, rowKeyOf, sizeCells, toSizeRows} from "./rows.ts";
 import type {BomMatrixGridApi} from "./gridApi.ts";
 import {useEditableRows} from "./useEditableRows.ts";
-import {BOMMATRIX_SIZE_VFREE_EDITOR} from "./common.ts";
+import {BOMMATRIX_SIZE_VFREE_EDITOR, BOMMATRIX_SIZE_VFREE_FIELD} from "./common.ts";
+import {scopedEditorKey, useEditorScope} from "./editorScope.ts";
 import {ensureUseVFrees, primeUseVFrees, readUseVFrees} from "./vfreeCache.ts";
-
-/**
- * 尺码系数对应物料的哪个辅助属性项：**固定 `vfree7`**。
- *
- * 尺码列的列名是 `S{码}`（`S260`），没有 `VFreeXName` 可推 —— 与子项物料表
- * 「列名去 Name」的规则不是一回事，所以这是本文件自己的常量。
- */
-const SIZE_VFREE_FIELD = 'vfree7';
 
 export type BomMatrixSizeViewProps = {
     /** 矩阵：尺码列（`SizeSort`）与初始格子值（`SizeMatch`）都从它来 */
@@ -61,13 +54,27 @@ const BomMatrixSizeView = React.forwardRef<BomMatrixGridApi, BomMatrixSizeViewPr
         const [initialRows] = useState(() => toSizeRows(matrix, getItems()));
 
         /*
-         * 行数据 = 「派生一份 + 本地改动优先」：
-         * 派生只看 matrix/items，但用户一编辑就落在本地，派生结果再算也不会顶掉它；
-         * 换一份矩阵（`matrix` 引用变了）本地改动作废，自动回到按新数据派生的行。
+         * 行数据 = 「派生一份 + 本地改动优先」。
+         *
+         * ⚠️ `source` 传的是 **`items`（明细引用）而不是 `matrix`**，理由与配色表一致：
+         * 只有**明细换没换**（换单 / 换产成品）才该整块重铺。用 `matrix` 当判据时，
+         * 尺码列一到（选完产成品、字典异步回来）就重铺一次，而重铺用的是 `props.items` ——
+         * 接口那份明细，不含子项物料表里本地新加的行，屏幕上的行就少了。
+         * 列变化不需要重铺：新列在行上本来就没有字段（显示空）。
          */
         const baseRows = useMemo(() => toSizeRows(matrix, items), [matrix, items]);
-        const {rows, commit} = useEditableRows(baseRows, matrix, initialRows);
+        const {rows, commit} = useEditableRows(baseRows, items, initialRows);
         const tableRef = useRef<GridTableApi | null>(null);
+
+        /** 本实例前缀：同一页面可能同时有页面那张和弹窗那张（见 `./editorScope.ts`） */
+        const editorScope = useEditorScope();
+        /**
+         * 本实例专属的「尺码系数」编辑器名。
+         *
+         * 与配色表同一个道理：注册表是全局同名的，不隔离时弹窗里这张会拿到页面上那张的
+         * 回调闭包 —— 双击能开弹窗，选完却写不回这一格。
+         */
+        const sizeEditorKey = scopedEditorKey(BOMMATRIX_SIZE_VFREE_EDITOR, editorScope);
 
         const columns = useMemo(() => buildSizeColumns(matrix), [matrix]);
 
@@ -75,7 +82,7 @@ const BomMatrixSizeView = React.forwardRef<BomMatrixGridApi, BomMatrixSizeViewPr
          * 可编辑列：每个尺码的三个可见格子（损耗数量 / 系数名 / 尺码用量）。
          *
          * 损耗数量与尺码用量是数字（`'auto'` 走数字框）；**系数名那列走辅助属性弹窗**
-         * （`BOMMATRIX_SIZE_VFREE_EDITOR`）—— 尺码系数是有字典的（物料档案里的 `vfree7`），
+         * （本实例的 `sizeEditorKey`）—— 尺码系数是有字典的（物料档案里的 `vfree7`），
          * 让用户手敲会写进一个不存在的编码，而保存时 `VFree7` 取的就是这一列。
          *
          * ⚠️ 系数「名字」与「编码」是两个字段（`S{码}` / `S{码}_val`），界面上只显示名字那列；
@@ -90,11 +97,11 @@ const BomMatrixSizeView = React.forwardRef<BomMatrixGridApi, BomMatrixSizeViewPr
                 if (!size) return;
                 const cells = sizeCells(size);
                 fields[cells.sunhao] = 'auto';
-                fields[cells.name] = BOMMATRIX_SIZE_VFREE_EDITOR;
+                fields[cells.name] = sizeEditorKey;
                 fields[cells.number] = 'auto';
             });
             return fields;
-        }, [isEditable, matrix.SizeSort]);
+        }, [isEditable, matrix.SizeSort, sizeEditorKey]);
 
         /** 尺码「系数」列（`S{码}`）：这张表里只有它们要按物料的 `vfree7` 判断 */
         const sizeNameFields = useMemo(() => {
@@ -137,7 +144,7 @@ const BomMatrixSizeView = React.forwardRef<BomMatrixGridApi, BomMatrixSizeViewPr
                 void ensureUseVFrees(materialVID);
                 return false;
             }
-            return useVFrees.includes(SIZE_VFREE_FIELD);
+            return useVFrees.includes(BOMMATRIX_SIZE_VFREE_FIELD);
         }, [sizeNameFields]);
 
         /**
@@ -216,7 +223,7 @@ const BomMatrixSizeView = React.forwardRef<BomMatrixGridApi, BomMatrixSizeViewPr
                 <NCMaterialVFreeModal
                     open={false}
                     isEditor={true}
-                    editorKey={BOMMATRIX_SIZE_VFREE_EDITOR}
+                    editorKey={sizeEditorKey}
                     viewProps={(row) => {
                         const field = toStringOrEmpty(row?.field);
                         /**
@@ -227,7 +234,7 @@ const BomMatrixSizeView = React.forwardRef<BomMatrixGridApi, BomMatrixSizeViewPr
                         const current = field ? toStringOrEmpty(row?.getField(field)) : '';
                         return {
                             materialVID: toStringOrEmpty(row?.record?.MaterialVID),
-                            vfreeField: SIZE_VFREE_FIELD,
+                            vfreeField: BOMMATRIX_SIZE_VFREE_FIELD,
                             autoMatch: current ? undefined : field.replace(/^S/, ''),
                         };
                     }}

@@ -76,6 +76,13 @@ export type NCMaterialConvertModalProps =
          * 注册时拿到的闭包不会跟着 props 更新。
          */
         viewProps: (record?: EditorRowAccessor) => Omit<NCMaterialConvertViewProps, 'onSelect'>;
+        /**
+         * 编辑器注册名，默认 `MATERIAL_CONVERT_EDITOR`。
+         *
+         * 同一页面有多个表格实例时（页面只读一张 + 弹窗可编辑一张）必须各用各的名字：
+         * 注册表全局、同名先到先得，后注册的会被忽略（见 `bomMatrix/editorScope.ts`）。
+         */
+        editorKey?: string;
     };
 
 /**
@@ -88,13 +95,14 @@ const NCMaterialConvertModal: React.FC<NCMaterialConvertModalProps> = ({
                                                                            onSelect,
                                                                            onInput,
                                                                            viewProps,
+                                                                           editorKey = MATERIAL_CONVERT_EDITOR,
                                                                        }) => {
     return (
         <RegisterInputModal<NCMaterialConvert, NCMaterialConvertViewProps>
             open={open}
             isEditor={isEditor}
             title={'单位选择'}
-            editorKey={MATERIAL_CONVERT_EDITOR}
+            editorKey={editorKey}
             editorPlaceholder="单位"
             onCancel={onCancel}
             onSelect={onSelect}

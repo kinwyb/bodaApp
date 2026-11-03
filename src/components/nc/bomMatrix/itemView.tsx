@@ -29,6 +29,7 @@ import {ensureConverts, putConverts, readConverts} from "@/components/nc/convert
 import NCProductorModal, {PRODUCTOR_EDITOR} from "@/components/nc/productorModal.tsx";
 import type {NCProductor} from "@/api/schemas/nc/NCBase.ts";
 import {ncBaseApi} from "@/api/modules/nc/base.ts";
+import {scopedEditorKey, useEditorScope} from "./editorScope.ts";
 
 /** bom矩阵子物料树形 */
 export interface BomMatrixItemProps {
@@ -78,18 +79,34 @@ const BomMatrixItemView = React.forwardRef<BomMatrixGridApi, BomMatrixItemProps>
         const {rows, commit} = useEditableRows(baseRows, items);
         const tableRef = useRef<GridTableApi | null>(null);
 
+        /**
+         * 本实例专属的编辑器名。
+         *
+         * **不能用模块常量**：同一个页面常常同时存在两张表（页面上只读一张、弹窗里可编辑一张），
+         * 而 vtable 的编辑器注册是全局同名先到先得 —— 后挂载的那张会静默拿到前一张的回调闭包，
+         * 于是「选完物料底部不补空行」「选了单位不落格」这类问题只在弹窗里出现。
+         * 详见 `./editorScope.ts`。
+         */
+        const editorScope = useEditorScope();
+        const editorKeys = useMemo(() => ({
+            material: scopedEditorKey(MATERIAL_EDITOR, editorScope),
+            vfree: scopedEditorKey(MATERIAL_VFREE_EDITOR, editorScope),
+            convert: scopedEditorKey(MATERIAL_CONVERT_EDITOR, editorScope),
+            productor: scopedEditorKey(PRODUCTOR_EDITOR, editorScope),
+        }), [editorScope]);
+
         const editableFields = useMemo(() => {
             if (!isEditable) {
                 return undefined;
             }
             return {
                 'ProjectMaterial': 'auto',
-                'MaterialCode': MATERIAL_EDITOR,
-                'VFree1Name': MATERIAL_VFREE_EDITOR,
-                'VFree4Name': MATERIAL_VFREE_EDITOR,
-                'VFree5Name': MATERIAL_VFREE_EDITOR,
-                'VFree8Name': MATERIAL_VFREE_EDITOR,
-                'VFree9Name': MATERIAL_VFREE_EDITOR,
+                'MaterialCode': editorKeys.material,
+                'VFree1Name': editorKeys.vfree,
+                'VFree4Name': editorKeys.vfree,
+                'VFree5Name': editorKeys.vfree,
+                'VFree8Name': editorKeys.vfree,
+                'VFree9Name': editorKeys.vfree,
                 'Ndissipationum': 'auto',
                 'Nitemnum': 'auto',
                 'Ibasenum': 'auto',
@@ -100,11 +117,11 @@ const BomMatrixItemView = React.forwardRef<BomMatrixGridApi, BomMatrixItemProps>
                 'Bupint': 'auto',
                 'Bdeliver': 'auto',
                 // 单位：可选值来自**这个物料**的换算单位；没有物料的空行由 canCellEdit 拦下
-                'Cassmeasure': MATERIAL_CONVERT_EDITOR,
+                'Cassmeasure': editorKeys.convert,
                 // 供应商：基础档案里选一条，回填名称 + 主键（见 applyProductor）
-                'Productor': PRODUCTOR_EDITOR,
+                'Productor': editorKeys.productor,
             }
-        }, [isEditable])
+        }, [isEditable, editorKeys])
 
         /**
          * 插入一行：`afterKey` 给了就插到那行后面，否则追加到末尾。
@@ -133,10 +150,13 @@ const BomMatrixItemView = React.forwardRef<BomMatrixGridApi, BomMatrixItemProps>
         }, [commit, onRowEvent]);
 
         /**
-         * **编辑模式下底部永远留一行空白**，等用户选物料 —— 这是「进 / 出编辑模式」那一半。
+         * **编辑模式下底部永远留一行空白**，等用户选物料 —— 这是「补 / 收」那一半。
          *
-         * 进编辑：末尾还是数据行就补一行空行；**从编辑切回只读**：末尾那行还没填物料就收掉
-         * （它是「等输入」的占位，不是明细，不该跟着保存一起提交）。
+         * 两个触发时机：
+         * - **进编辑**：末尾还是数据行就补一行空行；从编辑切回只读时，末尾那行还没填物料就收掉
+         *   （它是「等输入」的占位，不是明细，不该跟着保存一起提交）；
+         * - **明细换了**（换产成品会换掉 `items`，表格按新输入重铺）：重铺出来的末尾是实数据行，
+         *   空行跟着丢了，得再补回来。只按 `rows` 变化补是行不通的（那样用户永远删不掉空行，见下）。
          *
          * 只读那一路要区分「切回来的」和「一进来就是只读」：后者不动数据 ——
          * 接口明细末尾真有空行也是接口给的，页面一打开就删掉太霸道。
@@ -145,12 +165,17 @@ const BomMatrixItemView = React.forwardRef<BomMatrixGridApi, BomMatrixItemProps>
          * 两半分开写是有原因的：写成「监听 rows、末尾没空行就补」的话，
          * ① 用户手动删掉空行会被立刻补回来（像删不掉）；
          * ② StrictMode 会把挂载时的 effect 连跑两次，一次补出两行。
+         * 所以两个判据都盯**外部输入**（`isEditable` / `items`）的引用，不看 `rows` 自己。
          */
         const prevEditableRef = useRef<boolean | null>(null);
+        const prevItemsRef = useRef<PackBomMatrixDetail[] | null>(null);
         useEffect(() => {
-            if (prevEditableRef.current === isEditable) return;
+            const editableChanged = prevEditableRef.current !== isEditable;
+            const itemsChanged = prevItemsRef.current !== items;
             const wasEditable = prevEditableRef.current === true;
             prevEditableRef.current = isEditable;
+            prevItemsRef.current = items;
+            if (!editableChanged && !itemsChanged) return;
             const last = rows[rows.length - 1];
             /**
              * 用「有没有物料」判断是不是空行，不看 `VRowNo`/其他列：
@@ -159,16 +184,16 @@ const BomMatrixItemView = React.forwardRef<BomMatrixGridApi, BomMatrixItemProps>
             const hasMaterial = last ? toStringOrEmpty(last.MaterialVID) !== '' : false;
             if (!isEditable) {
                 // 从编辑切回只读：末尾那行「待输入」的空行收掉，别让它跟着明细一起保存
-                if (wasEditable && last && !hasMaterial) {
+                if (editableChanged && wasEditable && last && !hasMaterial) {
                     removeRow(rowKeyOf(last));
                 }
                 return;
             }
-            // 进编辑：末尾没有可填的空行就补一行（空表也给一行 —— 那是唯一的入口）
+            // 进编辑 / 明细被换掉：末尾没有可填的空行就补一行（空表也给一行 —— 那是唯一的入口）
             if (!last || hasMaterial) {
                 addRow(createItemRow(blankRowNoAfter(last)));
             }
-        }, [isEditable, rows, addRow, removeRow]);
+        }, [isEditable, items, rows, addRow, removeRow]);
 
         /**
          * 刚给**末尾那行**填好物料 → 底部再补一行等下一笔。
@@ -486,6 +511,7 @@ const BomMatrixItemView = React.forwardRef<BomMatrixGridApi, BomMatrixItemProps>
                            multiSelect={false} widthMode={'autoWidth'} canEditCell={canCellEdit}/>
                 <NCMaterialModal open={false}
                                  isEditor={true}
+                                 editorKey={editorKeys.material}
                                  onSelect={(record: NCMaterial, activeRow: EditorRowAccessor | null) => {
                                      applyMaterial(activeRow, record);
                                  }}
@@ -493,6 +519,7 @@ const BomMatrixItemView = React.forwardRef<BomMatrixGridApi, BomMatrixItemProps>
                                      void handleInputCode(code, activeRow);
                                  }}/>
                 <NCMaterialVFreeModal open={false} isEditor={true}
+                                      editorKey={editorKeys.vfree}
                                       viewProps={(row) => {
                                           if (!row) {
                                               return {materialVID: "", vfreeField: ""}
@@ -510,6 +537,7 @@ const BomMatrixItemView = React.forwardRef<BomMatrixGridApi, BomMatrixItemProps>
                                           console.log("onInput", code, activeRow);
                                       }}/>
                 <NCMaterialConvertModal open={false} isEditor={true}
+                                        editorKey={editorKeys.convert}
                                         onSelect={(convert: NCMaterialConvert, activeRow) => {
                                             applyConvert(activeRow, convert);
                                         }}
@@ -523,6 +551,7 @@ const BomMatrixItemView = React.forwardRef<BomMatrixGridApi, BomMatrixItemProps>
                                             void handleInputConvert(input, activeRow);
                                         }}/>
                 <NCProductorModal open={false} isEditor={true}
+                                  editorKey={editorKeys.productor}
                                   onSelect={(productor: NCProductor, activeRow) => {
                                       applyProductor(activeRow, productor);
                                   }}

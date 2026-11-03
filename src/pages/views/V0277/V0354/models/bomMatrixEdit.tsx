@@ -17,9 +17,17 @@ import {createItemRow} from "@/components/nc/bomMatrix/rows.ts";
 import MaterialSelect from "@/components/nc/materialSelect.tsx";
 import ConvertSelect from "@/components/nc/convertSelect.tsx";
 import {putConverts} from "@/components/nc/convertCache.ts";
-import type {NCMaterial, NCMaterialConvert} from "@/api/schemas/nc/NCMaterial.ts";
+import type {NCMaterial, NCMaterialConvert, NCMaterialVFree} from "@/api/schemas/nc/NCMaterial.ts";
 import {DEFAULT_BOM_MATRIX_SECTION} from "@/components/nc/bomMatrix/sections.ts";
-import type {PackBomMatrix, PackBomMatrixDetail} from "@/api/schemas/nc/bomMatrix.ts";
+import {BOMMATRIX_COLOR_VFREE_FIELD, BOMMATRIX_SIZE_VFREE_FIELD,} from "@/components/nc/bomMatrix/common.ts";
+import {ncMaterialApi} from "@/api/modules/nc/material.ts";
+import {ErrorMessage} from "@/api/request.ts";
+import type {
+    PackBomMatrix,
+    PackBomMatrixColorMatch,
+    PackBomMatrixDetail,
+    PackBomMatrixSizeMatch
+} from "@/api/schemas/nc/bomMatrix.ts";
 import {isBlank, toStringOrEmpty} from "@/utils";
 import type {FormMode} from "../command";
 import "./bomMatrixEdit.css";
@@ -40,6 +48,72 @@ const MODE_TITLE: Record<FormMode, string> = {
     copy: '复制包装 BOM 矩阵',
     view: '查看包装 BOM 矩阵',
 };
+
+/**
+ * 产成品物料 → 「缝制颜色 / 缝制尺码」清单 —— 也就是配色表、配码表的**列**。
+ *
+ * 字典项取自物料的辅助属性（`vfree6` / `vfree7`，常量在 `components/nc/bomMatrix/common.ts`），
+ * 列名用的是**名称**而不是编码：与 `ColorMatch.VFree6Name` / `SizeMatch.VFree7Name`
+ * 是同一口径（见 `rows.ts` 的 `colorCells` / `sizeCells`）。
+ *
+ * 空名要去掉（表格会出现一列没标题的格子），重名也去掉 ——
+ * 一张表里两列同名，用户没法指认自己在改哪一列。
+ */
+function toSortNames(items: NCMaterialVFree[] | undefined): string[] {
+    const names: string[] = [];
+    (items ?? []).forEach((item) => {
+        const name = toStringOrEmpty(item.name).trim();
+        if (!name || names.includes(name)) return;
+        names.push(name);
+    });
+    return names;
+}
+
+/**
+ * 生成尺码匹配规则
+ * @param items
+ */
+function toSizeMatch(materialVID: string, rowNo: string, items: NCMaterialVFree[] | undefined): Record<string, Record<string, PackBomMatrixSizeMatch>> {
+    if (!items || !rowNo || !materialVID) return {};
+    return items.reduce<Record<string, Record<string, PackBomMatrixSizeMatch>>>((acc, item) => {
+        if (!item.name) {
+            return acc;
+        }
+        const rowKey = rowNo + "_" + materialVID;
+        acc[item.name] = {
+            [rowKey]: {
+                Nbfixshrinknum: '',
+                VFree7: item.pk_defdoc,
+                VFree7Name: item.name,
+                Nitemnum: '1',
+            },
+        }
+        return acc;
+    }, {})
+}
+
+/**
+ * 生成颜色匹配规则
+ * @param materialVID
+ * @param rowNo
+ * @param items
+ */
+function toColorMatch(materialVID: string, rowNo: string, items: NCMaterialVFree[] | undefined): Record<string, Record<string, PackBomMatrixColorMatch>> {
+    if (!items || !rowNo || !materialVID) return {};
+    return items.reduce<Record<string, Record<string, PackBomMatrixColorMatch>>>((acc, item) => {
+        if (!item.name) {
+            return acc;
+        }
+        const rowKey = rowNo + "_" + materialVID;
+        acc[item.name] = {
+            [rowKey]: {
+                VFree6: item.pk_defdoc,
+                VFree6Name: item.name,
+            },
+        }
+        return acc;
+    }, {})
+}
 
 /**
  * 表单字段描述。
@@ -70,10 +144,10 @@ const PACK_FIELDS: BomMatrixField[] = [
     {name: 'PackMaterialName', label: '物料名称', readOnly: true},
     {name: 'PackMaterialVID', label: '物料版本', readOnly: true},
     {name: 'PackMaterialSpec', label: '物料规格', readOnly: true},
+    {name: 'PackMaterialModel', label: '物料型号', readOnly: true},
     {name: 'CMeasure', label: '主单位', readOnly: true},
     {name: 'VChangerate', label: '转换率', readOnly: true},
     {name: 'Cassmeasure', label: '单位', convert: 'pack'},
-    {name: 'PackMaterialModel', label: '物料型号', readOnly: true},
     {name: 'PackMethod', label: '包装方法'},
     {name: 'PackNum', label: '包装数量'},
     {name: 'ProjectCode', label: '项目'},
@@ -92,10 +166,10 @@ const SEW_FIELDS: BomMatrixField[] = [
     {name: 'SewMaterialName', label: '物料名称', readOnly: true},
     {name: 'SewMaterialVersion', label: '物料版本', readOnly: true},
     {name: 'SewMaterialSpec', label: '物料规格', readOnly: true},
+    {name: 'SewMaterialModel', label: '物料型号', readOnly: true},
     {name: 'SewCMeasure', label: '主单位', readOnly: true},
     {name: 'SewVChangerate', label: '转换率', readOnly: true},
     {name: 'SewCassmeasure', label: '单位', convert: 'sew'},
-    {name: 'SewMaterialModel', label: '物料型号', readOnly: true},
 ];
 
 const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, mode, record, onClose}) => {
@@ -129,19 +203,46 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, mode, record, onClos
      */
     const [detailRows, setDetailRows] = useState<PackBomMatrixDetail[] | null>(null);
 
+    /**
+     * 产成品带出来的颜色 / 尺码清单 —— 配色表、配码表的**列**。
+     *
+     * 为什么必须单独存：那两张表的列是按 `ColorSort` / `SizeSort` 生成的，
+     * 而这两份清单只由**详情接口**给出。新增时底稿是空对象，选了产成品却没人去取，
+     * 两张表就只剩「物料」那几列 —— 屏幕上表现为「有行、但颜色/尺码区一片空白」。
+     *
+     * `null` = 还没有按产成品算过（用底稿自带的那份）；非空 = 以它为准，
+     * 所以清空产成品要一起置回 `null`（回到底稿那副样子）。
+     */
+    const [sewSort, setSewSort] = useState<{
+        colors: string[];
+        sizes: string[],
+        colorMatch: Record<string, Record<string, PackBomMatrixColorMatch>>,
+        sizeMatch: Record<string, Record<string, PackBomMatrixSizeMatch>>,
+    } | null>(null);
+
     /** 只读子项明细表：换产成品前用它把用户编辑过的行捞回来 */
     const matrixRef = useRef<BomMatrixViewApi | null>(null);
 
     /**
-     * 交给下方表格的矩阵 = 底稿 + 回收的明细行 + 自动第一行。
+     * 颜色 / 尺码字典的请求序号：连着选两个产成品时**只认最后一次**的结果。
      *
-     * 派生而不是把行写进 `record`：`record` 是外面传进来的底稿，弹窗没有权力改它；
-     * 派生也保证「清空产成品」= 把两个 state 置空，底稿立刻回到原样。
+     * 两个物料的请求会各自在路上，谁先回来不确定；没有这道闸，先选的物料
+     * 晚上一步就会把后选的那份列覆盖掉（列和产成品对不上，且用户看不出来）。
      */
-    const matrix = useMemo<PackBomMatrix>(() => {
-        const base = record ?? {};
-        const source = detailRows ?? base.Detail ?? [];
-        if (!sewRow) return detailRows ? {...base, Detail: detailRows} : base;
+    const sewSortSeqRef = useRef(0);
+
+    /**
+     * 明细 = 底稿 + 回收的明细行 + 自动第一行。
+     *
+     * **只随「行内容」变化**，刻意不带颜色 / 尺码列 —— 两者是不同维度的事：
+     * 三张表都拿 `bomMatrix.Detail` 当派生源（`useEditableRows` 按引用判「换没换数据」），
+     * 列清单一变就把 Detail 重造一次，等于告诉表格「换了一份数据」，
+     * 它会把本地改动整体作废 —— 表现就是「选了产成品、底部那行待输入的空行闪一下就没了」
+     * （空行是选定产成品那一刻补的，颜色字典稍后异步回来正好赶上）。
+     */
+    const detail = useMemo<PackBomMatrixDetail[]>(() => {
+        const source = detailRows ?? record?.Detail ?? [];
+        if (!sewRow) return source;
         const index = source.findIndex((row) => toStringOrEmpty(row.VRowNo) === '10');
         const next = [...source];
         if (index >= 0) {
@@ -150,8 +251,32 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, mode, record, onClos
         } else {
             next.unshift(sewRow);
         }
-        return {...base, Detail: next};
+        return next;
     }, [record, detailRows, sewRow]);
+
+    /**
+     * 交给下方表格的矩阵 = 明细 + 产成品带出的颜色 / 尺码列。
+     *
+     * 派生而不是把行写进 `record`：`record` 是外面传进来的底稿，弹窗没有权力改它；
+     * 派生也保证「清空产成品」= 把几个 state 置空，底稿立刻回到原样
+     * （`sewRow` / `detailRows` 都空时直接返回底稿本身，连 `Detail` 都不重造）。
+     */
+    const matrix = useMemo<PackBomMatrix>(() => {
+        const base = record ?? {};
+        /*
+         * 颜色列 / 尺码列跟着产成品走：选了产成品就按它的辅助属性字典重算
+         * （换物料本来就该换一批颜色、尺码），没选就是底稿带进来的那一份。
+         */
+        const scoped = sewSort ? {
+            ...base,
+            ColorSort: sewSort.colors,
+            SizeSort: sewSort.sizes,
+            ColorMatch: sewSort.colorMatch,
+            SizeMatch: sewSort.sizeMatch
+        } : base;
+        if (!sewRow && !detailRows) return scoped;
+        return {...scoped, Detail: detail};
+    }, [record, detail, detailRows, sewRow, sewSort]);
 
     /**
      * 两个分组各自的物料 —— 单位选择要按它取可选列表，所以都盯着。
@@ -242,10 +367,69 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, mode, record, onClos
         return row as PackBomMatrixDetail;
     }, []);
 
+    /**
+     * 按产成品取「缝制颜色 / 缝制尺码」清单（`ColorSort` / `SizeSort`）。
+     *
+     * 这两份清单就是配色表、配码表的列 —— 不取，那两张表选了产成品也只有「物料」列，
+     * 看着就是「有行没数据」。
+     *
+     * 两个字典都空时说一句：那是产成品物料档案没维护 `vfree6` / `vfree7`，
+     * 不是表格坏了；不说的话用户只会反复点产成品。
+     */
+    const loadSewSort = useCallback(async (materialVID: string) => {
+        const seq = ++sewSortSeqRef.current;
+        if (!materialVID) {
+            setSewSort(null);
+            return;
+        }
+        try {
+            const [colors, sizes] = await Promise.all([
+                ncMaterialApi.vfree({fieldName: BOMMATRIX_COLOR_VFREE_FIELD, pkMaterial: materialVID}),
+                ncMaterialApi.vfree({fieldName: BOMMATRIX_SIZE_VFREE_FIELD, pkMaterial: materialVID}),
+            ]);
+            // 期间又换了产成品：这份结果已经作废，落地就会把界面上的列换成上一个物料的
+            if (seq !== sewSortSeqRef.current) return;
+            /*
+             * `colorMatch` / `sizeMatch` 目前留空 = **不按字典预填格子的色号 / 尺码系数**，
+             * 由用户在两张表里逐格选。字段留着是为了「按产成品带一份默认匹配」时直接填这里，
+             * 不必再改 state 的形状。
+             */
+            const next = {
+                colors: toSortNames(colors.data),
+                sizes: toSortNames(sizes.data),
+                colorMatch: toColorMatch(materialVID, '10', colors.data),
+                sizeMatch: toSizeMatch(materialVID, '10', sizes.data),
+            };
+            setSewSort(next);
+            if (next.colors.length === 0 && next.sizes.length === 0) {
+                void message.warning('这个产成品没有维护颜色（vfree6）/ 尺码（vfree7）辅助属性，配色 / 配码没有列可铺');
+            }
+        } catch (err) {
+            if (seq !== sewSortSeqRef.current) return;
+            /*
+             * 取不到就按「没有列」处理，**不要**保留底稿那份：那是上一个产成品的颜色 / 尺码，
+             * 留在屏幕上会让人以为新物料也是这些颜色。
+             */
+            setSewSort({colors: [], sizes: [], colorMatch: {}, sizeMatch: {}});
+            void message.error(ErrorMessage(err, '产成品的颜色 / 尺码清单加载失败'));
+        }
+    }, [message]);
+
     /** 产成品同理；另外把 `SewMaterialVID` 填上 —— 它是「子项明细能不能编」的判据 */
     const applySewMaterial = useCallback((material: NCMaterial) => {
+        const materialVID = toStringOrEmpty(material.pk_material);
+        /*
+         * 选中的还是当前这个产成品 → **什么都不用重做**。
+         *
+         * 重建第一行会让 `matrix.Detail` 换引用、下面三张表整体重铺：用户刚在子项物料里填的
+         * 那几行（内容一样）会重来一遍，底部那行空行也跟着闪没了。放放大镜里又点回同一个物料
+         * 是很常见的动作（误点、想确认一下），不该有副作用。
+         */
+        if (materialVID && materialVID === toStringOrEmpty(form.getFieldValue('SewMaterialVID'))) {
+            return;
+        }
         const convert = material.materialconvert?.[0];
-        putConverts(toStringOrEmpty(material.pk_material), material.materialconvert);
+        putConverts(materialVID, material.materialconvert);
         form.setFieldsValue({
             SewMaterialVID: material.pk_material,
             SewMaterialCode: material.code,
@@ -269,7 +453,12 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, mode, record, onClos
         // 换物料时沿用第一次的临时主键，表格不会把它当成「删一行又加一行」
         const nextRow = buildSewRow(material);
         setSewRow((prev) => (prev ? {...prev, ...nextRow} : nextRow));
-    }, [form, buildSewRow, matrix]);
+        /*
+         * 颜色列 / 尺码列按新产成品重取：这两份清单是物料的辅助属性字典，
+         * 只有**这个产成品**身上才有 —— 从底稿或上一个物料那儿继承都是错的。
+         */
+        void loadSewSort(materialVID);
+    }, [form, buildSewRow, matrix, loadSewSort]);
 
     /**
      * 物料被清空：把**由物料带出来的字段一起清掉**。
@@ -314,10 +503,13 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, mode, record, onClos
             SewVChangerate: undefined,
         });
         /*
-         * 清空产成品 = 这次换物料带来的东西全部回退：自动第一行与「回收的明细快照」都清掉，
-         * 回到底稿那副样子。只清 `sewRow` 是不够的 —— 回收快照里已经不含第 10 行，
-         * 留着它会让底稿原有的第 10 行也跟着消失。
+         * 清空产成品 = 这次换物料带来的东西全部回退：自动第一行、「回收的明细快照」、
+         * 以及按它取的颜色 / 尺码清单都清掉，回到底稿那副样子。只清 `sewRow` 是不够的 ——
+         * 回收快照里已经不含第 10 行，留着它会让底稿原有的第 10 行也跟着消失。
          */
+        // 在飞的字典请求一并作废：它回来时已经把产成品清掉了，不该再往表里塞列
+        sewSortSeqRef.current += 1;
+        setSewSort(null);
         setSewRow(null);
         setDetailRows(null);
     }, [form]);
@@ -337,6 +529,7 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, mode, record, onClos
                     onSelect={isSew ? applySewMaterial : applyPackMaterial}
                     // 清空物料时把名称 / 版本 / 单位这些一起清掉，别留下半截数据
                     onClear={isSew ? clearSewMaterial : clearPackMaterial}
+                    filter={isSew ? ['3'] : ['4']}
                 />
             );
         }
