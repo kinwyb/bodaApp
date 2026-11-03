@@ -1,0 +1,126 @@
+/*
+ * 包装 BOM 矩阵表单弹窗（新增 / 编辑 / 复制）的布局。
+ *
+ * 只做版式：分组标题条 + 每行四个字段 + 下半部分的编辑态表格。
+ * 颜色全部取中性灰（#e5e5e5 / #e9e9e9），与系统其它弹窗的分组条保持一致。
+ */
+
+/*
+ * 弹窗整体高度：撑到视口内，剩下的都给表格。
+ *
+ * 不写死表格高度，是因为「表单固定 + 表格吃剩余」比「表格 340px」更耐屏幕差异：
+ * 1080p 下表格能到 500 多，笔记本小屏也不会把弹窗顶出视口（内容区还是可滚）。
+ */
+.bom-matrix-edit .ant-modal-content {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 140px);
+    max-height: 860px;
+}
+
+.bom-matrix-edit .ant-modal-body {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    padding-top: 4px;
+    /* 屏幕矮到「表单 + 表格最小高度」都放不下时，滚动收在这一层，别顶出弹窗外 */
+    overflow-y: auto;
+}
+
+/* 顶部工具栏：图标在上、文字在下，与页面命令条同一套观感 */
+.bom-matrix-edit-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding-bottom: 6px;
+    margin-bottom: 8px;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.bom-matrix-edit-action.ant-btn {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    height: auto;
+    min-width: 56px;
+    padding: 6px 6px 5px;
+    font-size: 12px;
+    line-height: 1.2;
+}
+
+.bom-matrix-edit-action.ant-btn .anticon {
+    font-size: 18px;
+    color: #1677ff;
+}
+
+/* 分组：标题条 + 字段网格 */
+.bom-matrix-group {
+    border: 1px solid #e5e5e5;
+    border-radius: 3px;
+    overflow: hidden;
+    margin-bottom: 8px;
+}
+
+.bom-matrix-group-title {
+    padding: 3px 8px;
+    font-size: 12px;
+    color: rgba(0, 0, 0, 0.72);
+    background: #e9e9e9;
+    border-bottom: 1px solid #e5e5e5;
+}
+
+/*
+ * 每行四个字段；窗口或工作台收窄时按 220px 一列自动折行 ——
+ * 弹窗在工作台里会被 agent 面板挤窄，写死 4 列会让输入框缩成一条缝。
+ */
+.bom-matrix-fields {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 0 12px;
+    padding: 8px 8px 0;
+}
+
+.bom-matrix-fields .ant-form-item {
+    margin-bottom: 8px;
+}
+
+.bom-matrix-fields .ant-form-item-label > label {
+    font-size: 12px;
+    color: rgba(0, 0, 0, 0.65);
+}
+
+/* 下半部分：编辑态矩阵表。吃掉表单剩下的高度（`page-tabs-fill` 要确定高度才有参照） */
+.bom-matrix-edit-table {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    /* 表单很高时别把表格压没：低于这个高度就显示这么多，多出来的部分弹窗外层滚 */
+    min-height: 420px;
+    border: 1px solid #e5e5e5;
+    border-radius: 3px;
+    overflow: hidden;
+    padding: 0 4px;
+}
+
+/*
+ * 禁用遮罩：产成品还没选时盖住整块。
+ *
+ * 半透明白（不是纯灰）是为了让下面的表头与列还能看清 —— 用户需要知道
+ * 「这里有一张表等着录」，而不是一片空白。pointer-events 让点击落不到表格上。
+ */
+.bom-matrix-edit-mask {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    color: rgba(0, 0, 0, 0.45);
+    background: rgba(255, 255, 255, 0.72);
+    pointer-events: auto;
+}

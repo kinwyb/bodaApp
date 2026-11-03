@@ -12,7 +12,7 @@ import {
 import {alignMenuIcons, toMenuIcon} from "@/components/grid-table/menuIcon";
 import {ITEM_COLUMNS} from "./columns.ts";
 import {nextRowNo} from "./rowNo.ts";
-import {type BomMatrixRow, rowKeyOf, toItemRows} from "./rows.ts";
+import {type BomMatrixRow, createItemRow, rowKeyOf, toItemRows} from "./rows.ts";
 import type {BomMatrixGridApi, BomMatrixRowEvent} from "./gridApi.ts";
 import {useEditableRows} from "./useEditableRows.ts";
 import {ensureUseVFrees, primeUseVFrees, readUseVFrees} from "./vfreeCache.ts";
@@ -22,7 +22,7 @@ import type {NCMaterial, NCMaterialConvert, NCMaterialVFree} from "@/api/schemas
 import {ncMaterialApi} from "@/api/modules/nc/material.ts";
 import {ErrorMessage} from "@/api/request.ts";
 import NCMaterialVFreeModal, {MATERIAL_VFREE_EDITOR} from "@/components/nc/materialVFreeModal.tsx";
-import {now, toDayjs, toStringOrEmpty} from "@/utils";
+import {toStringOrEmpty} from "@/utils";
 import {BOMMATRIX_BACKFLUSHTYPE_EDITOR, BOMMATRIX_ITEMSOURCE_EDITOR} from "@/components/nc/bomMatrix/common.ts";
 import NCMaterialConvertModal, {MATERIAL_CONVERT_EDITOR} from "@/components/nc/materialConvertModal.tsx";
 import {ensureConverts, putConverts, readConverts} from "@/components/nc/convertCache.ts";
@@ -48,33 +48,6 @@ export interface BomMatrixItemProps {
 const MENU_ICON_ADD = toMenuIcon(<PlusOutlined/>);
 const MENU_ICON_DELETE = toMenuIcon(<DeleteOutlined/>);
 
-/**
- * 未落库的新行主键。
- *
- * 必须唯一且**跨三张表一致**：这张表插入一行后，配色 / 配码按同一个 key 各插一行。
- * 用模块级自增而不是行号 —— 反复增删、上下插行都不会撞。
- */
-let draftRowSeq = 0;
-const nextDraftRowKey = (): string => {
-    draftRowSeq += 1;
-    return `draft-${draftRowSeq}`;
-};
-
-/** 新建空白行：只给行号与临时主键，其余字段留给用户填 */
-const createItemRow = (rowNo: string): BomMatrixRow => ({
-    PackBomMatrixDetailID: nextDraftRowKey(),
-    VRowNo: rowNo,
-    MaterialVID: '',
-    BeginDate: now(),
-    EndDate: toDayjs('2999-12-31'),
-    ProjectMaterial: true,
-    Ndissipationum: '0.02',
-    Fitemsource: 1,
-    Fbackflushtype: 2,
-    Bdeliver: true,
-    Nitemnum: '1',
-    Ibasenum: 1,
-});
 
 /**
  * 底部补空行时用的行号：接着末尾那行走（10、20、30 → 40），空表给 10。

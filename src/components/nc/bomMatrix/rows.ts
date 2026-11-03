@@ -12,7 +12,7 @@
  */
 
 import type {PackBomMatrix, PackBomMatrixDetail} from '@/api/schemas/nc/bomMatrix.ts';
-import {toStringOrEmpty} from '@/utils';
+import {now, toDayjs, toStringOrEmpty} from '@/utils';
 
 /**
  * 一行数据：明细字段打底，再挂上尺码 / 颜色格子（动态列）。
@@ -30,6 +30,42 @@ export type BomMatrixRow = Partial<PackBomMatrixDetail> & {
 /** 行标识（跨表同步的 key）；拿不到时是空串 */
 export const rowKeyOf = (row: Record<string, unknown> | undefined): string =>
     String(row?.PackBomMatrixDetailID ?? '');
+
+/**
+ * 未落库的新行主键。
+ *
+ * 必须唯一且**跨三张表一致**：这张表插入一行后，配色 / 配码按同一个 key 各插一行。
+ * 用模块级自增而不是行号 —— 反复增删、上下插行都不会撞。
+ */
+let draftRowSeq = 0;
+export const nextDraftRowKey = (): string => {
+    draftRowSeq += 1;
+    return `draft-${draftRowSeq}`;
+};
+
+/**
+ * 新建一行子项物料：只给行号与临时主键，其余字段用默认值（损耗、备料来源、数量 1 …）。
+ *
+ * 三个消费者都是「凭空造一行」：子项物料表进编辑时补的空行、底部补的下一行，
+ * 以及页面「选中产成品后自动加一行」那种外部命令。放在这里是为了让三者默认值一致 ——
+ * 各写一份的话，某天改动默认损耗系数只会改到其中一处。
+ */
+export function createItemRow(rowNo: string): BomMatrixRow {
+    return {
+        PackBomMatrixDetailID: nextDraftRowKey(),
+        VRowNo: rowNo,
+        MaterialVID: '',
+        BeginDate: now(),
+        EndDate: toDayjs('2999-12-31'),
+        ProjectMaterial: true,
+        Ndissipationum: '0.02',
+        Fitemsource: 1,
+        Fbackflushtype: 2,
+        Bdeliver: true,
+        Nitemnum: '1',
+        Ibasenum: 1,
+    };
+}
 
 /**
  * 配码 / 配色在 `SizeMatch` / `ColorMatch` 里的**外层键**：`行号_物料VID`。

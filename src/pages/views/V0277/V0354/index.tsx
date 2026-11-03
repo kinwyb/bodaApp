@@ -12,6 +12,7 @@ import {App, Button, Form, Input, Space, Splitter, type TabsProps} from "antd";
 import {FilterTable, type FilterTableApi, type GridTableSelectedRowChangeInfo} from "@/components/grid-table";
 import {CommandBar} from "@/components/CommandBar";
 import {usePackBomMatrixCommands, type FormMode, type PackBomMatrixCommandContext} from "./command";
+import BomMatrixEdit from "./models/bomMatrixEdit";
 import {toStringOrEmpty} from "@/utils";
 import {ErrorMessage} from "@/api/request.ts";
 import {SearchOutlined} from "@ant-design/icons";
@@ -201,19 +202,29 @@ const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({view, trail}) => {
     }, [loadMatrix]);
 
     /**
-     * 命令条各按钮的动作（命令本身在 ./command/，一个命令一个文件）。
+     * 新增 / 编辑 / 复制的表单弹窗。
      *
-     * 目前只有「刷新」是完整动作：后端在这个模块上只给了 list / detail / pushRule 三个接口，
-     * 新增 / 编辑 / 复制 / 发布 / 删除都没有对应的保存或提交接口，工艺矩阵是另一个页面（还没进本工程）。
-     * 所以这些按钮先按业务摆出来、点击时如实说明缺什么 —— 比放一个点了没反应的按钮好，
-     * 更比假装成功好（用户会以为数据已经改过）。
+     * 只有界面（保存不接后端，见 `./models/bomMatrixEdit`）；这里只管「打开哪一份、什么模式」。
+     * 模式按打开那一刻定下来，弹窗开着时改选中行不会让标题跟着变。
      */
+    const [formOpen, setFormOpen] = useState(false);
+    const [formMode, setFormMode] = useState<FormMode>('add');
+    const [formRecord, setFormRecord] = useState<PackBomMatrix | null>(null);
+    /**
+     * 每次打开弹窗换一个 key：弹窗自己持有表单与「自动铺进来的缝制物料行」，
+     * 不换 key 会带着上一次打开的残留（`Modal` 的 destroyOnHidden 只销毁内容，不重置外层的 state）。
+     */
+    const [formKey, setFormKey] = useState(0);
+
     const handleOpenForm = useCallback((mode: FormMode, record: PackBomMatrix | null) => {
-        const label: Record<FormMode, string> = {add: '新增', edit: '编辑', view: '查看', copy: '复制'};
-        const name = toStringOrEmpty(record?.PackMaterialCode);
-        // 新增没有记录可引用，别拼出一对空引号
-        void message.info(`${label[mode]}矩阵${name ? `「${name}」` : ''}：矩阵表单与保存接口还没接入`);
-    }, [message]);
+        setFormMode(mode);
+        // 新增没有底稿：即便调用方传了 record 也忽略，避免把上一份带进空表单
+        setFormRecord(mode === 'add' ? null : record);
+        setFormKey((key) => key + 1);
+        setFormOpen(true);
+    }, []);
+
+    const handleCloseForm = useCallback(() => setFormOpen(false), []);
 
     const handleOpenProcessMatrix = useCallback((matrix: PackBomMatrix) => {
         void message.info(`「${toStringOrEmpty(matrix.PackMaterialCode)}」的工艺矩阵：对应页面还没接入`);
@@ -418,6 +429,8 @@ const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({view, trail}) => {
                     </Splitter.Panel>
                 </Splitter>
             </div>
+            {/* 新增 / 编辑 / 复用的表单弹窗：打开期间顶掉页面这一层（保存不接后端） */}
+            <BomMatrixEdit key={formKey} open={formOpen} mode={formMode} record={formRecord} onClose={handleCloseForm}/>
         </div>
     );
 }

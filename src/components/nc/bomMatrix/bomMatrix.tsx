@@ -1,4 +1,4 @@
-import React, {useCallback, useImperativeHandle, useMemo, useRef, useState} from "react";
+import React, {useCallback, useImperativeHandle, useMemo, useRef} from "react";
 import type {PackBomMatrix, PackBomMatrixDetail} from "@/api/schemas/nc/bomMatrix.ts";
 import {Tabs, type TabsProps} from "antd";
 import BomMatrixItemView from "./itemView.tsx";
@@ -60,7 +60,14 @@ export const BomMatrixView = React.forwardRef<BomMatrixViewApi, BomMatrixViewPro
     ref,
 ) => {
 
-    const [isEdit, _] = useState(isEditMode ?? false);
+    /*
+     * 当前是否可编辑：**跟随 props**，不是 useState 初值。
+     *
+     * 弹窗里「先选产成品物料、才能编子项明细」是运行中变化的，
+     * 锁成初值就会出现「物料选了、表格还是只读」这种自相矛盾的状态
+     * （见 pages/views/V0277/V0354/models/bomMatrixEdit.tsx）。
+     */
+    const isEdit = isEditMode ?? false;
     const itemsRef = useRef<BomMatrixGridApi | null>(null);
     const colorsRef = useRef<BomMatrixGridApi | null>(null);
     const sizesRef = useRef<BomMatrixGridApi | null>(null);
