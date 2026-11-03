@@ -12,7 +12,7 @@
  */
 
 import type {PackBomMatrix, PackBomMatrixDetail} from '@/api/schemas/nc/bomMatrix.ts';
-import {now, toDayjs, toStringOrEmpty} from '@/utils';
+import {isBlank, now, toDayjs, toStringOrEmpty} from '@/utils';
 
 /**
  * 一行数据：明细字段打底，再挂上尺码 / 颜色格子（动态列）。
@@ -103,11 +103,44 @@ export function toItemRows(items: PackBomMatrixDetail[]): BomMatrixRow[] {
 }
 
 /**
+ * 尺码「用量」的默认值。
+ *
+ * 用量是「这个物料在这个尺码下用几件」——每个尺码都要有一个数，漏填就少算料；
+ * 而损耗数量、尺码系数是「这个物料在这个尺码下」才有的属性，凭空给 1 只会制造假数据。
+ * 所以只给用量兜默认值，其它两个格子照旧留空。
+ */
+export const DEFAULT_SIZE_USAGE = '1';
+
+/**
+ * 给一行补上各尺码的用量默认值（**只补还没填的格子**）。
+ *
+ * 父级插入行时把子项物料那一行原样递过来（明细字段 + 行标识），里面没有任何 `N{码}` 字段 ——
+ * 不补的话新行在配码表里「用量」整片空白，用户得逐格敲一遍。
+ * 已有值（含用户改成别的数、或后端返回的）一律不动。
+ */
+export function withSizeUsageDefaults(
+    row: Record<string, unknown>,
+    sizes: PackBomMatrix['SizeSort'],
+): BomMatrixRow {
+    const next = {...row} as BomMatrixRow;
+    (sizes ?? []).forEach((size) => {
+        if (!size) return;
+        const field = sizeCells(size).number;
+        if (!(field in next) || isBlank(next[field])) {
+            next[field] = DEFAULT_SIZE_USAGE;
+        }
+    });
+    return next;
+}
+
+/**
  * 明细 → 配码行：明细字段 + 各尺码的四个格子（`SizeMatch[尺码][行键]`）。
  *
  * 两个用途：① 配码表**首次挂载 / 换矩阵**时初始化自己的行数据；
  * ② 配码表**没挂载过**时，保存流程用它现算一份（没挂载 = 用户没编辑过，与接口数据等价）。
  * 之后配码表的增删改都走它自己的命令 API，不会再调这里 —— 重算一次就把编辑冲掉了。
+ *
+ * 没有匹配数据的格子（新行 / 新加的尺码列）里，**用量给默认 1**，见 `DEFAULT_SIZE_USAGE`。
  */
 export function toSizeRows(matrix: PackBomMatrix, items: PackBomMatrixDetail[]): BomMatrixRow[] {
     const sizes = (matrix.SizeSort ?? []).filter((size): size is string => !!size);
@@ -115,13 +148,16 @@ export function toSizeRows(matrix: PackBomMatrix, items: PackBomMatrixDetail[]):
         const row = detailToRow(detail);
         const key = matchRowKey(row);
         sizes.forEach((size) => {
-            const cell = matrix.SizeMatch?.[size]?.[key];
-            if (!cell) return;
             const fields = sizeCells(size);
+            const cell = matrix.SizeMatch?.[size]?.[key];
+            if (!cell) {
+                row[fields.number] = DEFAULT_SIZE_USAGE;
+                return;
+            }
             row[fields.sunhao] = cell.Nbfixshrinknum;
             row[fields.name] = cell.VFree7Name;
             row[fields.value] = cell.VFree7;
-            row[fields.number] = cell.Nitemnum;
+            row[fields.number] = isBlank(cell.Nitemnum) ? DEFAULT_SIZE_USAGE : cell.Nitemnum;
         });
         return row;
     });

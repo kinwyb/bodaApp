@@ -11,7 +11,7 @@ import type {EditorRowAccessor} from "@/components/grid-table/editors/antd-edito
 import NCMaterialVFreeModal from "@/components/nc/materialVFreeModal.tsx";
 import {toStringOrEmpty} from "@/utils";
 import {buildSizeColumns} from "./columns.ts";
-import {type BomMatrixRow, rowKeyOf, sizeCells, toSizeRows} from "./rows.ts";
+import {type BomMatrixRow, rowKeyOf, sizeCells, toSizeRows, withSizeUsageDefaults} from "./rows.ts";
 import type {BomMatrixGridApi} from "./gridApi.ts";
 import {useEditableRows} from "./useEditableRows.ts";
 import {BOMMATRIX_SIZE_VFREE_EDITOR, BOMMATRIX_SIZE_VFREE_FIELD} from "./common.ts";
@@ -178,16 +178,21 @@ const BomMatrixSizeView = React.forwardRef<BomMatrixGridApi, BomMatrixSizeViewPr
             }));
         }, [commit]);
 
-        /** 插入一行（父级在子项物料插行时调用；行内容由父级按明细复制过来，与那张表的行是两份对象） */
+        /**
+         * 插入一行（父级在子项物料插行时调用；行内容由父级按明细复制过来，与那张表的行是两份对象）。
+         *
+         * 父级递过来的是子项物料那一行，**没有任何 `N{码}` 字段** —— 这里按尺码补上用量默认值，
+         * 否则新行的「用量」整片空白（见 rows.ts 的 `withSizeUsageDefaults`）。
+         */
         const addRow = useCallback((row: Record<string, unknown>, afterKey?: string) => {
             commit((prev) => {
                 const anchor = afterKey ? prev.findIndex((item) => rowKeyOf(item) === afterKey) : -1;
                 const index = anchor >= 0 ? anchor + 1 : prev.length;
                 const next = [...prev];
-                next.splice(index, 0, row as BomMatrixRow);
+                next.splice(index, 0, withSizeUsageDefaults(row, matrix.SizeSort));
                 return next;
             });
-        }, [commit]);
+        }, [commit, matrix.SizeSort]);
 
         /** 按行标识删一行 */
         const removeRow = useCallback((rowKey: string) => {
