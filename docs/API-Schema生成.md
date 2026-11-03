@@ -35,7 +35,7 @@ npm run gen:api -- --spec ./apidocs.json --path /nc/bom/packBomMatrix --out ...
 3. 只生成这个闭包，不会把 680 个 definition 全铺出来。
 
 例：`--path /nc/bom/packBomMatrix` → 根是 `ncBean.PackBomMatrix`，
-自动带出 `BomMatrixDetail`、`PackBomMatrix.ColorMatch`、`PackBomMatrix.SizeMatch`，
+自动带出 `PackBomMatrixDetail`、`PackBomMatrix.ColorMatch`、`PackBomMatrix.SizeMatch`，
 共 4 个 schema。
 
 ## 二、生成的代码长什么样
@@ -54,16 +54,16 @@ export type PackBomMatrix = z.output<typeof PackBomMatrixSchema>;
 
 ### 命名规则：去掉包名前缀
 
-| definition                        | 生成的标识符          |
-|-----------------------------------|-----------------------|
-| `ncBean.PackBomMatrix`            | `BomMatrix`           |
-| `ncBean.PackBomMatrixDetail`      | `BomMatrixDetail`     |
-| `ncBean.PackBomMatrix.ColorMatch` | `BomMatrixColorMatch` |
-| `planBean.YupaiOrder`             | `YupaiOrder`          |
+| definition                        | 生成的标识符              |
+|-----------------------------------|---------------------------|
+| `ncBean.PackBomMatrix`            | `PackBomMatrix`           |
+| `ncBean.PackBomMatrixDetail`      | `PackBomMatrixDetail`     |
+| `ncBean.PackBomMatrix.ColorMatch` | `PackBomMatrixColorMatch` |
+| `planBean.YupaiOrder`             | `YupaiOrder`              |
 
 去掉第一段包名（`ncBean` / `planBean` / `configBean` / `loginBean` …）。
 
-⚠️ **内层类保留父名**：`ncBean.PackBomMatrix.ColorMatch` 生成 `BomMatrixColorMatch`
+⚠️ **内层类保留父名**：`ncBean.PackBomMatrix.ColorMatch` 生成 `PackBomMatrixColorMatch`
 而不是 `ColorMatch` —— `ColorMatch` / `SizeMatch` 这种名字太通用，
 一旦同一文件里出现两个类的同名内层类型就会互相顶掉。
 

@@ -1,6 +1,11 @@
 import {http} from '../../request';
 import type {ApiResponse, PageQuery} from '../../types';
-import {type BomMatrix, BomMatrixSchema,} from '../../schemas/nc/bomMatrix.ts';
+import {
+    type PackBomMatrix,
+    type PackBomMatrixRule,
+    PackBomMatrixRuleSchema,
+    PackBomMatrixSchema,
+} from '../../schemas/nc/bomMatrix.ts';
 
 /**
  * 包装bom列表请求参数
@@ -8,6 +13,7 @@ import {type BomMatrix, BomMatrixSchema,} from '../../schemas/nc/bomMatrix.ts';
 export type packBomMatrixListReq = {
     PackMaterialName?: string;
     PackMaterialCode?: string;
+    ProjectCode?: string;
 }
 
 /**
@@ -31,12 +37,12 @@ export const packBomMatrixApi = {
      * 包装 BOM 矩阵列表
      * @param params
      */
-    list: async (params: packBomMatrixListReq, page: PageQuery): Promise<ApiResponse<BomMatrix[]>> => {
+    list: async (params: packBomMatrixListReq, page: PageQuery): Promise<ApiResponse<PackBomMatrix[]>> => {
         const res = await http.post('/nc/bom/packBomMatrix/list', params, {params: page});
         if (res.data === undefined || res.data === null) {
             return {...res, data: undefined};
         }
-        return {...res, data: BomMatrixSchema.array().parse(res.data)};
+        return {...res, data: PackBomMatrixSchema.array().parse(res.data)};
     },
 
     /**
@@ -44,11 +50,23 @@ export const packBomMatrixApi = {
      *
      * GET /nc/bom/packBomMatrix?packBomMatrixID=xxx
      */
-    detail: async (packBomMatrixID: string): Promise<ApiResponse<BomMatrix>> => {
+    detail: async (packBomMatrixID: string): Promise<ApiResponse<PackBomMatrix>> => {
         const res = await http.get<unknown>('/nc/bom/packBomMatrix', {packBomMatrixID});
         if (res.data === undefined || res.data === null) {
             return {...res, data: undefined};
         }
-        return {...res, data: BomMatrixSchema.parse(res.data)};
+        return {...res, data: PackBomMatrixSchema.parse(res.data)};
     },
+
+    /**
+     * 包装矩阵发布情况
+     * @param packBomMatrixID
+     */
+    pushRules: async (packBomMatrixID: string): Promise<ApiResponse<PackBomMatrixRule[]>> => {
+        const res = await http.get<unknown>('/nc/bom/packBomMatrix/pushRule', {packBomMatrixID});
+        if (res.data === undefined || res.data === null) {
+            return {...res, data: undefined};
+        }
+        return {...res, data: PackBomMatrixRuleSchema.array().parse(res.data)};
+    }
 };

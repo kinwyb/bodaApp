@@ -20,7 +20,7 @@
  * （`readRows` 自己处理了「那张表没挂载过」的兜底，拿到的就是用户屏幕上那批行。）
  */
 
-import type {BomMatrix, BomMatrixColorMatch, BomMatrixSizeMatch} from '@/api/schemas/nc/bomMatrix.ts';
+import type {PackBomMatrix, PackBomMatrixColorMatch, PackBomMatrixSizeMatch} from '@/api/schemas/nc/bomMatrix.ts';
 import {colorCells, matchRowKey, sizeCells} from './rows.ts';
 import {toStringOrEmpty} from '@/utils';
 
@@ -31,14 +31,14 @@ import {toStringOrEmpty} from '@/utils';
  * 空串会让后端 `parseInt` 得到 `NaN`；系数名 / 色号名这类文本留空即可。
  * 要改成「不写这一格」或「空串」，只动这两个常量。
  */
-const EMPTY_SIZE_MATCH: BomMatrixSizeMatch = {
+const EMPTY_SIZE_MATCH: PackBomMatrixSizeMatch = {
     Nbfixshrinknum: '0',
     VFree7: '',
     VFree7Name: '',
     Nitemnum: '0',
 };
 
-const EMPTY_COLOR_MATCH: BomMatrixColorMatch = {
+const EMPTY_COLOR_MATCH: PackBomMatrixColorMatch = {
     VFree6: '',
     VFree6Name: '',
 };
@@ -59,12 +59,12 @@ const cell = (row: Record<string, unknown>, field: string): string => toStringOr
 export function rebuildSizeMatch(
     rows: Record<string, unknown>[],
     sizes: Array<string | null | undefined>,
-): NonNullable<BomMatrix['SizeMatch']> {
-    const next: NonNullable<BomMatrix['SizeMatch']> = {};
+): NonNullable<PackBomMatrix['SizeMatch']> {
+    const next: NonNullable<PackBomMatrix['SizeMatch']> = {};
     for (const size of sizes) {
         if (!size) continue;
         const fields = sizeCells(size);
-        const cells: Record<string, BomMatrixSizeMatch> = {};
+        const cells: Record<string, PackBomMatrixSizeMatch> = {};
         for (const row of rows) {
             const key = matchRowKey(row);
             if (!key || key === '_') continue;
@@ -99,12 +99,12 @@ export function rebuildSizeMatch(
 export function rebuildColorMatch(
     rows: Record<string, unknown>[],
     colors: Array<string | null | undefined>,
-): NonNullable<BomMatrix['ColorMatch']> {
-    const next: NonNullable<BomMatrix['ColorMatch']> = {};
+): NonNullable<PackBomMatrix['ColorMatch']> {
+    const next: NonNullable<PackBomMatrix['ColorMatch']> = {};
     for (const color of colors) {
         if (!color) continue;
         const fields = colorCells(color);
-        const cells: Record<string, BomMatrixColorMatch> = {};
+        const cells: Record<string, PackBomMatrixColorMatch> = {};
         for (const row of rows) {
             const key = matchRowKey(row);
             if (!key || key === '_') continue;

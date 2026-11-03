@@ -10,17 +10,17 @@
 import {z} from 'zod';
 import {toDayjs} from "@/utils";
 
-export const BomMatrixSchema = z.object({
+export const PackBomMatrixSchema = z.object({
     CMeasure: z.string().nullish(), // 主单位
     CMeasureid: z.string().nullish(), // 主单位ID
     Cassmeasure: z.string().nullish(), // 单位
     Cassmeasureid: z.string().nullish(), // 单位ID
-    ColorMatch: z.record(z.string(), z.record(z.string(), z.lazy(() => BomMatrixColorMatchSchema))).nullish(), // 颜色匹配[颜色][子项物料VID]颜色匹配
+    ColorMatch: z.record(z.string(), z.record(z.string(), z.lazy(() => PackBomMatrixColorMatchSchema))).nullish(), // 颜色匹配[颜色][子项物料VID]颜色匹配
     ColorSort: z.array(z.string().nullish()).nullish(), // 缝制颜色排序
     CreateTime: z.string().nullish(), // 创建时间
     CreateUser: z.string().nullish(), // 创建人
     CreateUserNo: z.string().nullish(), // 创建人工号
-    Detail: z.array(z.lazy(() => BomMatrixDetailSchema)).nullish(), // 包装物料明细
+    Detail: z.array(z.lazy(() => PackBomMatrixDetailSchema)).nullish(), // 包装物料明细
     MatrixVersion: z.number().int().nullish(), // 矩阵版本
     PackBomMatrixID: z.string().nullish(), // 包装bom矩阵ID
     PackMaterialCode: z.string().nullish(), // 包装物料编码
@@ -31,30 +31,30 @@ export const BomMatrixSchema = z.object({
     ProjectCode: z.string().nullish(), // 项目编码
     ProjectID: z.string().nullish(), // 项目ID
     SewMaterialVID: z.string().nullish(), // 缝制物料ID
-    SizeMatch: z.record(z.string(), z.record(z.string(), z.lazy(() => BomMatrixSizeMatchSchema))).nullish(), // 尺码匹配[尺码][子项物料VID]物料匹配
+    SizeMatch: z.record(z.string(), z.record(z.string(), z.lazy(() => PackBomMatrixSizeMatchSchema))).nullish(), // 尺码匹配[尺码][子项物料VID]物料匹配
     SizeSort: z.array(z.string().nullish()).nullish(), // 缝制尺码排序
     UpdateTime: z.string().nullish(), // 更新时间
     UpdateUser: z.string().nullish(), // 更新人
     UpdateUserNo: z.string().nullish(), // 更新人工号
     VChangerate: z.string().nullish(), // 换算率
 }).loose();
-export type BomMatrix = z.output<typeof BomMatrixSchema>;
+export type PackBomMatrix = z.output<typeof PackBomMatrixSchema>;
 
-export const BomMatrixColorMatchSchema = z.object({
+export const PackBomMatrixColorMatchSchema = z.object({
     VFree6: z.string().nullish(),
     VFree6Name: z.string().nullish(),
 }).loose();
-export type BomMatrixColorMatch = z.output<typeof BomMatrixColorMatchSchema>;
+export type PackBomMatrixColorMatch = z.output<typeof PackBomMatrixColorMatchSchema>;
 
-export const BomMatrixSizeMatchSchema = z.object({
+export const PackBomMatrixSizeMatchSchema = z.object({
     Nbfixshrinknum: z.string().nullish(),
     VFree7: z.string().nullish(),
     VFree7Name: z.string().nullish(),
     Nitemnum: z.string().nullish(),
 }).loose();
-export type BomMatrixSizeMatch = z.output<typeof BomMatrixSizeMatchSchema>;
+export type PackBomMatrixSizeMatch = z.output<typeof PackBomMatrixSizeMatchSchema>;
 
-export const BomMatrixDetailSchema = z.object({
+export const PackBomMatrixDetailSchema = z.object({
     Bdeliver: z.boolean().nullish(), // 发料
     Bupint: z.boolean().nullish(), // 向上取整
     CMeasure: z.string().nullish(), // 主单位
@@ -98,4 +98,41 @@ export const BomMatrixDetailSchema = z.object({
     EndDate: toDayjs(Cendperiod),
     ...rest,
 }));
-export type BomMatrixDetail = z.output<typeof BomMatrixDetailSchema>;
+export type PackBomMatrixDetail = z.output<typeof PackBomMatrixDetailSchema>;
+
+
+export const PackBomMatrixRuleSchema = z.object({
+    BomID: z.string().nullish(), // bomID
+    BomTS: z.string().nullish(), // bom时间
+    BomVersion: z.string().nullish(), // bom版本
+    Feature: z.string().nullish(), // 特征码
+    FeatureCode: z.string().nullish(), // 特征码ID
+    IsPush: z.boolean().nullish(), // 是否发布
+    MaterialCode: z.string().nullish(), // 物料编码
+    MaterialName: z.string().nullish(), // 物料名称
+    MatrixVersion: z.number().int().nullish(), // 矩阵版本
+    PackBomMatrixID: z.string().nullish(), // 包装bom矩阵ID
+    PackBomMatrixRuleID: z.string().nullish(), // 包装bom矩阵规则ID
+    PushTime: z.string().nullish(), // 发布时间
+    PushUser: z.string().nullish(), // 发布人
+    PushUserNo: z.string().nullish(), // 发布人工号
+}).loose();
+export type PackBomMatrixRule = z.output<typeof PackBomMatrixRuleSchema>;
+
+export const ProcessRouteMatrixRuleSchema = z.object({
+    Feature: z.string().nullish(), // 特征码
+    FeatureCode: z.string().nullish(), // 特征码ID
+    IsPush: z.boolean().nullish(), // 是否发布
+    MaterialCode: z.string().nullish(), // 物料编码
+    MaterialName: z.string().nullish(), // 物料名称
+    MatrixVersion: z.number().int().nullish(), // 矩阵版本
+    PRID: z.string().nullish(), // 工艺ID
+    PRVersion: z.string().nullish(), // 工艺版本
+    ProcessRouteMatrixID: z.string().nullish(), // 工艺矩阵ID
+    ProcessRouteMatrixRuleID: z.string().nullish(), // 工艺矩阵规则ID
+    PushTime: z.string().nullish(), // 发布时间
+    PushUser: z.string().nullish(), // 发布人
+    PushUserNo: z.string().nullish(), // 发布人工号
+    TS: z.string().nullish(), // NC时间
+}).loose();
+export type ProcessRouteMatrixRule = z.output<typeof ProcessRouteMatrixRuleSchema>;

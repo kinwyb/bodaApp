@@ -3,15 +3,16 @@ import type {ViewPageProps} from "@/pages/types.ts";
 import {PageBreadcrumb} from "@/components/PageBreadcrumb.tsx";
 import {packBomMatrixApi, type packBomMatrixListReq} from "@/api/modules/nc/bomMatrix.ts";
 import {BomMatrixView, type BomMatrixViewApi} from "@/components/nc/bomMatrix";
-import type {BomMatrix} from "@/api/schemas/nc/bomMatrix.ts";
+import type {PackBomMatrix, PackBomMatrixRule} from "@/api/schemas/nc/bomMatrix.ts";
 import {type BomMatrixSection, DEFAULT_BOM_MATRIX_SECTION} from "@/components/nc/bomMatrix/sections.ts";
 import {useUIBridgeHost} from "@/pages/agent/ui-bridge";
 import {type BomMatrixBridgeContext, createBomMatrixBridge, type MatrixListResult} from "./bridged";
 import {MATRIX_LIST_COLUMNS} from "./columns";
-import {Button, Form, Input, message, Space, Splitter} from "antd";
+import {Button, Form, Input, message, Space, Splitter, type TabsProps} from "antd";
 import {FilterTable, type FilterTableApi} from "@/components/grid-table";
 import {ErrorMessage} from "@/api/request.ts";
 import {SearchOutlined} from "@ant-design/icons";
+import PushView from "@/components/nc/bomMatrix/pushView.tsx";
 
 /**
  * V0277_V0354 包装 BOM 矩阵
@@ -28,17 +29,25 @@ import {SearchOutlined} from "@ant-design/icons";
 const PAGE_SIZE = 30;
 /** 等一次列表请求落地的兜底时长：请求卡死时别让 agent 的 ui_act 一直挂着 */
 const LIST_REQUEST_TIMEOUT_MS = 12000;
+/**
+ * 第四个标签页（发布情况）的 key。
+ *
+ * 与 `components/nc/bomMatrix/sections.ts` 里的 items / colors / sizes 并列，
+ * 但那三个是控件自己渲染的、也是界面桥里的三张表；这一页是页面在 `tabs` 里追加的，
+ * 所以 key 定在页面这一侧。
+ */
+const PUSH_RULE_SECTION = 'pushRules';
 
 const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({view, trail}) => {
 
-    const [bomMatrix, setBomMatrix] = useState<BomMatrix>({});
+    const [bomMatrix, setBomMatrix] = useState<PackBomMatrix>({});
     /**
      * 最新矩阵（ref 版）。
      *
      * 界面桥的命令在执行中途（`await` 之后）要判断「详情落地没有」，那时它手里的 ctx 是
      * 命令启动时的闭包，`bomMatrix` 恒为旧值 —— 只有 ref 读得到最新那份。
      */
-    const bomMatrixRef = useRef<BomMatrix>({});
+    const bomMatrixRef = useRef<PackBomMatrix>({});
     /** 详情接口回来没有（成功失败都算）—— 桥的 `ready` 读它，见 `./bridged` 的 `isReady` */
     const [loaded, setLoaded] = useState<boolean>(false);
 
@@ -53,12 +62,16 @@ const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({view, trail}) => {
     /**
      * 主表数据
      */
-    const [datas, setDatas] = useState<BomMatrix[]>([]);
+    const [datas, setDatas] = useState<PackBomMatrix[]>([]);
     const [query, setQuery] = useState<packBomMatrixListReq>({});
-    const [form] = Form.useForm<{ materialCode?: string }>();
+    const [form] = Form.useForm<{ materialCode?: string, ProjectCode?: string }>();
     const tableRef = useRef<FilterTableApi | null>(null);
     const [page, setPage] = useState<number>(1);
     const [totalRows, setTotalRows] = useState<number>(0);
+    /**
+     * 发布情况
+     */
+    const [pushData, setPushData] = useState<PackBomMatrixRule[]>([]);
 
     /**
      * 当前矩阵详情：`current` 是已加载成功的 id，`loading` 是在路上的 id。
@@ -74,6 +87,8 @@ const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({view, trail}) => {
             return;
         }
         loadingMatrixIDRef.current = matrixID;
+        // 先清空发布情况：那是上一份矩阵的发布会话，留在第四页上就是串数据
+        setPushData([]);
         try {
             const matrix = await packBomMatrixApi.detail(matrixID);
             currentMatrixIDRef.current = matrixID;
@@ -83,8 +98,20 @@ const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({view, trail}) => {
             setBomMatrix(next);
         } catch (err) {
             void message.error(ErrorMessage(err, '矩阵详情加载失败'));
+            // 详情都没拿到，发布规则更没有意义，别再发一趟
+            return;
         } finally {
             loadingMatrixIDRef.current = '';
+        }
+        /*
+         * 发布情况单独一趟、单独报错：它只是第四个标签页的附属数据，
+         * 拿不到不该被扣成「矩阵详情加载失败」—— 那时详情其实已经成功了。
+         */
+        try {
+            const rules = await packBomMatrixApi.pushRules(matrixID);
+            setPushData(rules.data ?? []);
+        } catch (err) {
+            void message.error(ErrorMessage(err, '发布情况加载失败'));
         }
     }, [])
 
@@ -204,6 +231,23 @@ const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({view, trail}) => {
     const bridge = useMemo(() => createBomMatrixBridge(() => bridgeContext), [bridgeContext]);
     useUIBridgeHost(view, bridge);
 
+    /**
+     * 第四个标签页：发布情况。
+     *
+     * `BomMatrixView` 的 `tabs` 是**拼在内置三张表后面**的（见 bomMatrix.tsx 的 `items`），
+     * 所以这里必须是 antd Tabs 的 item 形状（key / label / children）：
+     * 直接塞一个元素进去，antd 找不到 key 与 label，类型也过不了。
+     *
+     * 依赖必须带 `pushData` —— 换矩阵时会重新拉发布规则，锁成 [] 就永远显示第一次那份（多半是空表）。
+     */
+    const pushRuleTab = useMemo((): TabsProps['items'] => [
+        {
+            key: PUSH_RULE_SECTION,
+            label: '发布情况',
+            children: <PushView Datas={pushData} VersionFieldName={'Bom矩阵版本'} VersionField={'BomVersion'}/>,
+        },
+    ], [pushData]);
+
 
     return (
         <div className="page-container page-fill">
@@ -219,19 +263,23 @@ const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({view, trail}) => {
                 form={form}
                 layout="inline"
                 style={{marginTop: 20}}
-                onFinish={(values: { materialCode?: string }) => {
+                onFinish={(values: { materialCode?: string, ProjectCode?: string }) => {
                     /*
                      * 与界面桥的 query.set 保持同一个语义：换了条件就回第 1 页。
                      * 留在第 3 页看新条件的结果，多半是一片空白，用户会以为「查不到」。
                      */
-                    setQuery({PackMaterialCode: values.materialCode});
+                    setQuery({PackMaterialCode: values.materialCode, ProjectCode: values.ProjectCode});
                     setPage(1);
                 }}
             >
                 <div className="preorder-form-toolbar">
                     <span className="pf-label">物料: </span>
                     <Form.Item name="materialCode">
-                        <Input/>
+                        <Input allowClear/>
+                    </Form.Item>
+                    <span className="pf-label">项目: </span>
+                    <Form.Item name="ProjectCode">
+                        <Input allowClear/>
                     </Form.Item>
                     <Form.Item>
                         <Space>
@@ -274,7 +322,7 @@ const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({view, trail}) => {
                      * 两个面板加起来的占用就超过 splitter 高度了（比内容差几 px 更能确定地溢出）。
                      */}
                     <Splitter.Panel className="splitter-pane-body"
-                                     style={{paddingBottom: 10, overflow: 'hidden'}}>
+                                    style={{paddingBottom: 10, overflow: 'hidden'}}>
                         {/* 列定义在 `./columns`：页面与界面桥共用同一份，桥的列目录才不会和屏幕分叉 */}
                         <FilterTable ref={tableRef} columns={MATRIX_LIST_COLUMNS} records={datas}
                                      rowKey={'PackBomMatrixID'}
@@ -288,7 +336,7 @@ const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({view, trail}) => {
                     </Splitter.Panel>
                     <Splitter.Panel className="splitter-pane-body" style={{overflow: 'hidden'}}>
                         <BomMatrixView ref={matrixRef} bomMatrix={bomMatrix}
-                                       activeKey={activeKey} onActiveKeyChange={setActiveKey}/>
+                                       activeKey={activeKey} onActiveKeyChange={setActiveKey} tabs={pushRuleTab}/>
                     </Splitter.Panel>
                 </Splitter>
             </div>

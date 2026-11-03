@@ -11,7 +11,7 @@
  * 那个键会随改物料变，只适合保存时现算，不适合当表格 rowKey（变了表格会把同一行当新行）。
  */
 
-import type {BomMatrix, BomMatrixDetail} from '@/api/schemas/nc/bomMatrix.ts';
+import type {PackBomMatrix, PackBomMatrixDetail} from '@/api/schemas/nc/bomMatrix.ts';
 import {toStringOrEmpty} from '@/utils';
 
 /**
@@ -20,7 +20,7 @@ import {toStringOrEmpty} from '@/utils';
  * 三张表的行长得一样（都是明细字段 + 一堆动态列），区别只在**各自显示/编辑哪些列**，
  * 以及**各自持有自己的实例**。所以共用一个类型即可，别把它理解成「共享一份数据」。
  */
-export type BomMatrixRow = Partial<BomMatrixDetail> & {
+export type BomMatrixRow = Partial<PackBomMatrixDetail> & {
     /** 行标识：明细主键 / 新行 `draft-N`。三张表的 rowKey 与跨表同步都用它 */
     PackBomMatrixDetailID: string;
     /** 动态列：`Sunhao260` / `S260` / `S260_val` / `N260` / `红` / `红_val` … */
@@ -52,7 +52,7 @@ export function colorCells(color: string): { name: string; value: string } {
 }
 
 /** 明细行 → 矩阵行的底子：明细字段原样保留，参与行定位/取键的几个字段统一成字符串 */
-function detailToRow(detail: BomMatrixDetail): BomMatrixRow {
+function detailToRow(detail: PackBomMatrixDetail): BomMatrixRow {
     return {
         ...detail,
         PackBomMatrixDetailID: toStringOrEmpty(detail.PackBomMatrixDetailID),
@@ -62,7 +62,7 @@ function detailToRow(detail: BomMatrixDetail): BomMatrixRow {
 }
 
 /** 明细 → 子项物料行：只是把关键字段统一成字符串，内容不动（这张表编辑的就是明细本身） */
-export function toItemRows(items: BomMatrixDetail[]): BomMatrixRow[] {
+export function toItemRows(items: PackBomMatrixDetail[]): BomMatrixRow[] {
     return items.map(detailToRow);
 }
 
@@ -73,7 +73,7 @@ export function toItemRows(items: BomMatrixDetail[]): BomMatrixRow[] {
  * ② 配码表**没挂载过**时，保存流程用它现算一份（没挂载 = 用户没编辑过，与接口数据等价）。
  * 之后配码表的增删改都走它自己的命令 API，不会再调这里 —— 重算一次就把编辑冲掉了。
  */
-export function toSizeRows(matrix: BomMatrix, items: BomMatrixDetail[]): BomMatrixRow[] {
+export function toSizeRows(matrix: PackBomMatrix, items: PackBomMatrixDetail[]): BomMatrixRow[] {
     const sizes = (matrix.SizeSort ?? []).filter((size): size is string => !!size);
     return items.map((detail) => {
         const row = detailToRow(detail);
@@ -96,7 +96,7 @@ export function toSizeRows(matrix: BomMatrix, items: BomMatrixDetail[]): BomMatr
  *
  * 用途与 `toSizeRows` 相同（初始化 / 未挂载时的兜底），理由不再重复。
  */
-export function toColorRows(matrix: BomMatrix, items: BomMatrixDetail[]): BomMatrixRow[] {
+export function toColorRows(matrix: PackBomMatrix, items: PackBomMatrixDetail[]): BomMatrixRow[] {
     const colors = (matrix.ColorSort ?? []).filter((color): color is string => !!color);
     return items.map((detail) => {
         const row = detailToRow(detail);

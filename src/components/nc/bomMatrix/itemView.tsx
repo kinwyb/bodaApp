@@ -1,7 +1,7 @@
 import React, {useCallback, useEffect, useImperativeHandle, useMemo, useRef} from "react";
 import {message} from "antd";
 import {DeleteOutlined, PlusOutlined} from "@ant-design/icons";
-import type {BomMatrixDetail} from "@/api/schemas/nc/bomMatrix.ts";
+import type {PackBomMatrixDetail} from "@/api/schemas/nc/bomMatrix.ts";
 import {
     GridTable,
     type GridTableApi,
@@ -33,7 +33,7 @@ import {ncBaseApi} from "@/api/modules/nc/base.ts";
 /** bom矩阵子物料树形 */
 export interface BomMatrixItemProps {
     /** 初始行数据：只在**首次挂载**时用（换矩阵时父级会用新的 key 重挂载本组件） */
-    items: BomMatrixDetail[]
+    items: PackBomMatrixDetail[]
     isEditable: boolean
     /**
      * 行变化事件 —— 父级据此驱动配色 / 配码两张表。
@@ -540,9 +540,9 @@ const BomMatrixItemView = React.forwardRef<BomMatrixGridApi, BomMatrixItemProps>
                                         onSelect={(convert: NCMaterialConvert, activeRow) => {
                                             applyConvert(activeRow, convert);
                                         }}
-                                        // 只告诉弹窗「这一行是哪个物料」，列表由它按物料取
-                                        // （缓存命中 / 现查一次）。这里只读行，不读组件 state ——
-                                        // 编辑器注册一次，这个闭包不会跟着渲染更新
+                    // 只告诉弹窗「这一行是哪个物料」，列表由它按物料取
+                    // （缓存命中 / 现查一次）。这里只读行，不读组件 state ——
+                    // 编辑器注册一次，这个闭包不会跟着渲染更新
                                         viewProps={(row) => ({
                                             materialVID: toStringOrEmpty(row?.record?.MaterialVID),
                                         })}

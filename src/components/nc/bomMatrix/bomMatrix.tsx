@@ -1,5 +1,5 @@
 import React, {useCallback, useImperativeHandle, useMemo, useRef, useState} from "react";
-import type {BomMatrix, BomMatrixDetail} from "@/api/schemas/nc/bomMatrix.ts";
+import type {PackBomMatrix, PackBomMatrixDetail} from "@/api/schemas/nc/bomMatrix.ts";
 import {Tabs, type TabsProps} from "antd";
 import BomMatrixItemView from "./itemView.tsx";
 import BomMatrixSizeView from "./sizeView.tsx";
@@ -10,7 +10,7 @@ import type {BomMatrixGridApi, BomMatrixRowEvent} from "./gridApi.ts";
 import {toColorRows, toSizeRows} from "./rows.ts";
 
 export type BomMatrixViewProps = {
-    bomMatrix: BomMatrix;
+    bomMatrix: PackBomMatrix;
     tabs?: TabsProps['items'];
     isEditMode?: boolean;
     /**
@@ -66,7 +66,7 @@ export const BomMatrixView = React.forwardRef<BomMatrixViewApi, BomMatrixViewPro
     const sizesRef = useRef<BomMatrixGridApi | null>(null);
 
     /** 明细（接口那份）：三张表**首次挂载**时都用它铺行 */
-    const detailItems = useMemo<BomMatrixDetail[]>(() => bomMatrix.Detail ?? [], [bomMatrix.Detail]);
+    const detailItems = useMemo<PackBomMatrixDetail[]>(() => bomMatrix.Detail ?? [], [bomMatrix.Detail]);
 
     /**
      * 子项物料表的行事件 → 命令配色 / 配码按同一个行标识各改各的行。
@@ -97,7 +97,7 @@ export const BomMatrixView = React.forwardRef<BomMatrixViewApi, BomMatrixViewPro
      * 子项物料表一定挂载过（默认页签），所以 `itemsRef` 不会是空。
      */
     const currentDetail = useCallback(
-        (): BomMatrixDetail[] => (itemsRef.current?.getRows() ?? detailItems) as BomMatrixDetail[],
+        (): PackBomMatrixDetail[] => (itemsRef.current?.getRows() ?? detailItems) as PackBomMatrixDetail[],
         [detailItems],
     );
 

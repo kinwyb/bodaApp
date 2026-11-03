@@ -17,19 +17,18 @@
  */
 
 import type {FilterTableApi} from '@/components/grid-table';
-import type {TableReadApi} from '@/pages/agent/ui-bridge';
-import type {UIAction, UIField, UIGuide, UISnapshotData} from '@/pages/agent/protocol';
+import type {TableReadApi, UIBridgeHandler, UIBridgeHost} from '@/pages/agent/ui-bridge';
 import {createTableBridge} from '@/pages/agent/ui-bridge';
-import type {UIBridgeHandler, UIBridgeHost} from '@/pages/agent/ui-bridge';
-import type {BomMatrix} from '@/api/schemas/nc/bomMatrix.ts';
+import type {UIAction, UIField, UIGuide, UISnapshotData} from '@/pages/agent/protocol';
+import type {PackBomMatrix} from '@/api/schemas/nc/bomMatrix.ts';
 import type {packBomMatrixListReq} from '@/api/modules/nc/bomMatrix.ts';
 import {buildColorColumns, buildSizeColumns, ITEM_COLUMNS} from '@/components/nc/bomMatrix/columns.ts';
 import {
     BOM_MATRIX_SECTIONS,
+    type BomMatrixSection,
     bomMatrixSectionLabel,
     DEFAULT_BOM_MATRIX_SECTION,
     isBomMatrixSection,
-    type BomMatrixSection,
 } from '@/components/nc/bomMatrix/sections.ts';
 import {toStringOrEmpty} from '@/utils';
 import {MATRIX_LIST_COLUMNS} from './columns';
@@ -45,18 +44,18 @@ const BOM_MATRIX_GUIDE: UIGuide = {
     summary: '包装 BOM 矩阵：上方是包装 BOM 列表，选中一行后用下方三张表看它的子项物料、配色与配码',
     steps: [
         '主表 list 是包装 BOM 列表：用 list.page 按显示行号取行（offset 0 = 屏幕第 1 行），' +
-            '选中某一行用 list.select 传它的 rowId（就是 PackBomMatrixID）',
+        '选中某一行用 list.select 传它的 rowId（就是 PackBomMatrixID）',
         '**选中主表某一行之后，下方三张表才是这个矩阵的明细**：在此之前它们装的是上一个矩阵的数据',
         '主表是服务端分页：list.page 与 list.select 只认当前页显示的行；' +
-            '看下一页用 list.goto 传 page（从 1 起），换页后行号会变，要重新 list.page 取 rowId',
+        '看下一页用 list.goto 传 page（从 1 起），换页后行号会变，要重新 list.page 取 rowId',
         '要按物料号找矩阵用 query.set（会重新查库、回到第 1 页）；只想在当前页里临时收窄用 list.filter（不查库）',
         '三张明细表是**同一批子项行的三种看法**，但界面同一时刻只渲染一个标签页：' +
-            '要读哪一张先用 tab.switch 切过去，切过去之后那张表的 total 才是真的',
+        '要读哪一张先用 tab.switch 切过去，切过去之后那张表的 total 才是真的',
         '取数各用各的前缀：子项物料 items.page、配色 colors.page、配码 sizes.page（行号从 0 起，与屏幕一致）',
         'tables 里 name=items 的那张永远是「子项物料」；切到配色/配码后它的 visible 会变成 false —— ' +
-            '用户说的「这一行」指的是 visible 为 true 的那张表',
+        '用户说的「这一行」指的是 visible 为 true 的那张表',
         'colors / sizes 的行与 items 一一对应（同一个子项物料一行）：三张表的 rowId 都是明细主键，' +
-            '跨表对行直接用 rowId；行号（VRowNo）是业务排序键，改了行号 rowId 不变',
+        '跨表对行直接用 rowId；行号（VRowNo）是业务排序键，改了行号 rowId 不变',
     ],
     terms: {
         主表: 'list，包装 BOM 列表：一行一个包装物料，选中哪一行决定下方明细看哪个矩阵',
@@ -69,7 +68,7 @@ const BOM_MATRIX_GUIDE: UIGuide = {
     },
     cautions: [
         '主表 list 段的 total 是**这一页屏幕上的行数**（服务端分页，只有当前页那几十行），不是匹配总数：' +
-            '匹配总数看 query.set / list.goto 的回执，别拿 total 回答「一共几份矩阵」',
+        '匹配总数看 query.set / list.goto 的回执，别拿 total 回答「一共几份矩阵」',
         '选完主表行再取明细：详情是异步加载的，选中命令的回执会等它落地；如果回执说没等到，稍后用 items.page 再试一次',
         'readable 为 false 的表，total 是 0 但意思是「不知道」——别回答「这一页没有数据」，先 tab.switch',
         '切过去后如果还是 0 行，可能是表格还在渲染，重试一次那张表的 page；仍然 0 行才是真的没有匹配数据',
@@ -100,14 +99,14 @@ export type BomMatrixBridgeContext = {
     /** 当前 View（菜单里配的那个） */
     view: string;
     /** 矩阵数据：三张明细表都由它派生 */
-    bomMatrix: BomMatrix;
+    bomMatrix: PackBomMatrix;
     /**
      * 最新矩阵（**ref 版**，不是 state）。
      *
      * 命令 handler 的 `await` 中途需要判断「详情到底落地没有」，那时它手上的 ctx 是命令启动时的闭包，
      * 里面的 `bomMatrix` 恒为旧值。这个函数每次都读 ref，所以能拿到最新值。
      */
-    readMatrix: () => BomMatrix;
+    readMatrix: () => PackBomMatrix;
     /** 当前标签页（受控在页面上，控件不自己存） */
     activeKey: string;
     /** 取某张明细表的实例；没渲染过就是 null */
@@ -191,7 +190,7 @@ const ITEM_COLUMN_HINTS: Record<string, string> = {
  * 模型看不出 `S260` 是「260 码的尺码系数」。这里按当前尺码/颜色表补一句，
  * 换一份 BOM 就跟着换 —— 所以它必须跟着 `bomMatrix` 一起重建。
  */
-function dynamicColumnHints(bomMatrix: BomMatrix): Record<string, string> {
+function dynamicColumnHints(bomMatrix: PackBomMatrix): Record<string, string> {
     const hints: Record<string, string> = {VRowNo: '行号：与子项物料表同一套'};
     (bomMatrix.ColorSort ?? []).forEach((color) => {
         if (color) hints[color] = `${color} 色下的色号`;

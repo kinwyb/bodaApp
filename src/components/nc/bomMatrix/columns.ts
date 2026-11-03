@@ -11,7 +11,7 @@
  */
 
 import type {AppColumnDef, AppColumnGroupDef} from '@/components/grid-table';
-import type {BomMatrix} from '@/api/schemas/nc/bomMatrix.ts';
+import type {PackBomMatrix} from '@/api/schemas/nc/bomMatrix.ts';
 import {toNumberOrZero, toStringOrEmpty} from '@/utils';
 import {BackFlushTypeLabel, ItemSourceLabel} from './common.ts';
 
@@ -84,7 +84,7 @@ const MATCH_MATERIAL_FIELDS = [
  * 颜色集合来自 `bomMatrix.ColorSort`，所以**列目录随数据变** —— 换一份 BOM 就是另一组列，
  * 那时结构指纹会变、桥会发整页快照，这是对的（模型确实没见过这些列）。
  */
-export function buildColorColumns(bomMatrix: BomMatrix): AppColumnDef[] {
+export function buildColorColumns(bomMatrix: PackBomMatrix): AppColumnDef[] {
     const colors = (bomMatrix.ColorSort ?? []).filter((color): color is string => !!color);
     return [
         materialGroup([...MATCH_MATERIAL_FIELDS, {field: 'VFree4Name', title: '批号'}]),
@@ -101,7 +101,7 @@ export function buildColorColumns(bomMatrix: BomMatrix): AppColumnDef[] {
  * 三组按尺码对齐并列（不是一组三层嵌套）：用户是横向比一个尺码的三个值，
  * 拆成三组后列头能把它们分开，扫一行时才不会串。
  */
-export function buildSizeColumns(bomMatrix: BomMatrix): AppColumnDef[] {
+export function buildSizeColumns(bomMatrix: PackBomMatrix): AppColumnDef[] {
     const sizes = (bomMatrix.SizeSort ?? []).filter((size): size is string => !!size);
     return [
         materialGroup([...MATCH_MATERIAL_FIELDS, {field: 'VFree4Name', title: '批号'}]),
