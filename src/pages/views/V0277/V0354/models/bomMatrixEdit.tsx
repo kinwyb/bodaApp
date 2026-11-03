@@ -9,8 +9,8 @@
  * 子项物料表的行事件会自动同步到配色 / 配码（那套编排在控件里，弹窗不参与）。
  */
 
-import React, {useCallback, useMemo, useRef, useState} from "react";
-import {App, Button, Form, Input, Modal} from "antd";
+import React, {useCallback, useEffect, useMemo, useRef, useState} from "react";
+import {App, Button, Form, Input, Modal, Spin} from "antd";
 import {CopyOutlined, SaveOutlined, ThunderboltOutlined} from "@ant-design/icons";
 import {BomMatrixView, type BomMatrixViewApi} from "@/components/nc/bomMatrix";
 import {createItemRow} from "@/components/nc/bomMatrix/rows.ts";
@@ -21,6 +21,7 @@ import type {NCMaterial, NCMaterialConvert, NCMaterialVFree} from "@/api/schemas
 import {DEFAULT_BOM_MATRIX_SECTION} from "@/components/nc/bomMatrix/sections.ts";
 import {BOMMATRIX_COLOR_VFREE_FIELD, BOMMATRIX_SIZE_VFREE_FIELD,} from "@/components/nc/bomMatrix/common.ts";
 import {ncMaterialApi} from "@/api/modules/nc/material.ts";
+import {packBomMatrixApi} from "@/api/modules/nc/bomMatrix.ts";
 import {ErrorMessage} from "@/api/request.ts";
 import type {
     PackBomMatrix,
@@ -116,6 +117,38 @@ function toColorMatch(materialVID: string, rowNo: string, items: NCMaterialVFree
 }
 
 /**
+ * 编辑底稿 → 「产成品」那一组表单字段。
+ *
+ * 详情接口只给 `SewMaterialVID`，编码 / 名称 / 版本 / 规格 / 型号 / 主单位 / 单位 / 换算率
+ * 这些展示字段都没有 —— 只认 VID 的话，编辑打开时产成品那组除了编号几乎一片空白，
+ * 而且 VID 缺失时 `hasSewMaterial` 为 false，下面三张表整块禁用（等于打不开编辑）。
+ *
+ * 真正的来源是**明细第一行（行号 10）**：保存时产成品就写在这一行（见 `buildSewRow`），
+ * 它的物料就是 3 开头的缝制物料。行号 10 找不到（历史数据行号不规范）时，
+ * 退而取明细里第一条 3 开头的物料 —— 反正产成品只能是缝制物料。
+ */
+function readSewFields(record: PackBomMatrix): Record<string, unknown> {
+    const rows = record.Detail ?? [];
+    const row = rows.find((item) => toStringOrEmpty(item.VRowNo) === '10')
+        ?? rows.find((item) => toStringOrEmpty(item.MaterialCode).startsWith('3'));
+    const materialVID = toStringOrEmpty(row?.MaterialVID) || toStringOrEmpty(record.SewMaterialVID);
+    if (!row) {
+        return materialVID ? {SewMaterialVID: materialVID} : {};
+    }
+    return {
+        SewMaterialVID: materialVID || undefined,
+        SewMaterialCode: row.MaterialCode,
+        SewMaterialName: row.MaterialName,
+        SewMaterialVersion: row.MaterialVersion,
+        SewMaterialSpec: row.MaterialSpec,
+        SewMaterialModel: row.MaterialType,
+        SewCMeasure: row.CMeasure,
+        SewCassmeasure: row.Cassmeasure,
+        SewVChangerate: row.VChangerate,
+    };
+}
+
+/**
  * 表单字段描述。
  *
  * - `readOnly`：只能由物料带出来，不让手填（名称 / 版本 / 规格 / 型号 / 主单位 / 转换率
@@ -142,7 +175,7 @@ type BomMatrixField = {
 const PACK_FIELDS: BomMatrixField[] = [
     {name: 'PackMaterialCode', label: '物料编码', material: 'pack'},
     {name: 'PackMaterialName', label: '物料名称', readOnly: true},
-    {name: 'PackMaterialVID', label: '物料版本', readOnly: true},
+    {name: 'PackMaterialVersion', label: '物料版本', readOnly: true},
     {name: 'PackMaterialSpec', label: '物料规格', readOnly: true},
     {name: 'PackMaterialModel', label: '物料型号', readOnly: true},
     {name: 'CMeasure', label: '主单位', readOnly: true},
@@ -180,6 +213,97 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, mode, record, onClos
      * `BomMatrixView` 自己不存 activeKey（它必须如实回答「用户在看哪张表」），所以由调用方持有。
      */
     const [activeKey, setActiveKey] = useState<string>(DEFAULT_BOM_MATRIX_SECTION);
+
+    /**
+     * 要打开哪一份矩阵（新增为空）。
+     *
+     * 传入的 `record` 是**主表那一行**：列表接口只给摘要（包装物料、项目、方式、数量），
+     * `Detail` / `ColorMatch` / `SizeMatch` / `ColorSort` / `SizeSort` 全是空的。
+     * 直接拿它铺表格，编辑时看到的就是「明细空、配色配码连列都没有」。
+     * 所以编辑 / 复制 / 查看都要按这个 ID 单独取一次详情（见 `loadDetail`）。
+     */
+    const matrixID = mode === 'add' ? '' : toStringOrEmpty(record?.PackBomMatrixID);
+
+    /**
+     * 详情（编辑 / 复制 / 查看才有）。
+     *
+     * `null` = 还没拿到（新增，或请求在路上 / 失败）：此时表单用主表摘要兜着，
+     * 表格区显示加载占位 —— **不能先渲染一张空表**，否则详情一到就是整块重铺。
+     */
+    const [detailRecord, setDetailRecord] = useState<PackBomMatrix | null>(null);
+    /**
+     * 初值就是「在加载」：编辑 / 复制 / 查看一打开就在等详情。
+     *
+     * 不能等 effect 里再置 true —— 那样首帧 loading 为 false，会先渲染一张**空表**，
+     * 下一帧才换成占位，表格跟着挂载又卸载一次。
+     */
+    const [loadingDetail, setLoadingDetail] = useState<boolean>(matrixID !== '');
+    const [detailFailed, setDetailFailed] = useState<boolean>(false);
+
+    /** 详情请求序号：关闭弹窗 / 重新拉取时让在飞的旧结果作废 */
+    const detailSeqRef = useRef(0);
+
+    /**
+     * 取详情：**弹窗自己的事**，不复用页面上那份 `bomMatrix`。
+     *
+     * 页面那份跟着「主表选中行」走，而编辑按钮只看「有没有选中」—— 详情可能还在路上，
+     * 也可能还是上一行的。混用两份数据会在弹窗里出现「编码是 A、明细是 B」。
+     */
+    const loadDetail = useCallback(async () => {
+        const seq = ++detailSeqRef.current;
+        if (!matrixID) return;
+        try {
+            const result = await packBomMatrixApi.detail(matrixID);
+            if (seq !== detailSeqRef.current) return;
+            const next = result.data ?? null;
+            setDetailRecord(next);
+            if (next) {
+                /*
+                 * 表单初值是主表摘要（只有编码 / 项目那几个字段），详情补齐 VID、主单位、换算率…
+                 * 产成品那一组还要按**明细第一行**回填（详情里没有它的编码 / 名称 / 规格）。
+                 */
+                form.setFieldsValue({...next, ...readSewFields(next)} as Record<string, unknown>);
+            }
+        } catch (err) {
+            if (seq !== detailSeqRef.current) return;
+            setDetailFailed(true);
+            void message.error(ErrorMessage(err, '矩阵详情加载失败'));
+        } finally {
+            if (seq === detailSeqRef.current) setLoadingDetail(false);
+        }
+    }, [matrixID, form, message]);
+
+    /*
+     * 加载放在 effect 里，只有「打开」这一个触发点（弹窗由页面用 key 重挂载，open 恒定）。
+     *
+     * oxlint 会为 `void loadDetail()` 报一条 `set-state-in-effect`：那是静态分析对
+     * 「effect 里调 async 加载函数」的误判 —— 这里的 setState 都在 `await` 之后，
+     * 属于请求落地，不是渲染期的级联更新。与页面 `index.tsx` 的 `loadData` 同一情况。
+     */
+    useEffect(() => {
+        if (!open) {
+            // 关闭时作废在飞的请求：结果回来也没有地方落（下次打开是新的弹窗实例）
+            detailSeqRef.current += 1;
+            return;
+        }
+        // 新增没有详情可拉；编辑 / 复制 / 查看一挂载就去取
+        if (!matrixID) return;
+        void loadDetail();
+    }, [open, matrixID, loadDetail]);
+
+    /** 重试：先把状态摆回「在加载」，再发一次请求（首次加载的 loading 由 state 初值负责） */
+    const retryDetail = useCallback(() => {
+        setDetailFailed(false);
+        setLoadingDetail(true);
+        void loadDetail();
+    }, [loadDetail]);
+
+    /**
+     * 弹窗里用的底稿：拿到详情就全用详情，没拿到（新增 / 加载中）用主表那一行兜着。
+     *
+     * 加载中表单要能看出「这是哪一份」（编码 / 项目），所以这里不回退成空对象。
+     */
+    const baseRecord = detailRecord ?? record;
 
     /**
      * 自动铺进子项明细的那一行（缝制物料）；`null` = 还没选产成品。
@@ -241,7 +365,7 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, mode, record, onClos
      * （空行是选定产成品那一刻补的，颜色字典稍后异步回来正好赶上）。
      */
     const detail = useMemo<PackBomMatrixDetail[]>(() => {
-        const source = detailRows ?? record?.Detail ?? [];
+        const source = detailRows ?? baseRecord?.Detail ?? [];
         if (!sewRow) return source;
         const index = source.findIndex((row) => toStringOrEmpty(row.VRowNo) === '10');
         const next = [...source];
@@ -252,17 +376,17 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, mode, record, onClos
             next.unshift(sewRow);
         }
         return next;
-    }, [record, detailRows, sewRow]);
+    }, [baseRecord, detailRows, sewRow]);
 
     /**
      * 交给下方表格的矩阵 = 明细 + 产成品带出的颜色 / 尺码列。
      *
-     * 派生而不是把行写进 `record`：`record` 是外面传进来的底稿，弹窗没有权力改它；
+     * 派生而不是把行写进底稿：底稿是外面传进来的，弹窗没有权力改它；
      * 派生也保证「清空产成品」= 把几个 state 置空，底稿立刻回到原样
      * （`sewRow` / `detailRows` 都空时直接返回底稿本身，连 `Detail` 都不重造）。
      */
     const matrix = useMemo<PackBomMatrix>(() => {
-        const base = record ?? {};
+        const base = baseRecord ?? {};
         /*
          * 颜色列 / 尺码列跟着产成品走：选了产成品就按它的辅助属性字典重算
          * （换物料本来就该换一批颜色、尺码），没选就是底稿带进来的那一份。
@@ -276,7 +400,7 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, mode, record, onClos
         } : base;
         if (!sewRow && !detailRows) return scoped;
         return {...scoped, Detail: detail};
-    }, [record, detail, detailRows, sewRow, sewSort]);
+    }, [baseRecord, detail, detailRows, sewRow, sewSort]);
 
     /**
      * 两个分组各自的物料 —— 单位选择要按它取可选列表，所以都盯着。
@@ -332,6 +456,7 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, mode, record, onClos
             PackMaterialName: material.name,
             PackMaterialSpec: material.materialspec,
             PackMaterialModel: material.materialtype,
+            PackMaterialVersion: material.version,
             CMeasure: material.measdoc,
             Cassmeasure: convert?.measdoc ?? material.measdoc,
             VChangerate: convert?.measrate ?? '1/1',
@@ -449,9 +574,20 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, mode, record, onClos
          * 读的是 `readRows('items')`（含未保存的编辑），不是 `matrix.Detail`（那是上一次派生的结果）。
          */
         const currentRows = (matrixRef.current?.readRows('items') ?? matrix.Detail ?? []) as PackBomMatrixDetail[];
+        const existedSewRow = currentRows.find((row) => toStringOrEmpty(row.VRowNo) === '10');
         setDetailRows(currentRows.filter((row) => toStringOrEmpty(row.VRowNo) !== '10'));
         // 换物料时沿用第一次的临时主键，表格不会把它当成「删一行又加一行」
         const nextRow = buildSewRow(material);
+        /*
+         * 编辑态：明细里第 10 行是**已落库**的，沿用它自己的主键。
+         *
+         * 不沿用的话这一行会变成 `draft-N` 的新行、原来那行被过滤掉，
+         * 保存时就是「删一行再加一行」—— 那一行上的历史字段（转换率、发料方式、批号…）也跟着换身份。
+         */
+        if (existedSewRow) {
+            nextRow.PackBomMatrixDetailID =
+                toStringOrEmpty(existedSewRow.PackBomMatrixDetailID) || nextRow.PackBomMatrixDetailID;
+        }
         setSewRow((prev) => (prev ? {...prev, ...nextRow} : nextRow));
         /*
          * 颜色列 / 尺码列按新产成品重取：这两份清单是物料的辅助属性字典，
@@ -584,8 +720,9 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, mode, record, onClos
 
             <Form
                 form={form}
-                // 新增是空表单；编辑 / 复制把底稿带出来（复制也带，只是保存时不带主键）
-                initialValues={(record ?? {}) as Record<string, unknown>}
+                // 新增是空表单；编辑 / 复制把底稿带出来（复制也带，只是保存时不带主键）。
+                // 底稿先给主表摘要那几个字段，详情到达后由 `loadDetail` 补齐（initialValues 只管首帧）
+                initialValues={(baseRecord ?? {}) as Record<string, unknown>}
                 layout="horizontal"
                 labelCol={{flex: '72px'}}
                 colon={false}
@@ -621,23 +758,41 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, mode, record, onClos
 
             {/*
              * 下半部分：编辑态的矩阵表。
-             * `bomMatrix` 就是底稿（新增时是空对象）：三张表按它的 Detail 铺行，编辑结果留在各自表里。
+             * `matrix` 是「详情 + 本次编辑」派生出来的：三张表按它的 Detail 铺行，
+             * 编辑结果留在各自表里。
              *
              * 产成品没选时整块禁用：子项明细是「这个产成品的包装明细」，没有产成品就没有归属，
              * 让人先录明细再选产成品，等于把行列挂到空气上。
+             *
+             * 详情没到之前**不渲染表格**：拿主表摘要（没有 Detail）铺出来是一张空表，
+             * 详情一到整块重铺 —— 空行、选中、滚动全部闪一遍。占位块与表格同高，弹窗不会跳。
              */}
             <div className="bom-matrix-edit-table">
-                <BomMatrixView
-                    ref={matrixRef}
-                    bomMatrix={matrix}
-                    isEditMode={canEditMatrix}
-                    activeKey={activeKey}
-                    onActiveKeyChange={setActiveKey}
-                />
-                {!canEditMatrix && (
-                    <div className="bom-matrix-edit-mask">
-                        {mode === 'view' ? '只读查看' : '请先选择产成品的物料，再编辑子项明细'}
+                {loadingDetail ? (
+                    <div className="bom-matrix-edit-loading">
+                        <Spin/>
+                        <span>正在加载矩阵详情…</span>
                     </div>
+                ) : detailFailed ? (
+                    <div className="bom-matrix-edit-loading">
+                        <span>矩阵详情没加载出来，表格暂时不可用</span>
+                        <Button size="small" onClick={retryDetail}>重试</Button>
+                    </div>
+                ) : (
+                    <>
+                        <BomMatrixView
+                            ref={matrixRef}
+                            bomMatrix={matrix}
+                            isEditMode={canEditMatrix}
+                            activeKey={activeKey}
+                            onActiveKeyChange={setActiveKey}
+                        />
+                        {!canEditMatrix && (
+                            <div className="bom-matrix-edit-mask">
+                                {mode === 'view' ? '只读查看' : '请先选择产成品的物料，再编辑子项明细'}
+                            </div>
+                        )}
+                    </>
                 )}
             </div>
         </Modal>

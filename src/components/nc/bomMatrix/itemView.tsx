@@ -242,6 +242,13 @@ const BomMatrixItemView = React.forwardRef<BomMatrixGridApi, BomMatrixItemProps>
             if (field === 'cassmeasure') {
                 return materialVID !== '';
             }
+            /*
+             * 行号 10 就是产成品（3 开头的缝制物料）：它的物料由上面「产成品」那一组决定，
+             * 直接在格子里改会出现「表单还是 A、明细已经成了 B」。要换就走上方的物料选择。
+             */
+            if (field === 'materialcode' && record?.VRowNo === '10' && record?.MaterialCode?.startsWith('3')) {
+                return false;
+            }
             if (!field.startsWith("vfree")) {
                 return true;
             }
@@ -478,7 +485,11 @@ const BomMatrixItemView = React.forwardRef<BomMatrixGridApi, BomMatrixItemProps>
                 const rowKey = rowKeyOf(record);
                 return alignMenuIcons([
                     {text: '新增行', menuKey: 'insertRow', icon: MENU_ICON_ADD},
-                    ...(rowKey ? [{text: '删除行', menuKey: 'deleteRow', icon: MENU_ICON_DELETE}] : []),
+                    ...(rowKey && record?.VRowNo !== '10' ? [{
+                        text: '删除行',
+                        menuKey: 'deleteRow',
+                        icon: MENU_ICON_DELETE
+                    }] : []),
                 ]);
             },
             onClick: ({menuKey, record}) => {

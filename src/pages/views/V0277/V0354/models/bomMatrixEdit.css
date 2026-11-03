@@ -124,3 +124,21 @@
     background: rgba(255, 255, 255, 0.72);
     pointer-events: auto;
 }
+
+/*
+ * 详情加载中的占位。
+ *
+ * 独立一层而不是盖在表格上：编辑 / 复制要先拿到详情（明细、颜色尺码匹配都在里面），
+ * 没拿到就渲染表格的话，等于先给一张空表、请求回来再整块重铺 —— 空行、选中、滚动都会闪。
+ */
+.bom-matrix-edit-loading {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    font-size: 13px;
+    color: rgba(0, 0, 0, 0.45);
+}
+
