@@ -8,8 +8,11 @@ import {type BomMatrixSection, DEFAULT_BOM_MATRIX_SECTION} from "@/components/nc
 import {useUIBridgeHost} from "@/pages/agent/ui-bridge";
 import {type BomMatrixBridgeContext, createBomMatrixBridge, type MatrixListResult} from "./bridged";
 import {MATRIX_LIST_COLUMNS} from "./columns";
-import {Button, Form, Input, message, Space, Splitter, type TabsProps} from "antd";
-import {FilterTable, type FilterTableApi} from "@/components/grid-table";
+import {App, Button, Form, Input, Space, Splitter, type TabsProps} from "antd";
+import {FilterTable, type FilterTableApi, type GridTableSelectedRowChangeInfo} from "@/components/grid-table";
+import {CommandBar} from "@/components/CommandBar";
+import {usePackBomMatrixCommands, type FormMode, type PackBomMatrixCommandContext} from "./command";
+import {toStringOrEmpty} from "@/utils";
 import {ErrorMessage} from "@/api/request.ts";
 import {SearchOutlined} from "@ant-design/icons";
 import PushView from "@/components/nc/bomMatrix/pushView.tsx";
@@ -40,6 +43,9 @@ const PUSH_RULE_SECTION = 'pushRules';
 
 const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({view, trail}) => {
 
+    /** antd 的上下文版 message / modal：命令条那层要用（见 commands.tsx 的 CommandContext） */
+    const {message, modal} = App.useApp();
+
     const [bomMatrix, setBomMatrix] = useState<PackBomMatrix>({});
     /**
      * 最新矩阵（ref 版）。
@@ -63,6 +69,13 @@ const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({view, trail}) => {
      * 主表数据
      */
     const [datas, setDatas] = useState<PackBomMatrix[]>([]);
+    /**
+     * 主表当前选中的那一行 —— 命令条的 disabled 读它。
+     *
+     * 与 `bomMatrix` 是两件事：这个跟着「用户点了哪一行」立刻变，`bomMatrix` 要等详情接口回来。
+     * 命令按钮该按选中状态即时反应，不能等详情。
+     */
+    const [selectedMatrix, setSelectedMatrix] = useState<PackBomMatrix | null>(null);
     const [query, setQuery] = useState<packBomMatrixListReq>({});
     const [form] = Form.useForm<{ materialCode?: string, ProjectCode?: string }>();
     const tableRef = useRef<FilterTableApi | null>(null);
@@ -113,7 +126,7 @@ const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({view, trail}) => {
         } catch (err) {
             void message.error(ErrorMessage(err, '发布情况加载失败'));
         }
-    }, [])
+    }, [message])
 
     /**
      * 一次列表请求的等待者。
@@ -143,6 +156,8 @@ const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({view, trail}) => {
             // 第一行先加载详情：不必等选中回调（那一步要等表格重绘，慢一帧）
             const matrixID = rows[0]?.PackBomMatrixID;
             if (matrixID) void loadMatrix(matrixID);
+            // 换了一批行，旧的选中已经不在了（紧接着的 selectRowsByKeys 会重新选第一行并回调）
+            setSelectedMatrix(null);
             setDatas(rows);
             setTotalRows(snapshot.total)
         } catch (err) {
@@ -153,7 +168,7 @@ const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({view, trail}) => {
             setLoaded(true)
             settleList(snapshot);
         }
-    }, [query, page, loadMatrix, settleList])
+    }, [query, page, loadMatrix, settleList, message])
 
     useEffect(() => {
         void loadData();
@@ -173,6 +188,66 @@ const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({view, trail}) => {
         if (!key) return;
         tableRef.current?.selectRowsByKeys([key]);
     }, [datas]);
+
+    /**
+     * 主表选中变化：既驱动命令条（按「有没有选中行」算 disabled），又加载这一行的矩阵详情。
+     *
+     * `record` 就是页面传进 records 的那条记录本身（引用相等），不必再按 rowKey 反查一遍。
+     * 没有激活行时（点空白处、换数据）它是 undefined —— 命令按钮跟着禁用。
+     */
+    const handleSelectedChange = useCallback((info: GridTableSelectedRowChangeInfo) => {
+        setSelectedMatrix(info.record ? (info.record as PackBomMatrix) : null);
+        if (info.rowKey) void loadMatrix(info.rowKey);
+    }, [loadMatrix]);
+
+    /**
+     * 命令条各按钮的动作（命令本身在 ./command/，一个命令一个文件）。
+     *
+     * 目前只有「刷新」是完整动作：后端在这个模块上只给了 list / detail / pushRule 三个接口，
+     * 新增 / 编辑 / 复制 / 发布 / 删除都没有对应的保存或提交接口，工艺矩阵是另一个页面（还没进本工程）。
+     * 所以这些按钮先按业务摆出来、点击时如实说明缺什么 —— 比放一个点了没反应的按钮好，
+     * 更比假装成功好（用户会以为数据已经改过）。
+     */
+    const handleOpenForm = useCallback((mode: FormMode, record: PackBomMatrix | null) => {
+        const label: Record<FormMode, string> = {add: '新增', edit: '编辑', view: '查看', copy: '复制'};
+        const name = toStringOrEmpty(record?.PackMaterialCode);
+        // 新增没有记录可引用，别拼出一对空引号
+        void message.info(`${label[mode]}矩阵${name ? `「${name}」` : ''}：矩阵表单与保存接口还没接入`);
+    }, [message]);
+
+    const handleOpenProcessMatrix = useCallback((matrix: PackBomMatrix) => {
+        void message.info(`「${toStringOrEmpty(matrix.PackMaterialCode)}」的工艺矩阵：对应页面还没接入`);
+    }, [message]);
+
+    /**
+     * 命令的公共依赖（框架能力 + 本页业务依赖）。
+     *
+     * 与 V0189 同样的两层写法：**先把依赖装成一个稳定对象，再交给 `usePackBomMatrixCommands`**。
+     * 别合成一行 `useMemo(() => factory({..., tableRef}), [...])` —— 那等于在 render 期
+     * 把 ref 实例当参数递给普通函数，lint 会按「可能读到 ref.current」拦下来（hook 那一层不算）。
+     */
+    const commandContext = useMemo<PackBomMatrixCommandContext>(() => ({
+        message,
+        modal,
+        tableRef,
+        // 主表没开多选：选中就是那一行，没选中就是空
+        getSelectedRows: () => (selectedMatrix ? [selectedMatrix] : []),
+        activeRow: selectedMatrix,
+        hasSelection: !!selectedMatrix,
+        reload: loadData,
+        openForm: handleOpenForm,
+        openProcessMatrix: handleOpenProcessMatrix,
+    }), [
+        message, modal, selectedMatrix, loadData, handleOpenForm, handleOpenProcessMatrix,
+    ]);
+
+    /**
+     * 命令条（装配在 ./command/index.ts）。
+     *
+     * 与界面桥的动作表**同源**：桥直接读这份 commands 生成 `actions`（见 ./bridged 的
+     * `commands`），所以加按钮只改 command/ 那一处 —— 屏幕上多一个按钮，模型那儿就多一条命令。
+     */
+    const commands = usePackBomMatrixCommands(commandContext);
 
     /** 交给桥的就绪判断：只看「接口回来没有」，不看内容（内容为空也是一份合法的快照） */
     const isReady = useCallback(() => loaded, [loaded]);
@@ -218,8 +293,9 @@ const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({view, trail}) => {
             query, page, pageSize: PAGE_SIZE, totalRows,
             readListTable: () => tableRef.current,
             reloadList,
+            commands,
         }),
-        [view, bomMatrix, activeKey, readTable, isReady, query, page, totalRows, reloadList],
+        [view, bomMatrix, activeKey, readTable, isReady, query, page, totalRows, reloadList, commands],
     );
 
     /**
@@ -252,6 +328,8 @@ const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({view, trail}) => {
     return (
         <div className="page-container page-fill">
             <PageBreadcrumb trail={trail}/>
+            {/* 命令条：与界面桥的动作表同源（桥直接读这份 commands），加按钮只改./commands.tsx */}
+            {commands.length > 0 && <CommandBar view={view} items={commands}/>}
             {/*
              * 框（边框 / 圆角 / 留白）单独放一层，**不挂在 Splitter 上**：
              * antd 用 `offsetHeight` 量分隔容器来算每个面板的像素尺寸，边框与 padding 也算在里面，
@@ -326,7 +404,7 @@ const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({view, trail}) => {
                         {/* 列定义在 `./columns`：页面与界面桥共用同一份，桥的列目录才不会和屏幕分叉 */}
                         <FilterTable ref={tableRef} columns={MATRIX_LIST_COLUMNS} records={datas}
                                      rowKey={'PackBomMatrixID'}
-                                     widthMode={'autoWidth'} onSelectedChange={(values) => loadMatrix(values.rowKey)}
+                                     widthMode={'autoWidth'} onSelectedChange={handleSelectedChange}
                                      page={page} total={totalRows} pageSize={PAGE_SIZE}
                                      onPageChange={(page) => {
                                          setPage(page);

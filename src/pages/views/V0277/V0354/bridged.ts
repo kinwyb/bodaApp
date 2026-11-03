@@ -17,6 +17,7 @@
  */
 
 import type {FilterTableApi} from '@/components/grid-table';
+import type {CommandItem} from '@/components/CommandBar';
 import type {TableReadApi, UIBridgeHandler, UIBridgeHost} from '@/pages/agent/ui-bridge';
 import {createTableBridge} from '@/pages/agent/ui-bridge';
 import type {UIAction, UIField, UIGuide, UISnapshotData} from '@/pages/agent/protocol';
@@ -69,6 +70,8 @@ const BOM_MATRIX_GUIDE: UIGuide = {
     cautions: [
         '主表 list 段的 total 是**这一页屏幕上的行数**（服务端分页，只有当前页那几十行），不是匹配总数：' +
         '匹配总数看 query.set / list.goto 的回执，别拿 total 回答「一共几份矩阵」',
+        '顶部命令条里只有「刷新」是完整动作：新增 / 编辑 / 复制 / 发布 / 删除 / 工艺矩阵 都还没接后端，' +
+            '执行后回执会说明缺什么 —— 别把它们当成「数据已经改了」，也不要反复重试',
         '选完主表行再取明细：详情是异步加载的，选中命令的回执会等它落地；如果回执说没等到，稍后用 items.page 再试一次',
         'readable 为 false 的表，total 是 0 但意思是「不知道」——别回答「这一页没有数据」，先 tab.switch',
         '切过去后如果还是 0 行，可能是表格还在渲染，重试一次那张表的 page；仍然 0 行才是真的没有匹配数据',
@@ -139,10 +142,24 @@ export type BomMatrixBridgeContext = {
      * 桥要用它算页数、写回执。
      */
     reloadList: (query: packBomMatrixListReq, page: number) => Promise<MatrixListResult>;
+    /**
+     * 页面顶部命令条（新增 / 编辑 / 复制 / 发布 / 工艺矩阵 / 删除 / 刷新）。
+     *
+     * 动作表**直接由它生成**：命令 ID 就是 `CommandItem.key`，点击执行的就是按钮自己的 `onClick`。
+     * 另维护一份清单必然对不上 —— 页面上加个按钮，模型那儿就少一条命令。
+     */
+    commands: CommandItem[];
 };
 
 /** 主表「没渲染时」要说的话 */
 const LIST_UNREADABLE = '包装 BOM 列表正在加载（首屏接口还没回来）：稍后重试，或重新 ui_observe';
+
+/**
+ * 命令条上「要对某一行动手」的按钮（编辑 / 复制 / 发布 / 工艺矩阵 / 删除）为什么点不动。
+ *
+ * 只有一条判据（有没有选中行），所以文案也只写一份 —— 分散到每个按钮上迟早会漂。
+ */
+const NEED_ROW_REASON = '需要先在主表选中一行：用 list.select 传它的 rowId（就是 PackBomMatrixID）';
 
 /** 主表的默认投影列：模型多数时候只看这几列认单，其余用 fields 指名 */
 const LIST_KEY_FIELDS = [
@@ -363,8 +380,23 @@ export function createBomMatrixBridge(read: () => BomMatrixBridgeContext): UIBri
         columnHints: hints,
     });
 
-    /** 动作表：主表 + 查询 + 翻页 + 切标签页 + 三张明细表 */
+    /** 动作表：命令条 + 主表 + 查询 + 翻页 + 切标签页 + 三张明细表 */
     const actions = (): UIAction[] => [
+        /*
+         * 页面顶部那排按钮（新增 / 编辑 / 复制 / 发布 / 工艺矩阵 / 删除 / 刷新）。
+         *
+         * 直接由页面的 commands 生成，命令 ID 就是按钮 key —— 不在这里另写一份。
+         * `disabled` 不进结构指纹（见 ui-bridge/handler.ts 的 structureKey），
+         * 所以「选中行变化 → 按钮变灰」只走补丁，不会整页重发。
+         */
+        ...read().commands.map((item) => ({
+            id: item.key,
+            label: item.label,
+            group: 'toolbar' as const,
+            danger: item.danger,
+            disabled: item.disabled,
+            disabledReason: item.disabled ? NEED_ROW_REASON : undefined,
+        })),
         ...list.actions(),
         {
             /*
@@ -568,6 +600,23 @@ export function createBomMatrixBridge(read: () => BomMatrixBridgeContext): UIBri
             return `已切到「${bomMatrixSectionLabel(key)}」（${total} 行），用 ${key}.page 取行`;
         },
     };
+
+    /*
+     * 命令条上的每条按钮**直接用它自己的 onClick**，不另写一份实现 —— 抄一份的代价是行为分叉：
+     * 按钮改了、agent 那条没改，或者反过来。这里只包一层，顺便回一句人话给模型当回执
+     * （否则 result 是 null，模型只能猜按钮到底按下去没有）。
+     *
+     * 按 key 重新取最新那份命令：`disabled` 依赖选中行，建桥时闭包里那份可能已经过期。
+     */
+    read().commands.forEach((item) => {
+        if (!item.onClick) return;
+        handlers[item.key] = () => {
+            const latest = read().commands.find((cmd) => cmd.key === item.key) ?? item;
+            if (latest.disabled) return `「${latest.label}」现在不可用：${NEED_ROW_REASON}`;
+            latest.onClick?.();
+            return `已执行：${latest.label}`;
+        };
+    });
 
     return {snapshot, handlers, ready: () => read().isReady()};
 }
