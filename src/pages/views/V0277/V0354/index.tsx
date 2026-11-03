@@ -6,22 +6,39 @@ import {BomMatrixView, type BomMatrixViewApi} from "@/components/nc/bomMatrix";
 import type {BomMatrix} from "@/api/schemas/nc/bomMatrix.ts";
 import {type BomMatrixSection, DEFAULT_BOM_MATRIX_SECTION} from "@/components/nc/bomMatrix/sections.ts";
 import {useUIBridgeHost} from "@/pages/agent/ui-bridge";
-import {type BomMatrixBridgeContext, createBomMatrixBridge} from "./bridged";
+import {type BomMatrixBridgeContext, createBomMatrixBridge, type MatrixListResult} from "./bridged";
+import {MATRIX_LIST_COLUMNS} from "./columns";
 import {Button, Form, Input, message, Space, Splitter} from "antd";
-import {type AppColumnDef, FilterTable, type FilterTableApi} from "@/components/grid-table";
+import {FilterTable, type FilterTableApi} from "@/components/grid-table";
 import {ErrorMessage} from "@/api/request.ts";
 import {SearchOutlined} from "@ant-design/icons";
 
 /**
  * V0277_V0354 包装 BOM 矩阵
  *
- * 界面桥的声明全在 `./bridged.ts`（guide、三张表怎么拼、切标签页）：**那个文件存在本身就是
- * 「本页接入了界面桥」的标记**，工作台的导航清单靠它判定。所以本文件里没有桥的细节，
- * 只有「把当前状态交出去」这一句，以及一个受控的 activeKey。
+ * 界面桥的声明全在 `./bridged.ts`（guide、主表与三张明细表怎么拼、查询 / 翻页 / 切标签页）：
+ * **那个文件存在本身就是「本页接入了界面桥」的标记**，工作台的导航清单靠它判定。
+ * 所以本文件里没有桥的细节，只有「把当前状态交出去」这一句，以及受控的 activeKey 与分页。
+ *
+ * 主表（上方列表）与明细（下方三张表）是**从属关系**：主表选中哪一行，决定下方看哪个矩阵。
+ * 界面桥要如实表达这件事，靠的是 `list.select` 之后等详情真的落地（见 `./bridged` 的
+ * `waitForMatrixDetail`），以及页面把「请求落地了」这件事交出去（`reloadList`）。
  */
+/** 主表每页条数：服务端分页，翻页要带着它一起发请求（界面桥的翻页命令也按它算页数） */
+const PAGE_SIZE = 30;
+/** 等一次列表请求落地的兜底时长：请求卡死时别让 agent 的 ui_act 一直挂着 */
+const LIST_REQUEST_TIMEOUT_MS = 12000;
+
 const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({view, trail}) => {
 
     const [bomMatrix, setBomMatrix] = useState<BomMatrix>({});
+    /**
+     * 最新矩阵（ref 版）。
+     *
+     * 界面桥的命令在执行中途（`await` 之后）要判断「详情落地没有」，那时它手里的 ctx 是
+     * 命令启动时的闭包，`bomMatrix` 恒为旧值 —— 只有 ref 读得到最新那份。
+     */
+    const bomMatrixRef = useRef<BomMatrix>({});
     /** 详情接口回来没有（成功失败都算）—— 桥的 `ready` 读它，见 `./bridged` 的 `isReady` */
     const [loaded, setLoaded] = useState<boolean>(false);
 
@@ -32,6 +49,7 @@ const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({view, trail}) => {
     const [activeKey, setActiveKey] = useState<string>(DEFAULT_BOM_MATRIX_SECTION);
     /** 控件交出的读能力：三个表格实例都在它里面，桥按标签页名取 */
     const matrixRef = useRef<BomMatrixViewApi | null>(null);
+
     /**
      * 主表数据
      */
@@ -41,18 +59,6 @@ const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({view, trail}) => {
     const tableRef = useRef<FilterTableApi | null>(null);
     const [page, setPage] = useState<number>(1);
     const [totalRows, setTotalRows] = useState<number>(0);
-    const pageSize = 30;
-
-    const columns = useMemo((): AppColumnDef[] => {
-        return [
-            {field: 'PackMaterialCode', title: '物料编码', minWidth: 100, filterType: 'enum'},
-            {field: 'PackMaterialName', title: '物料名称', minWidth: 100, filterType: 'text'},
-            {field: 'ProjectCode', title: '项目', minWidth: 100, filterType: 'text'},
-            {field: 'PackMethod', title: '包装方式', filterType: 'text'},
-            {field: 'PackNum', title: '包装方法', filterType: 'text'},
-            {field: 'MatrixVersion', title: '矩阵版本'}
-        ]
-    }, [])
 
     /**
      * 当前矩阵详情：`current` 是已加载成功的 id，`loading` 是在路上的 id。
@@ -71,7 +77,10 @@ const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({view, trail}) => {
         try {
             const matrix = await packBomMatrixApi.detail(matrixID);
             currentMatrixIDRef.current = matrixID;
-            setBomMatrix(matrix.data ?? {});
+            const next = matrix.data ?? {};
+            // ref 与 state 一起写：桥的命令在 await 之后只能靠 ref 读最新值
+            bomMatrixRef.current = next;
+            setBomMatrix(next);
         } catch (err) {
             void message.error(ErrorMessage(err, '矩阵详情加载失败'));
         } finally {
@@ -80,22 +89,44 @@ const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({view, trail}) => {
     }, [])
 
     /**
+     * 一次列表请求的等待者。
+     *
+     * `loadData` 是**唯一**的请求路径（由 query / page 驱动），桥的 `query.set` /
+     * `list.goto` 只是把 state 落下去，再在这里等「请求真的回来」——
+     * 两条路径各写一份请求，参数与副作用迟早会分叉。
+     */
+    const pendingListRef = useRef<((result: MatrixListResult) => void) | null>(null);
+
+    const settleList = useCallback((result: MatrixListResult) => {
+        const settle = pendingListRef.current;
+        pendingListRef.current = null;
+        settle?.(result);
+    }, []);
+
+    /**
      * 加载主数据
      */
     const loadData = useCallback(async () => {
+        /** 这次请求落地的样子：成功失败都要交出去，否则等它的那条命令会一直挂着 */
+        let snapshot: MatrixListResult = {ok: true, page, rows: 0, total: 0};
         try {
-            const result = await packBomMatrixApi.list(query, {page: page, pageSize: pageSize});
+            const result = await packBomMatrixApi.list(query, {page: page, pageSize: PAGE_SIZE});
+            const rows = result.data ?? [];
+            snapshot = {ok: true, page, rows: rows.length, total: result.page?.total ?? 0};
             // 第一行先加载详情：不必等选中回调（那一步要等表格重绘，慢一帧）
-            const matrixID = result.data?.[0]?.PackBomMatrixID;
+            const matrixID = rows[0]?.PackBomMatrixID;
             if (matrixID) void loadMatrix(matrixID);
-            setDatas(result.data ?? []);
-            setTotalRows(result.page?.total ?? 0)
+            setDatas(rows);
+            setTotalRows(snapshot.total)
         } catch (err) {
+            // 失败要如实说：桥不能拿 rows:0 当成「没有匹配数据」回给模型
+            snapshot = {ok: false, page, rows: 0, total: 0};
             void message.error(ErrorMessage(err, '数据加载失败'))
         } finally {
             setLoaded(true)
+            settleList(snapshot);
         }
-    }, [query, page, loadMatrix])
+    }, [query, page, loadMatrix, settleList])
 
     useEffect(() => {
         void loadData();
@@ -120,7 +151,7 @@ const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({view, trail}) => {
     const isReady = useCallback(() => loaded, [loaded]);
 
     /**
-     * 取某张表的实例（`() => matrixRef.current?.readTable(key)`）。
+     * 取某张明细表的实例（`() => matrixRef.current?.readTable(key)`）。
      *
      * 桥要的是取值函数而不是快照：表格实例会随标签页挂载/卸载而变，
      * 「此刻有没有」只有调用那一刻才作数 —— 这也是 `readable` 的唯一数据来源。
@@ -130,14 +161,42 @@ const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({view, trail}) => {
         [],
     );
 
+    /**
+     * 按新条件 / 页码重新查库（界面桥的 `query.set` / `list.goto` 用它）。
+     *
+     * 只落 state，请求仍由 `loadData` 发 —— 这里把 resolve 交给它，等它落地再回执。
+     * `{...nextQuery}` 换一个新引用是必须的：内容相同时 React 认为没变就不重渲染，
+     * `loadData` 不重建、effect 不跑，promise 永远等不到。
+     */
+    const reloadList = useCallback(
+        (nextQuery: packBomMatrixListReq, nextPage: number): Promise<MatrixListResult> =>
+            new Promise<MatrixListResult>((resolve) => {
+                pendingListRef.current = resolve;
+                setQuery({...nextQuery});
+                setPage(nextPage);
+                window.setTimeout(() => {
+                    if (pendingListRef.current !== resolve) return;
+                    pendingListRef.current = null;
+                    resolve({ok: false, page: nextPage, rows: 0, total: 0});
+                }, LIST_REQUEST_TIMEOUT_MS);
+            }),
+        [],
+    );
+
     /** 交给桥的状态与能力：桥通过取值函数读它，不直接持有 */
     const bridgeContext = useMemo<BomMatrixBridgeContext>(
-        () => ({view, bomMatrix, activeKey, readTable, setActiveKey, isReady}),
-        [view, bomMatrix, activeKey, readTable, isReady],
+        () => ({
+            view, bomMatrix, activeKey, readTable, setActiveKey, isReady,
+            readMatrix: () => bomMatrixRef.current,
+            query, page, pageSize: PAGE_SIZE, totalRows,
+            readListTable: () => tableRef.current,
+            reloadList,
+        }),
+        [view, bomMatrix, activeKey, readTable, isReady, query, page, totalRows, reloadList],
     );
 
     /**
-     * 界面桥：三张表的目录 + 切标签页。
+     * 界面桥：主表的查询 / 翻页 / 选中，三张明细表的目录，切标签页。
      *
      * 依赖里的 `bomMatrix` 是必须的 —— 配色/配码的列跟着尺码/颜色表走，列变了就得重建宿主
      * （列目录变了本来就该发整页快照，桥会自己判定）。
@@ -161,7 +220,12 @@ const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({view, trail}) => {
                 layout="inline"
                 style={{marginTop: 20}}
                 onFinish={(values: { materialCode?: string }) => {
+                    /*
+                     * 与界面桥的 query.set 保持同一个语义：换了条件就回第 1 页。
+                     * 留在第 3 页看新条件的结果，多半是一片空白，用户会以为「查不到」。
+                     */
                     setQuery({PackMaterialCode: values.materialCode});
+                    setPage(1);
                 }}
             >
                 <div className="preorder-form-toolbar">
@@ -211,9 +275,11 @@ const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({view, trail}) => {
                      */}
                     <Splitter.Panel className="splitter-pane-body"
                                      style={{paddingBottom: 10, overflow: 'hidden'}}>
-                        <FilterTable ref={tableRef} columns={columns} records={datas} rowKey={'PackBomMatrixID'}
+                        {/* 列定义在 `./columns`：页面与界面桥共用同一份，桥的列目录才不会和屏幕分叉 */}
+                        <FilterTable ref={tableRef} columns={MATRIX_LIST_COLUMNS} records={datas}
+                                     rowKey={'PackBomMatrixID'}
                                      widthMode={'autoWidth'} onSelectedChange={(values) => loadMatrix(values.rowKey)}
-                                     page={page} total={totalRows} pageSize={pageSize}
+                                     page={page} total={totalRows} pageSize={PAGE_SIZE}
                                      onPageChange={(page) => {
                                          setPage(page);
                                      }}

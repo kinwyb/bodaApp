@@ -4,11 +4,11 @@
  * **这个文件存在本身就是「本页接入了界面桥」的标记**：工作台的导航清单靠它判定
  * （见 `src/pages/agent/ui-bridge/bridged.ts`）。删掉它，本页对 agent 立刻隐身。
  *
- * 这一页是「一页多表」的第一个样本：三个标签页 = 三张表，同一时刻只有一张在屏幕上。
- * 所以它示范的是**多表怎么拼**，不是「多页怎么拼」：
+ * 这一页是「一页多表」的样本：**主表 + 三个标签页的明细表**。
  *
- * - 三张表的目录**全部常驻**快照（`tables[]` 的三个元素），列定义与视图共用 `./columns`；
- * - 只有数据按需取（`items.page` / `colors.page` / `sizes.page`）；
+ * - 主表 `list`（上方的包装 BOM 列表）常驻：选哪一行，决定下方三张表看的是哪个矩阵；
+ * - 明细三张表的目录**全部常驻**快照（`tables[]` 的三个元素），列定义与视图共用 `./columns`；
+ * - 只有数据按需取（`list.page` / `items.page` / `colors.page` / `sizes.page`）；
  * - 「此刻能不能读」由 `readable` 说、「用户看不看得见」由 `visible` 说 ——
  *   两个都不进结构指纹，所以切标签页只回一条补丁，而不是整页重发。
  *
@@ -16,29 +16,41 @@
  * 不导出组件、不调 hook；页面把「怎么取当前状态」以取值函数传进来。
  */
 
+import type {FilterTableApi} from '@/components/grid-table';
 import type {TableReadApi} from '@/pages/agent/ui-bridge';
-import type {UIAction, UIGuide, UISnapshotData} from '@/pages/agent/protocol';
+import type {UIAction, UIField, UIGuide, UISnapshotData} from '@/pages/agent/protocol';
 import {createTableBridge} from '@/pages/agent/ui-bridge';
 import type {UIBridgeHandler, UIBridgeHost} from '@/pages/agent/ui-bridge';
 import type {BomMatrix} from '@/api/schemas/nc/bomMatrix.ts';
+import type {packBomMatrixListReq} from '@/api/modules/nc/bomMatrix.ts';
 import {buildColorColumns, buildSizeColumns, ITEM_COLUMNS} from '@/components/nc/bomMatrix/columns.ts';
 import {
     BOM_MATRIX_SECTIONS,
     bomMatrixSectionLabel,
+    DEFAULT_BOM_MATRIX_SECTION,
     isBomMatrixSection,
     type BomMatrixSection,
 } from '@/components/nc/bomMatrix/sections.ts';
+import {toStringOrEmpty} from '@/utils';
+import {MATRIX_LIST_COLUMNS} from './columns';
 
 /**
  * 本页自述：告诉 agent 这一页该怎么操作。
  *
  * 三条禁忌同协议：不写命令清单（命令已经在 actions 里）、不从页面数据生成、不替控件转述。
- * 这里的重点是**标签页这条界面约束** —— 不写清楚，模型会拿 `total: 0` 当成「这页没数据」。
+ * 这里的重点有两处**界面约束**：主表与明细的从属关系、标签页同一时刻只渲染一张 ——
+ * 不写清楚，模型会拿 `total: 0` 当成「这页没数据」，或者拿上一个矩阵的明细当这个矩阵的。
  */
 const BOM_MATRIX_GUIDE: UIGuide = {
-    summary: '包装 BOM 矩阵：一个包装物料下的子项物料清单，以及它按颜色 / 尺码展开的两种视图',
+    summary: '包装 BOM 矩阵：上方是包装 BOM 列表，选中一行后用下方三张表看它的子项物料、配色与配码',
     steps: [
-        '三张表是**同一批子项行的三种看法**，但界面同一时刻只渲染一个标签页：' +
+        '主表 list 是包装 BOM 列表：用 list.page 按显示行号取行（offset 0 = 屏幕第 1 行），' +
+            '选中某一行用 list.select 传它的 rowId（就是 PackBomMatrixID）',
+        '**选中主表某一行之后，下方三张表才是这个矩阵的明细**：在此之前它们装的是上一个矩阵的数据',
+        '主表是服务端分页：list.page 与 list.select 只认当前页显示的行；' +
+            '看下一页用 list.goto 传 page（从 1 起），换页后行号会变，要重新 list.page 取 rowId',
+        '要按物料号找矩阵用 query.set（会重新查库、回到第 1 页）；只想在当前页里临时收窄用 list.filter（不查库）',
+        '三张明细表是**同一批子项行的三种看法**，但界面同一时刻只渲染一个标签页：' +
             '要读哪一张先用 tab.switch 切过去，切过去之后那张表的 total 才是真的',
         '取数各用各的前缀：子项物料 items.page、配色 colors.page、配码 sizes.page（行号从 0 起，与屏幕一致）',
         'tables 里 name=items 的那张永远是「子项物料」；切到配色/配码后它的 visible 会变成 false —— ' +
@@ -47,13 +59,18 @@ const BOM_MATRIX_GUIDE: UIGuide = {
             '跨表对行直接用 rowId；行号（VRowNo）是业务排序键，改了行号 rowId 不变',
     ],
     terms: {
+        主表: 'list，包装 BOM 列表：一行一个包装物料，选中哪一行决定下方明细看哪个矩阵',
         子项物料: 'items，包装 BOM 的明细行，一行一个物料（唯一在界面上可编辑的一张）',
         配色: 'colors，每列一个缝制颜色，格子里是该颜色下这个物料的色号',
         配码: 'sizes，每个尺码三列：损耗数量 / 尺码系数 / 尺码用量',
         标签页: '三个 tab，key 分别是 items / colors / sizes',
         损耗系数: 'Ndissipationum，小数形式（0.03 = 3%）',
+        矩阵: 'PackBomMatrixID 指向的那份包装 BOM（主表的一行 = 一份矩阵）',
     },
     cautions: [
+        '主表 list 段的 total 是**这一页屏幕上的行数**（服务端分页，只有当前页那几十行），不是匹配总数：' +
+            '匹配总数看 query.set / list.goto 的回执，别拿 total 回答「一共几份矩阵」',
+        '选完主表行再取明细：详情是异步加载的，选中命令的回执会等它落地；如果回执说没等到，稍后用 items.page 再试一次',
         'readable 为 false 的表，total 是 0 但意思是「不知道」——别回答「这一页没有数据」，先 tab.switch',
         '切过去后如果还是 0 行，可能是表格还在渲染，重试一次那张表的 page；仍然 0 行才是真的没有匹配数据',
         '配色/配码的格子可以编辑（色号、损耗数量、尺码用量），改完保存时才会汇总进 ColorMatch / SizeMatch',
@@ -61,15 +78,39 @@ const BOM_MATRIX_GUIDE: UIGuide = {
     ],
 };
 
+/**
+ * 一次主表查询的结果。
+ *
+ * 桥的 `query.set` / `list.goto` 要等请求**真的回来**才回执：不等的话补丁里的行数与页码
+ * 还是旧的，模型会以为换页没生效、再来一遍。页面负责在请求落地时把它交出来。
+ */
+export type MatrixListResult = {
+    /** 请求是否成功。false 时 `rows` / `total` 都不作数 —— 别把它当成「查不到」 */
+    ok: boolean;
+    /** 实际查的是第几页（从 1 起，页面已经夹过界） */
+    page: number;
+    /** 这一页落地的行数 */
+    rows: number;
+    /** 服务端返回的匹配总数 */
+    total: number;
+};
+
 /** 页面交给桥的东西：只有状态与能力，没有桥的结构 */
 export type BomMatrixBridgeContext = {
     /** 当前 View（菜单里配的那个） */
     view: string;
-    /** 矩阵数据：三张表都由它派生 */
+    /** 矩阵数据：三张明细表都由它派生 */
     bomMatrix: BomMatrix;
+    /**
+     * 最新矩阵（**ref 版**，不是 state）。
+     *
+     * 命令 handler 的 `await` 中途需要判断「详情到底落地没有」，那时它手上的 ctx 是命令启动时的闭包，
+     * 里面的 `bomMatrix` 恒为旧值。这个函数每次都读 ref，所以能拿到最新值。
+     */
+    readMatrix: () => BomMatrix;
     /** 当前标签页（受控在页面上，控件不自己存） */
     activeKey: string;
-    /** 取某张表的实例；没渲染过就是 null */
+    /** 取某张明细表的实例；没渲染过就是 null */
     readTable: (section: BomMatrixSection) => TableReadApi | null;
     /** 切标签页：页面负责落 state */
     setActiveKey: (key: string) => void;
@@ -81,15 +122,44 @@ export type BomMatrixBridgeContext = {
      * 不等就导航，模型先看到一份缺列的目录、拿到一个即将作废的 `fp`，还得再来一遍。
      */
     isReady: () => boolean;
+
+    // ---- 主表（上方的包装 BOM 列表）----
+    /** 当前查询条件（页面级 `query` 段就是它） */
+    query: packBomMatrixListReq;
+    /** 当前页码（从 1 起）与每页条数：翻页命令要按它夹范围 */
+    page: number;
+    pageSize: number;
+    /** 服务端匹配总数（表格里只有当前页那 30 行，总数只有页面知道） */
+    totalRows: number;
+    /** 取主表的表格实例（`() => tableRef.current`） */
+    readListTable: () => FilterTableApi | null;
+    /**
+     * 按新条件 / 页码重新查库，**等请求落地**再把结果交出来。
+     *
+     * 页面要把页码与条件一起夹好（越界的页夹到最后一页），并把结果里的 `total` 原样带回来 ——
+     * 桥要用它算页数、写回执。
+     */
+    reloadList: (query: packBomMatrixListReq, page: number) => Promise<MatrixListResult>;
 };
 
-/** 每张表「没渲染时」要说的话：指名道姓，比一句「表格还没建好」有用得多 */
-function unreadableReason(ctx: BomMatrixBridgeContext, section: BomMatrixSection): string {
-    const title = bomMatrixSectionLabel(section);
-    return ctx.activeKey === section
-        ? `「${title}」正在渲染，稍后重试，或重新 ui_observe`
-        : `「${title}」此刻没打开：先用 tab.switch 把 key 设为 ${section}（切过去数据才会渲染）`;
-}
+/** 主表「没渲染时」要说的话 */
+const LIST_UNREADABLE = '包装 BOM 列表正在加载（首屏接口还没回来）：稍后重试，或重新 ui_observe';
+
+/** 主表的默认投影列：模型多数时候只看这几列认单，其余用 fields 指名 */
+const LIST_KEY_FIELDS = [
+    'PackMaterialCode',
+    'PackMaterialName',
+    'ProjectCode',
+    'PackMethod',
+    'PackNum',
+    'MatrixVersion',
+];
+
+const LIST_COLUMN_HINTS: Record<string, string> = {
+    PackMaterialCode: '包装物料的编码：主表的「物料」查询条件就是它',
+    PackMaterialName: '包装物料的名称',
+    MatrixVersion: '矩阵版本：同一个包装物料可能有多份（不同版本各自一份矩阵）',
+};
 
 /** 子项物料的常用列：模型多数时候只看这几列，其余用 fields 指名 */
 const ITEM_KEY_FIELDS = [
@@ -135,6 +205,24 @@ function dynamicColumnHints(bomMatrix: BomMatrix): Record<string, string> {
     return hints;
 }
 
+/** 当前标签页（页面 state 是 string，认不出就退回默认页） */
+function currentSection(ctx: BomMatrixBridgeContext): BomMatrixSection {
+    return isBomMatrixSection(ctx.activeKey) ? ctx.activeKey : DEFAULT_BOM_MATRIX_SECTION;
+}
+
+/** 每张明细表「没渲染时」要说的话：指名道姓，比一句「表格还没建好」有用得多 */
+function unreadableReason(ctx: BomMatrixBridgeContext, section: BomMatrixSection): string {
+    const title = bomMatrixSectionLabel(section);
+    return ctx.activeKey === section
+        ? `「${title}」正在渲染，稍后重试，或重新 ui_observe`
+        : `「${title}」此刻没打开：先用 tab.switch 把 key 设为 ${section}（切过去数据才会渲染）`;
+}
+
+/** 等一帧（表格把新 records 消化成显示行要一两帧） */
+function nextFrame(): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, 16));
+}
+
 /** 等新标签页的表格真的能读：面板懒挂载，切过去之后才渲染 */
 async function waitForTable(
     read: () => BomMatrixBridgeContext,
@@ -155,9 +243,73 @@ async function waitForTable(
              */
             if (table.getDisplayInfo().rowCount > 0) return true;
         }
-        await new Promise((resolve) => setTimeout(resolve, 16));
+        await nextFrame();
     }
     return read().readTable(section) !== null;
+}
+
+/**
+ * 等主表选中某一行之后，**矩阵详情与明细表都换成那一份**。
+ *
+ * 这一步不能省：`list.select` 之后详情是异步拉的，不给时间就回执，紧接着的 `items.page`
+ * 拿到的还是上一个矩阵的行 —— 模型会把两份矩阵串在一起回答。
+ *
+ * 判定用 `readMatrix()`（ref）而不是 ctx 里的 `bomMatrix`：ctx 是命令启动时的闭包。
+ * 除了 id 对上，还要等当前标签页那张表的行数与 `Detail` 一致（表格消化 records 要一两帧）。
+ */
+async function waitForMatrixDetail(
+    read: () => BomMatrixBridgeContext,
+    matrixID: string,
+    timeoutMs = 1600,
+): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        const ctx = read();
+        const matrix = ctx.readMatrix();
+        if (matrix.PackBomMatrixID === matrixID) {
+            const table = ctx.readTable(currentSection(ctx));
+            const expected = (matrix.Detail ?? []).length;
+            if (table && table.getDisplayInfo().rowCount === expected) return true;
+        }
+        await nextFrame();
+    }
+    return false;
+}
+
+/** 等主表把新一页的数据渲染进表格（换页 / 换条件后 records 是 effect 里灌的） */
+async function waitForListRows(
+    read: () => BomMatrixBridgeContext,
+    expected: number,
+    timeoutMs = 800,
+): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        const table = read().readListTable();
+        if (table && table.getDisplayInfo().rowCount === expected) return true;
+        await nextFrame();
+    }
+    return false;
+}
+
+/**
+ * 页面级查询条件（顶部表单）。
+ *
+ * 同一份数据既当「当前值」发布，也当 `query.set` 的参数说明 —— 一处维护，
+ * 不会出现「快照里有这个条件、命令里却没有」这种对不上的情况。
+ *
+ * 与表上的 `list.filter` 分工：那是列头筛选面板（纯前端隐掉几行，桥自动读写），
+ * 这里改完会**重新查库**。
+ */
+function currentQuery(query: packBomMatrixListReq): UIField[] {
+    return [
+        {
+            id: 'PackMaterialCode',
+            label: '物料（编码）',
+            type: 'text',
+            value: query.PackMaterialCode ?? '',
+            hint: '按包装物料编码模糊查；留空 = 不限。改完会重新查库并回到第 1 页',
+        },
+    ];
 }
 
 /**
@@ -171,7 +323,20 @@ export function createBomMatrixBridge(read: () => BomMatrixBridgeContext): UIBri
     const {bomMatrix} = read();
     const hints = dynamicColumnHints(bomMatrix);
 
-    /** 三张表的读能力：name 是命令前缀，也是快照里的定位键 */
+    /** 主表：上方的包装 BOM 列表。选哪一行，决定下方三张表看的是哪个矩阵 */
+    const list = createTableBridge({
+        name: 'list',
+        columns: MATRIX_LIST_COLUMNS,
+        rowKey: 'PackBomMatrixID',
+        readTable: () => read().readListTable(),
+        unreadableReason: () => LIST_UNREADABLE,
+        keyFields: LIST_KEY_FIELDS,
+        columnHints: LIST_COLUMN_HINTS,
+        // 选中 = 让下方换成这个矩阵的明细：不等详情落地就回执，接下来的 items.page 会取到上一份矩阵
+        waitSelected: (rowId) => waitForMatrixDetail(read, rowId),
+    });
+
+    /** 三张明细表的读能力：name 是命令前缀，也是快照里的定位键 */
     const items = createTableBridge({
         name: 'items',
         columns: ITEM_COLUMNS,
@@ -199,8 +364,43 @@ export function createBomMatrixBridge(read: () => BomMatrixBridgeContext): UIBri
         columnHints: hints,
     });
 
-    /** 三张表 + 一条切标签页，动作表固定不变（切 tab 才不会推动结构指纹） */
+    /** 动作表：主表 + 查询 + 翻页 + 切标签页 + 三张明细表 */
     const actions = (): UIAction[] => [
+        ...list.actions(),
+        {
+            /*
+             * 查询条件改的是「查哪批数据」：要发请求，语义只有页面知道，所以命令由页面提供。
+             * 表上的筛选（list.filter）相反 —— 列上配了 filterType 就由表格桥全自动接管。
+             */
+            id: 'query.set',
+            label: '设置查询条件并重新查询',
+            group: 'filter',
+            params: [
+                {
+                    name: 'PackMaterialCode',
+                    type: 'text',
+                    hint: '包装物料编码（模糊匹配）；传空串 = 不再按物料过滤',
+                },
+            ],
+        },
+        {
+            /*
+             * 服务端分页：`list.page` 只能按行号取当前这一页的行，翻页必须显式给入口，
+             * 否则模型会以为「第 31 条」取不到是数据没了。
+             */
+            id: 'list.goto',
+            label: '主表翻页',
+            group: 'toolbar',
+            params: [
+                {
+                    name: 'page',
+                    type: 'number',
+                    required: true,
+                    hint: `第几页（从 1 起）。主表是服务端分页，每页 ${read().pageSize} 条；` +
+                        `超出范围会停到最后一页`,
+                },
+            ],
+        },
         {
             /*
              * 切标签页必须是一条显式命令：没切过去的表 readable:false，
@@ -233,15 +433,17 @@ export function createBomMatrixBridge(read: () => BomMatrixBridgeContext): UIBri
             mode: 'list',
             guide: BOM_MATRIX_GUIDE,
             actions: actions(),
+            query: currentQuery(ctx.query),
             /*
-             * 三张表都进 `tables`（没有「主表」这个特权位置了），定位只认各自的 name。
+             * 四张表都在 `tables` 里（没有「主表」这个特权位置），定位只认各自的 name。
              *
-             * 数组顺序保持恒定（items → colors → sizes）：结构指纹里按 name 排序，
+             * 数组顺序保持恒定（list → items → colors → sizes）：结构指纹里按 name 排序，
              * 但页面自己别去重排 —— 一份快照读下来，模型按顺序认表更省事。
              *
-             * 三张表的 `visible` 都跟着标签页走：只有一张为 true，其余为 false。
+             * 主表常驻可见（`visible` 不传 = 看得见）；三张明细表的 `visible` 都跟着标签页走。
              */
             tables: [
+                list.data(),
                 items.data({visible: visibleOf('items')}),
                 colors.data({visible: visibleOf('colors')}),
                 sizes.data({visible: visibleOf('sizes')}),
@@ -250,9 +452,91 @@ export function createBomMatrixBridge(read: () => BomMatrixBridgeContext): UIBri
     };
 
     const handlers: Record<string, UIBridgeHandler> = {
+        ...list.handlers,
         ...items.handlers,
         ...colors.handlers,
         ...sizes.handlers,
+
+        /*
+         * 改查询条件 → 重新查库 → 等列表真的换了再回执。
+         *
+         * 只认已知字段：页面 state 是业务对象，脏值进去只会让它带着脏值发请求。
+         * 传空串是「去掉这个条件」，与筛选面板删掉一个条件同义。
+         */
+        'query.set': async (params) => {
+            const ctx = read();
+            const next: packBomMatrixListReq = {...ctx.query};
+            /*
+             * 「没传这个参数」= 不动它，「传空串」= 去掉这个条件 —— 两者必须分开：
+             * 只按空串处理的话，模型少写一个字段就会把用户刚设的条件悄悄清掉。
+             */
+            if (params.PackMaterialCode !== undefined) {
+                const code = toStringOrEmpty(params.PackMaterialCode).trim();
+                if (code) next.PackMaterialCode = code;
+                else delete next.PackMaterialCode;
+            }
+
+            // 换了条件一定回第 1 页：留在第 5 页看新条件的结果，多半是空的
+            const result = await ctx.reloadList(next, 1);
+            const scope = next.PackMaterialCode ? `物料「${next.PackMaterialCode}」` : '全部物料';
+            if (!result.ok) {
+                return `已按${scope}发起查询，但请求失败了（列表还是原来的样子）：先确认网络 / 后端，再重试一次`;
+            }
+            const landed = await waitForListRows(read, result.rows);
+            if (!landed) {
+                return `已按${scope}重新查询，但列表还没渲染出来：稍后用 list.page 取行`;
+            }
+            if (result.total === 0) return `已按${scope}重新查询：没有匹配的包装 BOM`;
+            return (
+                `已按${scope}重新查询：共 ${result.total} 条，第 1 页 ${result.rows} 行。` +
+                `用 list.page 取行，list.select 选中（下方明细会自动切到新的第一行，选中别的行就跟着换）`
+            );
+        },
+
+        /*
+         * 翻页：夹到 [1, 最后一页]。
+         *
+         * 页码越界不当错误处理：模型多半是照「共 45 条、每页 30」自己算的页数，
+         * 差一页很常见，直接停到最后一页并如实说明，比抛错让它重算更有用。
+         */
+        'list.goto': async (params) => {
+            const ctx = read();
+            const wanted = Math.floor(Number(params.page));
+            if (!Number.isFinite(wanted) || wanted < 1) {
+                throw new Error('list.goto 的 page 要从 1 起（第 1 页传 1，不是 0）');
+            }
+            const pageSize = Math.max(1, ctx.pageSize);
+            /*
+             * 上界只在知道总数时才夹：首屏数据还没回来时 `totalRows` 是 0，
+             * 按它算出来「最多 1 页」，会把要第 2 页的请求硬拽回第 1 页 —— 模型看到的是「翻页没反应」。
+             */
+            const maxPage = ctx.totalRows > 0 ? Math.max(1, Math.ceil(ctx.totalRows / pageSize)) : Infinity;
+            const page = Math.min(wanted, maxPage);
+            if (page === ctx.page) {
+                // 已经在这一页：不重复查库，把此刻的状态报回去
+                const table = ctx.readListTable();
+                const rows = table?.getDisplayInfo().rowCount ?? 0;
+                return `已经在第 ${page} 页（每页 ${pageSize} 条，共 ${ctx.totalRows} 条，本页 ${rows} 行）`;
+            }
+            const result = await ctx.reloadList(ctx.query, page);
+            if (!result.ok) {
+                return `翻页请求失败了（还停在第 ${ctx.page} 页，共 ${ctx.totalRows} 条）：先确认网络 / 后端，再重试一次`;
+            }
+            const landed = await waitForListRows(read, result.rows);
+            const where = `第 ${result.page}/${Math.max(1, Math.ceil(result.total / pageSize))} 页`;
+            if (!landed) {
+                return `已切到${where}（本次未等到渲染）：稍后用 list.page 取行`;
+            }
+            if (result.rows === 0) {
+                return `${where} 没有行（共 ${result.total} 条）：可能刚好这一页空了，用 list.goto 回上一页`;
+            }
+            const clamped = page !== wanted ? `（要的是第 ${wanted} 页，已夹到最后一页）` : '';
+            return (
+                `${where}，本页 ${result.rows} 行，共 ${result.total} 条${clamped}：用 list.page 取行` +
+                `（下方明细会自动切到本页第一行，选中别的行用 list.select）`
+            );
+        },
+
         'tab.switch': async (params) => {
             const key = params.key;
             if (!isBomMatrixSection(key)) {
