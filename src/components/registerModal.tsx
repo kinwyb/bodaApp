@@ -143,6 +143,24 @@ export function RegisterInputModal<TRecord, TViewProps extends object = object>(
         onCancel?.();
     }, [onSelect, editingRow, onCancel]);
 
+    /**
+     * 交给 View 的那份 props。
+     *
+     * **独立模式（`open` 由外部控制）必须现算，不能靠 effect 补**：以前只在编辑器的
+     * `openModal()` 里调 `updateViewProps`，所以 `NCMaterialConvertModal` 这类
+     * 「外部 open + viewProps 函数」的组合永远拿不到 props（视图里 `materialVID.trim()`
+     * 直接炸）。而用 effect 也不行 —— open 变 true 的那一帧 View 已经挂载，effect 里的
+     * setState 要下一帧生效，这一帧收到的仍是旧值。
+     *
+     * `updateViewProps` 的语义就是「按当前记录映射一份 props」，是纯函数，渲染期调用没有副作用；
+     * 编辑器模式仍走 `realViewProps`（那条路的行对象只有点开编辑器时才知道）。
+     */
+    const activeViewProps = editor
+        ? realViewProps
+        : open
+            ? (updateViewProps?.(viewProps, undefined) ?? viewProps)
+            : realViewProps;
+
     return (
         <Modal
             open={isOpen}
@@ -172,7 +190,7 @@ export function RegisterInputModal<TRecord, TViewProps extends object = object>(
                 onCancel?.();
             }}
         >
-            {isOpen && <View {...(realViewProps as TViewProps)} onSelect={selectedAction}/>}
+            {isOpen && <View {...(activeViewProps as TViewProps)} onSelect={selectedAction}/>}
         </Modal>
     );
 }
