@@ -39,6 +39,9 @@ const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({view, trail}) => {
     const [query, setQuery] = useState<packBomMatrixListReq>({});
     const [form] = Form.useForm<{ materialCode?: string }>();
     const tableRef = useRef<FilterTableApi | null>(null);
+    const [page, setPage] = useState<number>(1);
+    const [totalRows, setTotalRows] = useState<number>(0);
+    const pageSize = 30;
 
     const columns = useMemo((): AppColumnDef[] => {
         return [
@@ -51,12 +54,29 @@ const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({view, trail}) => {
         ]
     }, [])
 
-    const loadMatrix = useCallback(async (matrixID: string) => {
-        if (!matrixID || matrixID === bomMatrix.PackBomMatrixID) {
+    /**
+     * 当前矩阵详情：`current` 是已加载成功的 id，`loading` 是在路上的 id。
+     *
+     * 首屏 loadData 与「数据落地后选中第一行」的回调会同时要同一个 id，
+     * 只靠 `bomMatrix.PackBomMatrixID` 去重挡不住 —— 那会儿 state 还没更新，会发两遍请求。
+     */
+    const currentMatrixIDRef = useRef<string>('');
+    const loadingMatrixIDRef = useRef<string>('');
+
+    const loadMatrix = useCallback(async (matrixID?: string) => {
+        if (!matrixID || matrixID === currentMatrixIDRef.current || matrixID === loadingMatrixIDRef.current) {
             return;
         }
-        const matrix = await packBomMatrixApi.detail(matrixID);
-        setBomMatrix(matrix.data ?? {});
+        loadingMatrixIDRef.current = matrixID;
+        try {
+            const matrix = await packBomMatrixApi.detail(matrixID);
+            currentMatrixIDRef.current = matrixID;
+            setBomMatrix(matrix.data ?? {});
+        } catch (err) {
+            void message.error(ErrorMessage(err, '矩阵详情加载失败'));
+        } finally {
+            loadingMatrixIDRef.current = '';
+        }
     }, [])
 
     /**
@@ -64,27 +84,37 @@ const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({view, trail}) => {
      */
     const loadData = useCallback(async () => {
         try {
-            const result = await packBomMatrixApi.list(query);
-            if (result.data && result.data.length > 0) {
-                const matrixID = result.data[0].PackBomMatrixID;
-                if (matrixID) {
-                    void loadMatrix(matrixID)
-                    console.log(matrixID);
-                    const num = tableRef?.current?.selectRowsByKeys([matrixID]);
-                    console.log(num);
-                }
-            }
+            const result = await packBomMatrixApi.list(query, {page: page, pageSize: pageSize});
+            // 第一行先加载详情：不必等选中回调（那一步要等表格重绘，慢一帧）
+            const matrixID = result.data?.[0]?.PackBomMatrixID;
+            if (matrixID) void loadMatrix(matrixID);
             setDatas(result.data ?? []);
+            setTotalRows(result.page?.total ?? 0)
         } catch (err) {
             void message.error(ErrorMessage(err, '数据加载失败'))
         } finally {
-            setLoaded(false)
+            setLoaded(true)
         }
-    }, [query])
+    }, [query, page, loadMatrix])
 
     useEffect(() => {
         void loadData();
-    }, []);
+    }, [loadData]);
+
+    /**
+     * 主表数据落地后选中第一行（下方面板展示的矩阵跟着切换）。
+     *
+     * 这一步**不能**放在 loadData 里：那时 setDatas 还没提交，表格里是上一批行（首屏是空表），
+     * `selectRowsByKeys` 按主键反查显示行号必然是 0 命中。
+     * 也不能在 setDatas 之后紧跟一句：GridTable 在 rows 变化的 layout effect 里会
+     * `setRecords` → `clearSelected()`，早于它的选中会被这一下清掉。
+     * 父组件的 useEffect 排在子组件 layout effect 之后 —— 此时新行已进表格、清理也做完了。
+     */
+    useEffect(() => {
+        const key = datas[0]?.PackBomMatrixID;
+        if (!key) return;
+        tableRef.current?.selectRowsByKeys([key]);
+    }, [datas]);
 
     /** 交给桥的就绪判断：只看「接口回来没有」，不看内容（内容为空也是一份合法的快照） */
     const isReady = useCallback(() => loaded, [loaded]);
@@ -171,12 +201,26 @@ const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({view, trail}) => {
                      * FilterTable 根节点（flex:1 + min-height:0）和 Tabs（page-tabs-fill）的 flex 属性
                      * 在块级父级里全部失效，高度退化成 auto；里面的 GridTable 是 height:100%，
                      * 参照不到确定高度就塌成 0 —— 表格整块空白。
+                     *
+                     * `overflow: hidden`：面板高度按百分比分栏、还夹着分隔条，常常和内容差 1~2px，
+                     * 而 antd 给面板的默认 `overflow: auto` 一溢出就画一条「只能滚几像素」的滚动条。
+                     * 面板里只有表格，滚动交回表格自己（canvas 内滚），这里裁掉即可。
+                     *
+                     * 间距用 `paddingBottom` 而不是 `marginBottom`：margin 在 flex item 上会额外占用主轴空间，
+                     * 两个面板加起来的占用就超过 splitter 高度了（比内容差几 px 更能确定地溢出）。
                      */}
-                    <Splitter.Panel className="splitter-pane-body">
+                    <Splitter.Panel className="splitter-pane-body"
+                                     style={{paddingBottom: 10, overflow: 'hidden'}}>
                         <FilterTable ref={tableRef} columns={columns} records={datas} rowKey={'PackBomMatrixID'}
-                                     widthMode={'autoWidth'} onSelectedChange={(values) => loadMatrix(values.rowKey)}/>
+                                     widthMode={'autoWidth'} onSelectedChange={(values) => loadMatrix(values.rowKey)}
+                                     page={page} total={totalRows} pageSize={pageSize}
+                                     onPageChange={(page) => {
+                                         setPage(page);
+                                     }}
+                                     showPagination={true}
+                        />
                     </Splitter.Panel>
-                    <Splitter.Panel className="splitter-pane-body">
+                    <Splitter.Panel className="splitter-pane-body" style={{overflow: 'hidden'}}>
                         <BomMatrixView ref={matrixRef} bomMatrix={bomMatrix}
                                        activeKey={activeKey} onActiveKeyChange={setActiveKey}/>
                     </Splitter.Panel>

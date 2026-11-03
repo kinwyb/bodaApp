@@ -121,7 +121,7 @@ export async function request<T = unknown>(
     const {params, body, headers, signal, contentType = 'json'} = options;
     const upperMethod = method.toUpperCase();
     // GET / DELETE 的查询条件放在 URL query 中，其余方法放在 body
-    const useQuery = upperMethod === 'GET' || upperMethod === 'DELETE' || upperMethod === 'HEAD';
+    const useQuery = upperMethod === 'GET' || upperMethod === 'DELETE' || upperMethod === 'HEAD' || upperMethod === 'POST';
     const queryString = useQuery ? buildQuery(params) : '';
 
     if (MOCK_ENABLED) {

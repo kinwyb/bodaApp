@@ -1,5 +1,5 @@
 import {http} from '../../request';
-import type {ApiResponse} from '../../types';
+import type {ApiResponse, PageQuery} from '../../types';
 import {type BomMatrix, BomMatrixSchema,} from '../../schemas/nc/bomMatrix.ts';
 
 /**
@@ -31,8 +31,8 @@ export const packBomMatrixApi = {
      * 包装 BOM 矩阵列表
      * @param params
      */
-    list: async (params: packBomMatrixListReq): Promise<ApiResponse<BomMatrix[]>> => {
-        const res = await http.post('/nc/bom/packBomMatrix/list', params);
+    list: async (params: packBomMatrixListReq, page: PageQuery): Promise<ApiResponse<BomMatrix[]>> => {
+        const res = await http.post('/nc/bom/packBomMatrix/list', params, {params: page});
         if (res.data === undefined || res.data === null) {
             return {...res, data: undefined};
         }
