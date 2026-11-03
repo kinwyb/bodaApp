@@ -111,6 +111,52 @@ body {
   margin: 0 0 16px;
 }
 
+/*
+ * 表单控件的**禁用态**：背景更淡、文字更深。
+ *
+ * antd 默认是「背景 rgba(0,0,0,.04) + 文字 rgba(0,0,0,.25)」，两样都偏灰 ——
+ * 一个表单里只读字段一多（物料名称 / 版本 / 规格 / 主单位 …）就整片糊在一起，值看不清。
+ * 这里统一改成「近白的浅背景 + 接近正文的文字色」：内容读得清，同时仍能一眼看出不可编辑。
+ *
+ * 这是**全局约定**，页面不要再单独覆盖那几个只读字段：
+ * - 文字色必须同时写 `-webkit-text-fill-color`：禁用态 input 的文字色由它决定，`color` 会被忽略；
+ * - 必须 `!important`：antd v6 是 CSS-in-JS，样式运行时注入在本文件之后，不压不过去。
+ */
+:root {
+  --disabled-input-bg: #fafafa;
+  --disabled-input-color: rgba(0, 0, 0, 0.72);
+  --disabled-input-placeholder: rgba(0, 0, 0, 0.4);
+}
+
+body .ant-input[disabled],
+body .ant-input-disabled,
+body textarea.ant-input[disabled],
+body .ant-input-affix-wrapper-disabled,
+body .ant-input-number-disabled,
+body .ant-input-number-disabled .ant-input-number-input,
+body .ant-select-disabled .ant-select-selector,
+body .ant-picker-disabled {
+  background-color: var(--disabled-input-bg) !important;
+  color: var(--disabled-input-color) !important;
+  -webkit-text-fill-color: var(--disabled-input-color) !important;
+}
+
+/* 带前后缀的输入框（Input.Search / 带 clear 的）：背景铺在 wrapper 上，内部 input 不能再叠一层 */
+body .ant-input-affix-wrapper-disabled > input,
+body .ant-input-affix-wrapper-disabled .ant-input,
+body .ant-select-disabled .ant-select-selection-item {
+  background-color: transparent !important;
+  color: var(--disabled-input-color) !important;
+  -webkit-text-fill-color: var(--disabled-input-color) !important;
+}
+
+/* 禁用态的占位符：比正文淡一点，但不再淡到看不清 */
+body .ant-input[disabled]::placeholder,
+body .ant-input-affix-wrapper-disabled input::placeholder {
+  color: var(--disabled-input-placeholder) !important;
+  -webkit-text-fill-color: var(--disabled-input-placeholder) !important;
+}
+
 /* 命令条：图标在上、文字在下 */
 .command-bar {
   display: flex;
