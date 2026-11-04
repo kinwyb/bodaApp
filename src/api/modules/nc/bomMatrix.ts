@@ -1,4 +1,4 @@
-import {http} from '../../request';
+import {http, request} from '../../request';
 import type {ApiResponse, PageQuery} from '../../types';
 import {
     type PackBomMatrix,
@@ -70,6 +70,36 @@ export const packBomMatrixApi = {
             return {...res, data: undefined};
         }
         return {...res, data: PackBomMatrixRuleSchema.array().parse(res.data)};
+    },
+
+    /**
+     * 包装 BOM 矩阵推送（发布）。
+     *
+     * 入参是**规则主键**（`PackBomMatrixRuleID`）数组，不是矩阵主键：
+     * 一个矩阵按特征码拆成多条规则，每条规则各自推给下游 NC。
+     * 接口返回体只有 code / err，没有 data —— 成功与否看有没有抛错。
+     */
+    push: async (ruleIDs: string[]): Promise<ApiResponse<void>> => {
+        return http.post('/nc/bom/packBomMatrix/pushRule/push', ruleIDs);
+    },
+
+    /**
+     * 包装 BOM 矩阵取消推送。
+     *
+     * 与 push 同一套入参（规则主键数组）。**DELETE 带请求体**，而 `http.delete`
+     * 只收 query 参数，所以这里直接用 `request` 把 body 传下去。
+     */
+    cancelPush: async (ruleIDs: string[]): Promise<ApiResponse<void>> => {
+        return request<void>('DELETE', '/nc/bom/packBomMatrix/pushRule/cancelPush', {body: ruleIDs});
+    },
+
+    /**
+     * 包装 BOM 矩阵更新（把已发布的规则重新推一遍）。
+     *
+     * 入参同 push。
+     */
+    updatePush: async (ruleIDs: string[]): Promise<ApiResponse<void>> => {
+        return http.post('/nc/bom/packBomMatrix/pushRule/updatePush', ruleIDs);
     },
 
     /**

@@ -10,8 +10,13 @@
  *
  * 不写死表格高度，是因为「表单固定 + 表格吃剩余」比「表格 340px」更耐屏幕差异：
  * 1080p 下表格能到 500 多，笔记本小屏也不会把弹窗顶出视口（内容区还是可滚）。
+ *
+ * 选择器必须是 **`.ant-modal-container`**：antd v6 的弹窗结构是
+ * `.ant-modal > .ant-modal-container > .ant-modal-header / .ant-modal-body`，
+ * 已经没有 `.ant-modal-content` 了。写成老类名会静默失效 ——
+ * 表现是弹窗高度只由内容决定，小屏上整块顶出视口、底部被裁掉。
  */
-.bom-matrix-edit .ant-modal-content {
+.bom-matrix-edit .ant-modal-container {
     display: flex;
     flex-direction: column;
     height: calc(100vh - 140px);

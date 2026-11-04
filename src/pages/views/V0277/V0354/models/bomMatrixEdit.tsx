@@ -55,6 +55,7 @@ import {
     SEW_FIELDS,
 } from "./bomMatrixEditBridge";
 import "./bomMatrixEdit.css";
+import BomMatrixPush from "./bomMatrixPush";
 
 export type BomMatrixEditProps = {
     open: boolean;
@@ -481,10 +482,23 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
     /** 表格能不能编：查看模式恒不能；其余模式要求先选了产成品 */
     const canEditMatrix = mode !== 'view' && hasSewMaterial;
 
-    /** 生成：按「产成品」把子项物料铺出来（原系统语义），同理先占位 */
+    /**
+     * 「生成」= 打开「包装BOM矩阵明细」发布弹窗（与页面命令条的「发布」同一个界面）。
+     *
+     * 原系统里这一步是按当前矩阵生成 BOM 并推给下游：规则怎么推、推哪几条，
+     * 都在那个弹窗里决定，这里只负责把它打开 —— 不要在这里再实现一遍发布逻辑。
+     */
+    const [pushOpen, setPushOpen] = useState(false);
+
     const handleGenerate = useCallback(() => {
-        void message.info('生成：按产成品生成子项明细的功能还没接入');
-    }, [message]);
+        if (!recordID) {
+            void message.warning('保存成功（拿到矩阵主键）后才能生成');
+            return;
+        }
+        setPushOpen(true);
+    }, [message, recordID]);
+
+    const handleClosePush = useCallback(() => setPushOpen(false), []);
 
     /** 复制：把当前这份内容复制成新的（不改原记录） */
     const handleCopy = useCallback(() => {
@@ -1256,6 +1270,7 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
     ]);
 
     return (
+        <>
         <Modal
             open={open}
             /*
@@ -1410,6 +1425,16 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
             </div>
 
         </Modal>
+            {/*
+             * 生成：打开「包装BOM矩阵明细」发布弹窗（与原系统同一个窗体）。
+             * 嵌套在编辑弹窗里由 antd 自己管层级；`destroyOnHidden` 保证每次打开都是新会话。
+             */}
+            <BomMatrixPush open={pushOpen}
+                           matrixID={recordID}
+                           matrixLabel={[toStringOrEmpty(baseRecord?.PackMaterialCode), toStringOrEmpty(baseRecord?.PackMaterialName)]
+                               .filter((text) => text !== '').join(' ')}
+                           onClose={handleClosePush}/>
+        </>
     );
 };
 

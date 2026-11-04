@@ -23,6 +23,13 @@ export interface PackBomMatrixCommandDeps {
     reload: () => Promise<void>;
     /** 打开表单弹窗（mode 语义见 FormMode） */
     openForm: (mode: FormMode, record: PackBomMatrix | null) => void;
+    /**
+     * 打开「包装BOM矩阵明细」发布弹窗（发布 / 取消发布 / 更新）。
+     *
+     * 与编辑弹窗的「生成」是同一个弹窗，所以这里只传矩阵本身 —— 弹窗按它的
+     * `PackBomMatrixID` 自己取发布规则。
+     */
+    openPush: (matrix: PackBomMatrix) => void;
     /** 打开该矩阵对应的工艺矩阵（另一页，所以只有页面知道怎么过去） */
     openProcessMatrix: (matrix: PackBomMatrix) => void;
 }

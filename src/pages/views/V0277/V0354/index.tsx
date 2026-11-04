@@ -13,6 +13,7 @@ import {FilterTable, type FilterTableApi, type GridTableSelectedRowChangeInfo} f
 import {CommandBar} from "@/components/CommandBar";
 import {usePackBomMatrixCommands, type FormMode, type PackBomMatrixCommandContext} from "./command";
 import BomMatrixEdit from "./models/bomMatrixEdit";
+import BomMatrixPush from "./models/bomMatrixPush";
 import {toStringOrEmpty} from "@/utils";
 import {ErrorMessage} from "@/api/request.ts";
 import {SearchOutlined} from "@ant-design/icons";
@@ -231,6 +232,39 @@ const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({view, trail}) => {
     }, [message]);
 
     /**
+     * 发布弹窗（「包装BOM矩阵明细」）。
+     *
+     * `pushRecord` 是**打开那一刻**的那一行：弹窗按它的主键取规则，
+     * 弹窗开着时切换主表选中行不应让它偷偷换成另一份矩阵（那会发布错对象）。
+     */
+    const [pushOpen, setPushOpen] = useState(false);
+    const [pushRecord, setPushRecord] = useState<PackBomMatrix | null>(null);
+
+    const handleOpenPush = useCallback((matrix: PackBomMatrix) => {
+        setPushRecord(matrix);
+        setPushOpen(true);
+    }, []);
+
+    const handleClosePush = useCallback(() => setPushOpen(false), []);
+
+    /**
+     * 重拉「发布情况」标签页（发布 / 取消发布 / 更新之后）。
+     *
+     * 单独一趟而不是复用 `loadMatrix`：那个按「当前矩阵主键」去重，
+     * 同一份矩阵第二次调用会被挡掉 —— 发布完恰恰就是同一份矩阵。
+     */
+    const reloadPushRules = useCallback(async () => {
+        const matrixID = currentMatrixIDRef.current;
+        if (!matrixID) return;
+        try {
+            const rules = await packBomMatrixApi.pushRules(matrixID);
+            setPushData(rules.data ?? []);
+        } catch (err) {
+            void message.error(ErrorMessage(err, '发布情况加载失败'));
+        }
+    }, [message]);
+
+    /**
      * 命令的公共依赖（框架能力 + 本页业务依赖）。
      *
      * 与 V0189 同样的两层写法：**先把依赖装成一个稳定对象，再交给 `usePackBomMatrixCommands`**。
@@ -247,9 +281,10 @@ const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({view, trail}) => {
         hasSelection: !!selectedMatrix,
         reload: loadData,
         openForm: handleOpenForm,
+        openPush: handleOpenPush,
         openProcessMatrix: handleOpenProcessMatrix,
     }), [
-        message, modal, selectedMatrix, loadData, handleOpenForm, handleOpenProcessMatrix,
+        message, modal, selectedMatrix, loadData, handleOpenForm, handleOpenPush, handleOpenProcessMatrix,
     ]);
 
     /**
@@ -429,7 +464,15 @@ const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({view, trail}) => {
                     </Splitter.Panel>
                 </Splitter>
             </div>
-            {/* 新增 / 编辑 / 复用的表单弹窗：打开期间顶掉页面这一层（保存不接后端）。
+            {/* 发布弹窗：命令条的「发布」与编辑弹窗的「生成」打开的是同一个界面 */}
+            <BomMatrixPush open={pushOpen}
+                           matrixID={toStringOrEmpty(pushRecord?.PackBomMatrixID)}
+                           matrixLabel={[toStringOrEmpty(pushRecord?.PackMaterialCode), toStringOrEmpty(pushRecord?.PackMaterialName)]
+                               .filter((text) => text !== '').join(' ')}
+                           // 发布状态变了：第四个标签页要跟着刷新，否则关掉弹窗还是发布前那份
+                           onChanged={() => void reloadPushRules()}
+                           onClose={handleClosePush}/>
+            {/* 新增 / 编辑 / 复用的表单弹窗（保存 / 生成 / 复制都在它自己的工具栏里）。
                 传 view 是因为弹窗自己注册界面桥：打开时它顶掉页面的动作表与列表数据，
                 关闭后再让位回来 —— 桥按 view 找「这一页上打开的是哪个弹窗」。 */}
             <BomMatrixEdit key={formKey} open={formOpen} view={view} mode={formMode} record={formRecord}
