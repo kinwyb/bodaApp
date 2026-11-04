@@ -21,7 +21,8 @@
 
 import type {PackBomMatrix, PackBomMatrixDetail} from '@/api/schemas/nc/bomMatrix.ts';
 import {rebuildColorMatch, rebuildSizeMatch} from '@/components/nc/bomMatrix/match.ts';
-import {isBlank, toStringOrEmpty} from '@/utils';
+import {rowHasMaterial} from '@/components/nc/bomMatrix/rows.ts';
+import {toStringOrEmpty} from '@/utils';
 import type {FormMode} from '../command/types.ts';
 
 /**
@@ -82,18 +83,10 @@ export type BomMatrixPayloadInput = {
     colorSort?: Array<string | null | undefined> | null;
     /** 尺码列（`matrix.SizeSort`） */
     sizeSort?: Array<string | null | undefined> | null;
-    /** 编辑态的主键；新增 / 复制传空 */
+    /** 这份矩阵的主键（编辑 / 查看 / 新增保存成功后拿到的那个）；没有就传空 */
     matrixID?: string;
 };
 
-/**
- * 这一行算不算明细：编辑态末尾永远留一行等用户选物料（见 itemView 的 `ensureBlankAfter`），
- * 它只有行号没有物料 —— 既不是明细，也不该参与校验。
- *
- * 装配与校验必须用**同一个判据**，所以放在这里（两边都 import 这一份）。
- */
-export const isMaterialRow = (row: Record<string, unknown>): boolean =>
-    !isBlank(row.MaterialVID) || !isBlank(row.MaterialCode);
 
 /** 一行明细：清掉界面临时主键，补上归属（矩阵主键 / 矩阵版本） */
 function toDetailRow(
@@ -133,16 +126,24 @@ function toDetailRow(
  */
 export function buildPackBomMatrix(input: BomMatrixPayloadInput): PackBomMatrix {
     const {mode, base, values, detail, colorRows, sizeRows, colorSort, sizeSort} = input;
-    const keepIdentity = mode === 'edit';
-    const matrixID = keepIdentity ? toStringOrEmpty(input.matrixID) : '';
+    const inputID = toStringOrEmpty(input.matrixID);
+    /*
+     * 身份字段跟「有没有落库」走，不是单纯看模式。
+     *
+     * 新增保存成功后接口会回一个 `PackBomMatrixID`，之后再点保存就是**改这一份** ——
+     * 那时若还按 `mode === 'add'` 把主键抹掉，等于每次都新插一条。
+     * 复制永远是新的（`mode = 'copy'`）：拿的是原来那份的主键，必须抹掉。
+     */
+    const keepIdentity = mode !== 'copy' && (mode === 'edit' || inputID !== '');
+    const matrixID = keepIdentity ? inputID : '';
 
     /*
-     * 空行不是明细（判据见 `isMaterialRow`）。
+     * 空行不是明细（判据见 `rows.ts` 的 `rowHasMaterial`）。
      *
      * 矩阵版本只在编辑态往行上写：新增 / 复制是新的一份，行跟着旧版本号没有意义。
      */
     const rows = detail
-        .filter(isMaterialRow)
+        .filter(rowHasMaterial)
         .map((row) => toDetailRow(
             row,
             matrixID,

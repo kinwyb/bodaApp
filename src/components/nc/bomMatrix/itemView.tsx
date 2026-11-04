@@ -30,6 +30,7 @@ import NCProductorModal, {PRODUCTOR_EDITOR} from "@/components/nc/productorModal
 import type {NCProductor} from "@/api/schemas/nc/NCBase.ts";
 import {ncBaseApi} from "@/api/modules/nc/base.ts";
 import {scopedEditorKey, useEditorScope} from "./editorScope.ts";
+import {type BomMatrixCellIssueMap, createCellIssueHooks} from "./cellIssues.ts";
 
 /** bom矩阵子物料树形 */
 export interface BomMatrixItemProps {
@@ -43,6 +44,14 @@ export interface BomMatrixItemProps {
      * （否则三张表就缠在一起了）。
      */
     onRowEvent?: (event: BomMatrixRowEvent) => void
+    /**
+     * 单元格问题标记（`section|rowKey|field` → 文案）：红底 + 悬停提示。
+     *
+     * 传的是**三张表共用的一份**，由 `cellIssues.ts` 按本表的 `section` 取自己那几条。
+     */
+    cellIssues?: BomMatrixCellIssueMap
+    /** 某一格被改了：父级据此把这一格的「校验不通过」标记撤掉 */
+    onCellChange?: (rowKey: string, field: string) => void
 }
 
 /* 菜单图标在模块级渲染一次（`toMenuIcon` 走 `renderToStaticMarkup`，别放进渲染路径） */
@@ -69,7 +78,7 @@ const blankRowNoAfter = (row: BomMatrixRow | undefined): string =>
  * 纯视图：列定义在 `./columns.ts`（界面桥读的是同一份），表格实例与命令 API 通过 ref 交出去。
  */
 const BomMatrixItemView = React.forwardRef<BomMatrixGridApi, BomMatrixItemProps>(
-    ({items, isEditable, onRowEvent}, ref) => {
+    ({items, isEditable, onRowEvent, cellIssues, onCellChange}, ref) => {
 
         /*
          * 行数据 = 「按明细派生 + 本地改动优先」：用户一编辑就落在本地，派生结果再算也不顶掉；
@@ -351,7 +360,13 @@ const BomMatrixItemView = React.forwardRef<BomMatrixGridApi, BomMatrixItemProps>
             }
             activeRow?.setFields(updateFields);
             activeRow?.endEdit();
-        }, [])
+            /*
+             * 弹窗回填走的是 `setFields`，**不经过** onCellValueChange ——
+             * 这里得自己报一声，否则「校验标红的那一格」选完值还红着。
+             */
+            const rowKey = rowKeyOf(activeRow?.record);
+            if (rowKey) Object.keys(updateFields).forEach((key) => onCellChange?.(rowKey, key));
+        }, [onCellChange])
 
         /**
          * 用户没开弹窗、直接在单位格里输入并回车：在这**个物料**的可选单位里按编码/名称找一条。
@@ -474,8 +489,10 @@ const BomMatrixItemView = React.forwardRef<BomMatrixGridApi, BomMatrixItemProps>
                 const rowKey = rowKeyOf(record) || rowKeyOf(rows[rowIndex]);
                 if (!rowKey) return;
                 updateRow(rowKey, {[field]: value});
+                // 这一格改过了：父级把它的「校验不通过」标记撤掉，别让红底留到下一轮保存
+                onCellChange?.(rowKey, field);
             },
-            [rows, updateRow],
+            [rows, updateRow, onCellChange],
         );
 
         /** 右键菜单：**只在编辑模式下有效** —— 只读时返回空数组，vtable 那边会转成 undefined（不弹菜单） */
@@ -501,6 +518,17 @@ const BomMatrixItemView = React.forwardRef<BomMatrixGridApi, BomMatrixItemProps>
             },
         }), [isEditable, insertRowBelow, removeRow]);
 
+        /**
+         * 校验不通过的格子：红底 + 悬停说明（与配色 / 配码同一套，见 `./cellIssues.ts`）。
+         *
+         * 只有问题 Map 变了才重建这两个钩子 —— 它们只是 canvas 绘制时读一次的回调，
+         * 每次渲染换新引用会让表格白白重绘。
+         */
+        const {cellStyle, cellTooltip} = useMemo(
+            () => createCellIssueHooks('items', cellIssues),
+            [cellIssues],
+        );
+
         /*
          * 对外交「取值函数 + 行级命令」：`getRows` 闭包读 state（每次 rows 变重建 handle，
          * ref.current 始终是最新的那份），别把 state 快照进 handle。
@@ -519,6 +547,7 @@ const BomMatrixItemView = React.forwardRef<BomMatrixGridApi, BomMatrixItemProps>
                            rowKey={'PackBomMatrixDetailID'}
                            rowNumber={false} menu={menu}
                            onCellValueChange={handleCellValueChange}
+                           cellStyle={cellStyle} cellTooltip={cellTooltip}
                            multiSelect={false} widthMode={'autoWidth'} canEditCell={canCellEdit}/>
                 <NCMaterialModal open={false}
                                  isEditor={true}

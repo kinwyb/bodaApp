@@ -64,6 +64,18 @@
     color: #1677ff;
 }
 
+/*
+ * 工具栏里的竖分割线：「保存」与「生成 / 复制」的分界。
+ *
+ * antd 的竖向分割线默认 `height: 1em`、`margin: 0 8px`：这里高度放到与按钮齐（32px），
+ * 左右间距交给容器的 `gap`（否则 8 + 8 + 8 会挤出很宽一段空）。
+ */
+.ant-divider.bom-matrix-edit-divider {
+    height: 32px;
+    margin: 0;
+    border-color: #e5e5e5;
+}
+
 /* 分组：标题条 + 字段网格 */
 .bom-matrix-group {
     border: 1px solid #e5e5e5;
@@ -190,5 +202,13 @@
     padding-left: 16px;
     font-size: 13px;
     line-height: 1.8;
+}
+
+/* 列表之外的一句补充（「还有 N 处」「格子已标红」）：小一号、弱一档，别抢列表的注意力 */
+.bom-matrix-edit-errors-more {
+    margin-top: 8px;
+    font-size: 12px;
+    line-height: 1.6;
+    color: rgba(0, 0, 0, 0.45);
 }
 

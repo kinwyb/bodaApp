@@ -15,7 +15,7 @@
  * 原系统是选物料时就把这些格子带出来的，网页这边是用户自己填，所以保存时必须回头核一遍。
  *
  * 三件注意：
- * - 判据与装配**同一份**（`isMaterialRow`）：末尾那行「等输入」的空行既不入库也不校验；
+ * - 判据与装配**同一份**（`rows.ts` 的 `rowHasMaterial`）：末尾那行「等输入」的空行既不入库也不校验；
  * - 必填不过就**不再查辅助属性**：物料都没选，后面的字典根本没得查，报一串「第 3 行没物料」只会吵；
  * - 这里不改任何数据、不弹窗：只回「哪里不对」，弹什么、怎么问由调用方决定
  *   （界面用 `modal.warning` / `modal.confirm`，界面桥用回执里的 `message`）。
@@ -26,10 +26,10 @@ import {
     BOMMATRIX_COLOR_VFREE_FIELD,
     BOMMATRIX_SIZE_VFREE_FIELD,
 } from '@/components/nc/bomMatrix/common.ts';
-import {colorCells, rowKeyOf, sizeCells} from '@/components/nc/bomMatrix/rows.ts';
+import {colorCells, rowKeyOf, rowHasMaterial, sizeCells} from '@/components/nc/bomMatrix/rows.ts';
 import {ensureUseVFrees, readUseVFrees} from '@/components/nc/bomMatrix/vfreeCache.ts';
+import type {BomMatrixCellIssue} from '@/components/nc/bomMatrix/cellIssues.ts';
 import type {FormMode} from '../command/types.ts';
-import {isMaterialRow} from './bomMatrixPayload.ts';
 
 /** 校验要看的东西：与装配的入参几乎一样（少一个 `base`，多一个模式） */
 export type BomMatrixCheckInput = {
@@ -49,10 +49,16 @@ export type BomMatrixCheckInput = {
     sizeSort?: Array<string | null | undefined> | null;
 };
 
-/** 校验结论：要么过，要么给一批**人话**原因（一次说全，别让人一条条试） */
+/**
+ * 校验结论：要么过，要么给一批**人话**原因（一次说全，别让人一条条试）。
+ *
+ * `issues` 是**结构化**的那一份：哪张表、哪一行、哪一列不对 —— 调用方把它交给
+ * `BomMatrixView` 就能把格子标红（见 `components/nc/bomMatrix/cellIssues.ts`）。
+ * 表单级的老问题（没选物料 / 没填包装方法）没有格子可标，只出现在 `messages` 里。
+ */
 export type BomMatrixCheckResult =
     | { ok: true }
-    | { ok: false; messages: string[] };
+    | { ok: false; messages: string[]; issues: BomMatrixCellIssue[] };
 
 /** `vfree{n}` → 界面上的列名，报错时说清「哪一项没填」 */
 const VFREE_LABELS: Record<string, string> = {
@@ -109,11 +115,19 @@ function columnNames(columns: Array<string | null | undefined> | null | undefine
  * 为什么按**每行自己的物料**判断，而不是「矩阵有颜色列就全要填」：
  * 颜色列是按产成品取的，但一行子物料未必用得上 vfree6；一刀切会逼用户给用不上的格子
  * 硬塞值（塞进去的就是脏数据）。
+ *
+ * 返回值是**两份**：`issues` 给表格标红（一格一条），`messages` 给人看（一行一条，读完就知道改哪）。
+ * 两份同源，不会出现「对话框说第 3 行、屏幕上红的是第 4 行」。
  */
-export async function checkVFreeComplete(input: BomMatrixCheckInput): Promise<string[]> {
+export async function checkVFreeComplete(
+    input: BomMatrixCheckInput,
+): Promise<{ messages: string[]; issues: BomMatrixCellIssue[] }> {
     const messages: string[] = [];
-    const detailRows = input.detail.filter(isMaterialRow);
-    if (detailRows.length === 0) return ['子项明细是空的：至少要有一行（产成品那一行也不能少）'];
+    const issues: BomMatrixCellIssue[] = [];
+    const detailRows = input.detail.filter(rowHasMaterial);
+    if (detailRows.length === 0) {
+        return {messages: ['子项明细是空的：至少要有一行（产成品那一行也不能少）'], issues};
+    }
 
     /*
      * 一次把要用到的物料字典查全（`ensureUseVFrees` 自带去重与失败冷却），
@@ -139,6 +153,7 @@ export async function checkVFreeComplete(input: BomMatrixCheckInput): Promise<st
     // ① 明细行自己的辅助属性
     detailRows.forEach((row, index) => {
         const label = rowLabel(row, index);
+        const rowKey = rowKeyOf(row);
         if (toStringOrEmpty(row.MaterialVID).trim() === '') {
             messages.push(`${label}：这一行没有物料`);
             return;
@@ -154,9 +169,19 @@ export async function checkVFreeComplete(input: BomMatrixCheckInput): Promise<st
             .filter((field) => {
                 const key = field.replace('vfree', 'VFree');
                 return isBlank(row[key]) && isBlank(row[`${key}Name`]);
-            })
-            .map((field) => VFREE_LABELS[field] ?? field);
-        if (missing.length > 0) messages.push(`${label}：${missing.join('、')} 没填`);
+            });
+        if (missing.length === 0) return;
+        messages.push(`${label}：${missing.map((field) => VFREE_LABELS[field] ?? field).join('、')} 没填`);
+        missing.forEach((field) => {
+            const key = field.replace('vfree', 'VFree');
+            issues.push({
+                section: 'items',
+                rowKey,
+                // 标在**名称列**上（界面上看得见的就是它）
+                field: `${key}Name`,
+                message: `请填「${VFREE_LABELS[field] ?? field}」`,
+            });
+        });
     });
 
     /*
@@ -175,33 +200,51 @@ export async function checkVFreeComplete(input: BomMatrixCheckInput): Promise<st
 
     // ② 配色：物料启用 vfree6 的行，每个颜色格都要有值
     const colors = columnNames(input.colorSort);
-    input.colorRows.filter(isMaterialRow).forEach((row) => {
+    input.colorRows.filter(rowHasMaterial).forEach((row) => {
         const dict = useVFreeOf(row);
         if (!dict.known || !dict.fields.includes(BOMMATRIX_COLOR_VFREE_FIELD)) return;
         const missing = colors.filter((color) => {
             const fields = colorCells(color);
             return isBlank(row[fields.name]) && isBlank(row[fields.value]);
         });
-        if (missing.length > 0) {
-            messages.push(`${labelByRow(row) ?? '配色表某一行'}：色号没填 —— ${missing.join('、')}`);
-        }
+        if (missing.length === 0) return;
+        const rowKey = rowKeyOf(row);
+        messages.push(`${labelByRow(row) ?? '配色表某一行'}：色号没填 —— ${missing.join('、')}`);
+        missing.forEach((color) => {
+            issues.push({
+                section: 'colors',
+                rowKey,
+                // 配色表可编辑的是**名称列**（颜色名本身就是列名），编码在 `{颜色}_val`
+                field: color,
+                message: `请选「${color}」的色号`,
+            });
+        });
     });
 
     // ③ 配码：物料启用 vfree7 的行，每个尺码的系数都要有值（损耗 / 用量是数量，不在这条里）
     const sizes = columnNames(input.sizeSort);
-    input.sizeRows.filter(isMaterialRow).forEach((row) => {
+    input.sizeRows.filter(rowHasMaterial).forEach((row) => {
         const dict = useVFreeOf(row);
         if (!dict.known || !dict.fields.includes(BOMMATRIX_SIZE_VFREE_FIELD)) return;
         const missing = sizes.filter((size) => {
             const fields = sizeCells(size);
             return isBlank(row[fields.name]) && isBlank(row[fields.value]);
         });
-        if (missing.length > 0) {
-            messages.push(`${labelByRow(row) ?? '配码表某一行'}：尺码系数没填 —— ${missing.join('、')}`);
-        }
+        if (missing.length === 0) return;
+        const rowKey = rowKeyOf(row);
+        messages.push(`${labelByRow(row) ?? '配码表某一行'}：尺码系数没填 —— ${missing.join('、')}`);
+        missing.forEach((size) => {
+            issues.push({
+                section: 'sizes',
+                rowKey,
+                // 配码表可编辑的是尺码系数（`S{尺码}`），损耗 / 用量是数量，不在这条规则里
+                field: sizeCells(size).name,
+                message: `请选「${size}」的尺码系数`,
+            });
+        });
     });
 
-    return messages;
+    return {messages, issues};
 }
 
 /**
@@ -209,9 +252,12 @@ export async function checkVFreeComplete(input: BomMatrixCheckInput): Promise<st
  */
 export async function validateBomMatrix(input: BomMatrixCheckInput): Promise<BomMatrixCheckResult> {
     const required = checkRequiredFields(input);
-    if (required.length > 0) return {ok: false, messages: required};
+    // 必填不过就先打住：物料都没选，行内那几条查出来全是「没物料」，只会吵
+    if (required.length > 0) return {ok: false, messages: required, issues: []};
     const cells = await checkVFreeComplete(input);
-    if (cells.length > 0) return {ok: false, messages: cells};
+    if (cells.messages.length > 0 || cells.issues.length > 0) {
+        return {ok: false, messages: cells.messages, issues: cells.issues};
+    }
     return {ok: true};
 }
 

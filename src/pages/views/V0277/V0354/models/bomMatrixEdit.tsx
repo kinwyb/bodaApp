@@ -12,7 +12,7 @@
  */
 
 import React, {useCallback, useEffect, useMemo, useRef, useState} from "react";
-import {App, Button, Form, Input, Modal, Spin} from "antd";
+import {App, Button, Divider, Form, Input, Modal, Spin} from "antd";
 import {CopyOutlined, SaveOutlined, ThunderboltOutlined} from "@ant-design/icons";
 import {BomMatrixView, type BomMatrixViewApi} from "@/components/nc/bomMatrix";
 import {createItemRow} from "@/components/nc/bomMatrix/rows.ts";
@@ -34,6 +34,12 @@ import type {
 import {isBlank, toStringOrEmpty} from "@/utils";
 import {buildPackBomMatrix} from "./bomMatrixPayload.ts";
 import {dataSingleCheck, validateBomMatrix} from "./bomMatrixValidation.ts";
+import {
+    type BomMatrixCellIssue,
+    type BomMatrixCellIssueMap,
+    cellIssueKey,
+    toCellIssueMap,
+} from "@/components/nc/bomMatrix/cellIssues.ts";
 import {useUIBridgeDialog} from "@/pages/agent/ui-bridge";
 import type {FormMode} from "../command";
 import {
@@ -77,9 +83,13 @@ const MODE_TITLE: Record<FormMode, string> = {
  * 挤成一个 `ok + message + payload` 会让调用方到处判空。
  */
 type SavePreparation =
-    | { kind: 'invalid'; messages: string[] }
+    /** `issues` = 具体到格子的那几条（行内校验）；必填类的没有格子可标，是空数组 */
+    | { kind: 'invalid'; messages: string[]; issues: BomMatrixCellIssue[] }
     | { kind: 'duplicate'; payload: PackBomMatrix }
     | { kind: 'ready'; payload: PackBomMatrix };
+
+/** 校验弹窗最多列几条：一屏列表刷到几十条没人看，剩下的交给表格里的红格子 */
+const MAX_SHOWN_MESSAGES = 8;
 
 /**
  * 产成品物料 → 「缝制颜色 / 缝制尺码」清单 —— 也就是配色表、配码表的**列**。
@@ -211,6 +221,21 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
     const matrixID = mode === 'add' ? '' : toStringOrEmpty(record?.PackBomMatrixID);
 
     /**
+     * 这份矩阵**在库里的主键** —— 「生成」「复制」能不能点看它，不看模式。
+     *
+     * 两个按钮都是「按一份已经存在的矩阵做事」：生成按它的产成品铺明细，复制是把这一份另存一份。
+     * 新增时还没有身份，所以它们是灰的；**保存成功、接口返回 `PackBomMatrixID` 之后**才有得做。
+     *
+     * 编辑 / 查看 / 复制打开时主键来自详情，直接可用。保存接口接上以后，
+     * 把返回值写进 payload（`payload.PackBomMatrixID = result.data?.PackBomMatrixID`）即可 ——
+     * `handleSave` 末尾会把组合结果里的主键同步到这里，不用另加一行。
+     */
+    const [recordID, setRecordID] = useState<string>(matrixID);
+
+    /** 已经落库了吗 —— 「生成」「复制」的可用性只看这一条 */
+    const hasRecord = !isBlank(recordID);
+
+    /**
      * 详情（编辑 / 复制 / 查看才有）。
      *
      * `null` = 还没拿到（新增，或请求在路上 / 失败）：此时表单用主表摘要兜着，
@@ -235,6 +260,25 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
     const [payloadPreview, setPayloadPreview] = useState<PackBomMatrix | null>(null);
     /** 保存进行中（校验要发请求、查重还要等用户确认）：既防连点，也给按钮一个禁用态 */
     const [saving, setSaving] = useState(false);
+
+    /**
+     * 单元格问题标记（`section|rowKey|field` → 文案）：交给下面三张表画红底 + 悬停提示。
+     *
+     * 一次保存校验算一份，整体替换 —— 不做增量，省得「这一格修好了、那一格又漏了」两头对不上。
+     * 某一格被用户改过就单独撤掉它（`handleCellChange`），别让红底留到下一轮保存。
+     */
+    const [cellIssues, setCellIssues] = useState<BomMatrixCellIssueMap>({});
+
+    /** 某一格改过了：撤掉它的标记（键里带表名，改配色不会误清子项物料的同名格） */
+    const handleCellChange = useCallback((section: BomMatrixSection, rowKey: string, field: string) => {
+        setCellIssues((prev) => {
+            const key = cellIssueKey(section, rowKey, field);
+            if (!(key in prev)) return prev;
+            const next = {...prev};
+            delete next[key];
+            return next;
+        });
+    }, []);
 
     /** 详情请求序号：关闭弹窗 / 重新拉取时让在飞的旧结果作废 */
     const detailSeqRef = useRef(0);
@@ -825,7 +869,7 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
      */
     const prepareSave = useCallback(async (): Promise<SavePreparation> => {
         const blocked = fieldLock('form.submit');
-        if (blocked) return {kind: 'invalid', messages: [blocked]};
+        if (blocked) return {kind: 'invalid', messages: [blocked], issues: []};
 
         const values = form.getFieldsValue();
         const detailRows = readMatrixRows('items');
@@ -833,7 +877,8 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
         const sizeRows = readMatrixRows('sizes');
         const checkInput = {
             mode,
-            matrixID,
+            // 用 recordID 而不是打开时的 matrixID：新增保存成功后会拿到主键，再保存就是改这一份
+            matrixID: recordID,
             values,
             detail: detailRows,
             colorRows,
@@ -844,19 +889,27 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
 
         const check = await validateBomMatrix(checkInput);
         if (!check.ok) {
+            /*
+             * 校验不过：把结构化的那份（哪张表、哪一行、哪一列）交给下面三张表标红，
+             * 人话的那份留在弹窗里逐条列。两份同源，指哪打哪。
+             */
+            setCellIssues(toCellIssueMap(check.issues));
             // 被拦下时也打一份：不然只能靠猜「界面此刻到底是什么样」
             console.log('[包装BOM矩阵] 保存校验没通过', {
                 mode,
-                matrixID: matrixID || '(新增)',
+                matrixID: recordID || '(新增)',
                 原因: check.messages,
+                问题单元格: check.issues,
                 表单值: values,
                 明细行: detailRows,
                 配色行: colorRows,
                 配码行: sizeRows,
             });
-            return {kind: 'invalid', messages: check.messages};
+            return {kind: 'invalid', messages: check.messages, issues: check.issues};
         }
 
+        // 校验过了：上一轮留下的红格子该收了
+        setCellIssues({});
         const payload = buildPackBomMatrix({...checkInput, base: matrix});
         // 查重（`dataSingleCheck` 现在恒 false，具体检测逻辑在那边补）
         const duplicate = await dataSingleCheck(checkInput);
@@ -867,7 +920,7 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
          */
         console.log('[包装BOM矩阵] 保存组合', {
             mode,
-            matrixID: matrixID || '(新增)',
+            matrixID: recordID || '(新增)',
             查重命中: duplicate,
             原始编辑对象: detailRecord ?? record,
             基底矩阵: matrix,
@@ -879,7 +932,7 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
         });
 
         return duplicate ? {kind: 'duplicate', payload} : {kind: 'ready', payload};
-    }, [fieldLock, form, readMatrixRows, mode, matrix, matrixID, detailRecord, record]);
+    }, [fieldLock, form, readMatrixRows, mode, matrix, recordID, detailRecord, record]);
 
     /**
      * 保存：**校验 →（查重确认）→ 组合出完整矩阵，但不入库**（这个模块还没有保存接口）。
@@ -898,14 +951,30 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
         try {
             const prepared = await prepareSave();
             if (prepared.kind === 'invalid') {
+                const rest = prepared.messages.length - MAX_SHOWN_MESSAGES;
                 modal.warning({
                     title: '保存校验没通过',
-                    width: 520,
+                    width: 560,
                     okText: '知道了',
                     content: (
-                        <ul className="bom-matrix-edit-errors">
-                            {prepared.messages.map((item) => <li key={item}>{item}</li>)}
-                        </ul>
+                        <div>
+                            <ul className="bom-matrix-edit-errors">
+                                {prepared.messages
+                                    .slice(0, MAX_SHOWN_MESSAGES)
+                                    .map((item) => <li key={item}>{item}</li>)}
+                            </ul>
+                            {rest > 0 && (
+                                <div className="bom-matrix-edit-errors-more">
+                                    还有 {rest} 处没列出来，见表格里标红的格子
+                                </div>
+                            )}
+                            {prepared.issues.length > 0 && (
+                                <div className="bom-matrix-edit-errors-more">
+                                    不通过的格子已在下方表格里标红（共 {prepared.issues.length} 处），
+                                    鼠标移上去能看到原因
+                                </div>
+                            )}
+                        </div>
                     ),
                 });
                 return;
@@ -930,12 +999,19 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
                 });
                 if (!confirmed) return;
             }
+            /*
+             * 组合结果里带着主键：编辑态来自详情，接上保存接口后来自接口返回值
+             * （`payload.PackBomMatrixID = result.data?.PackBomMatrixID`）。
+             * 同步到 state，「生成 / 复制」的可用性就跟着它走 —— 不用再单独记「保存过没有」。
+             */
+            const savedID = toStringOrEmpty(prepared.payload.PackBomMatrixID);
+            if (savedID && savedID !== recordID) setRecordID(savedID);
             // 接口没接：把组合出来的这一份摆给用户核对（字段名就是接口字段名）
             setPayloadPreview(prepared.payload);
         } finally {
             setSaving(false);
         }
-    }, [saving, prepareSave, modal]);
+    }, [saving, prepareSave, modal, recordID]);
 
     /** 预演里的 JSON：`Dayjs` 由 `JSON.stringify` 自己转成 ISO 串，不用手写 replacer */
     const payloadJSON = useMemo(
@@ -1038,7 +1114,7 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
     const bridgeContext = useMemo<BomMatrixEditBridgeContext>(() => ({
         title: MODE_TITLE[mode],
         mode,
-        recordId: matrixID || null,
+        recordId: recordID || null,
         form,
         isReady: detailReady,
         fieldLock,
@@ -1056,7 +1132,7 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
         submit,
         close: onClose,
     }), [
-        mode, matrixID, form, detailReady, fieldLock, applyMaterialByGroup, applyConvertByGroup,
+        mode, recordID, form, detailReady, fieldLock, applyMaterialByGroup, applyConvertByGroup,
         matrix, activeKey, readMatrixRows, readMatrixGrid, matrixEditLock, readValueOptions,
         formErrors, submit, onClose,
     ]);
@@ -1126,17 +1202,23 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
                         loading={saving} disabled={saving}
                         onClick={() => void handleSave()}>保存</Button>
                 {/*
-                 * 「生成」与「复制」都只在**编辑**时可用：
+                 * 分割线：「保存」是对这一份的直接操作；「生成」「复制」要按**已落库**的记录做事，
+                 * 线一划，两组的分界就看得出来了（不用靠按钮灰不灰去猜）。
+                 */}
+                <Divider orientation="vertical" className="bom-matrix-edit-divider"/>
+                {/*
+                 * 「生成」与「复制」的可用性看**有没有主键**（`recordID`），不看模式：
                  * 生成要按已存在的产成品铺明细，复制是把当前这份内容另存一份 ——
-                 * 新增（还没存过）时两者都无从下手，点下去只会让人以为坏了。
+                 * 新增时还没有身份，保存成功拿到 `PackBomMatrixID` 之后才点得动
+                 * （编辑 / 查看 / 复制打开时主键来自详情，直接可用）。
                  */}
                 <Button type="text" className="bom-matrix-edit-action" icon={<ThunderboltOutlined/>}
-                        disabled={mode !== 'edit'}
-                        title={mode === 'edit' ? undefined : '仅编辑已有矩阵时可用'}
+                        disabled={!hasRecord}
+                        title={hasRecord ? undefined : '保存成功后（拿到矩阵主键）才可用'}
                         onClick={handleGenerate}>生成</Button>
                 <Button type="text" className="bom-matrix-edit-action" icon={<CopyOutlined/>}
-                        disabled={mode !== 'edit'}
-                        title={mode === 'edit' ? undefined : '仅编辑已有矩阵时可用'}
+                        disabled={!hasRecord}
+                        title={hasRecord ? undefined : '保存成功后（拿到矩阵主键）才可用'}
                         onClick={handleCopy}>复制</Button>
             </div>
 
@@ -1229,6 +1311,8 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
                             isEditMode={canEditMatrix}
                             activeKey={activeKey}
                             onActiveKeyChange={setActiveKey}
+                            cellIssues={cellIssues}
+                            onCellChange={handleCellChange}
                         />
                         {!canEditMatrix && (
                             <div className="bom-matrix-edit-mask">

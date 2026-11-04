@@ -21,7 +21,7 @@
  */
 
 import type {PackBomMatrix, PackBomMatrixColorMatch, PackBomMatrixSizeMatch} from '@/api/schemas/nc/bomMatrix.ts';
-import {colorCells, matchRowKey, sizeCells} from './rows.ts';
+import {colorCells, matchRowKey, rowHasMaterial, sizeCells} from './rows.ts';
 import {toStringOrEmpty} from '@/utils';
 
 /**
@@ -66,6 +66,11 @@ export function rebuildSizeMatch(
         const fields = sizeCells(size);
         const cells: Record<string, PackBomMatrixSizeMatch> = {};
         for (const row of rows) {
+            /*
+             * 没有物料的空行不是明细：编辑态末尾那行「等输入」的空行也会被反推到这里，
+             * 不滤掉就会给后端留一条 `行号_`（物料为空）的匹配数据。
+             */
+            if (!rowHasMaterial(row)) continue;
             const key = matchRowKey(row);
             if (!key || key === '_') continue;
             const hasValue =
@@ -106,6 +111,8 @@ export function rebuildColorMatch(
         const fields = colorCells(color);
         const cells: Record<string, PackBomMatrixColorMatch> = {};
         for (const row of rows) {
+            // 没有物料的空行不是明细（理由见 rebuildSizeMatch 里同一处）
+            if (!rowHasMaterial(row)) continue;
             const key = matchRowKey(row);
             if (!key || key === '_') continue;
             const hasValue = row[fields.name] !== undefined || row[fields.value] !== undefined;

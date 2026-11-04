@@ -12,6 +12,7 @@ import NCMaterialVFreeModal from "@/components/nc/materialVFreeModal.tsx";
 import {toStringOrEmpty} from "@/utils";
 import {buildSizeColumns} from "./columns.ts";
 import {type BomMatrixRow, rowKeyOf, sizeCells, toSizeRows, withSizeUsageDefaults} from "./rows.ts";
+import {type BomMatrixCellIssueMap, createCellIssueHooks} from "./cellIssues.ts";
 import type {BomMatrixGridApi} from "./gridApi.ts";
 import {useEditableRows} from "./useEditableRows.ts";
 import {BOMMATRIX_SIZE_VFREE_EDITOR, BOMMATRIX_SIZE_VFREE_FIELD} from "./common.ts";
@@ -32,6 +33,10 @@ export type BomMatrixSizeViewProps = {
      */
     getItems: () => PackBomMatrixDetail[];
     isEditable: boolean;
+    /** 单元格问题标记（三张表共用的一份，本表只认 `section = sizes` 那几条） */
+    cellIssues?: BomMatrixCellIssueMap;
+    /** 某一格被改了：父级据此撤掉这一格的「校验不通过」标记 */
+    onCellChange?: (rowKey: string, field: string) => void;
 }
 
 /**
@@ -45,7 +50,7 @@ export type BomMatrixSizeViewProps = {
  * 保存时不能从明细重算（那等于把这里编辑的东西丢掉）。
  */
 const BomMatrixSizeView = React.forwardRef<BomMatrixGridApi, BomMatrixSizeViewProps>(
-    ({matrix, items, getItems, isEditable}, ref) => {
+    ({matrix, items, getItems, isEditable, cellIssues, onCellChange}, ref) => {
 
         /*
          * 首次渲染就按「当前明细」铺一份（不是 props.items）：本表可能是在明细被改过之后才挂载的。
@@ -163,7 +168,10 @@ const BomMatrixSizeView = React.forwardRef<BomMatrixGridApi, BomMatrixSizeViewPr
                 [`${sizeField}_val`]: vfree.pk_defdoc,
             });
             activeRow?.endEdit();
-        }, []);
+            // 弹窗回填不走 onCellValueChange：自己报一声，别让标红的格子选完还红着
+            const rowKey = rowKeyOf(activeRow?.record);
+            if (rowKey) onCellChange?.(rowKey, sizeField);
+        }, [onCellChange]);
 
         /**
          * 按行标识改若干字段（编辑单元格 / 外部命令共用）。
@@ -204,8 +212,16 @@ const BomMatrixSizeView = React.forwardRef<BomMatrixGridApi, BomMatrixSizeViewPr
                 const rowKey = rowKeyOf(record) || rowKeyOf(rows[rowIndex]);
                 if (!rowKey) return;
                 updateRow(rowKey, {[field]: value});
+                // 这一格改过了：父级撤掉它的标记（否则红底会留到下一轮保存）
+                onCellChange?.(rowKey, field);
             },
-            [rows, updateRow],
+            [rows, updateRow, onCellChange],
+        );
+
+        /** 校验不通过的格子：红底 + 悬停说明（与另外两张表同一套，见 `./cellIssues.ts`） */
+        const {cellStyle, cellTooltip} = useMemo(
+            () => createCellIssueHooks('sizes', cellIssues),
+            [cellIssues],
         );
 
         useImperativeHandle(ref, () => ({
@@ -222,6 +238,7 @@ const BomMatrixSizeView = React.forwardRef<BomMatrixGridApi, BomMatrixSizeViewPr
                            editableFields={editableFields}
                            canEditCell={canCellEdit}
                            onCellValueChange={handleCellValueChange}
+                           cellStyle={cellStyle} cellTooltip={cellTooltip}
                            multiSelect={false} rowNumber={false} widthMode={'autoWidth'}/>
                 {/* 尺码系数弹窗：本表专属 editorKey，取数固定 vfree7、回填写回
                 `S{码}` + `S{码}_val`（与子项物料表那套不是一回事） */}

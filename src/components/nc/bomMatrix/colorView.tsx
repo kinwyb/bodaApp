@@ -17,6 +17,7 @@ import {useEditableRows} from "./useEditableRows.ts";
 import {BOMMATRIX_COLOR_VFREE_EDITOR, BOMMATRIX_COLOR_VFREE_FIELD} from "./common.ts";
 import {scopedEditorKey, useEditorScope} from "./editorScope.ts";
 import {ensureUseVFrees, primeUseVFrees, readUseVFrees} from "./vfreeCache.ts";
+import {type BomMatrixCellIssueMap, createCellIssueHooks} from "./cellIssues.ts";
 
 export type BomMatrixColorViewProps = {
     /** 矩阵：颜色列（`ColorSort`）与初始色号（`ColorMatch`）都从它来 */
@@ -26,6 +27,10 @@ export type BomMatrixColorViewProps = {
     /** 读**当前**明细（含子项物料表里还没保存的增删改）：本表懒挂载，首帧要按它重新铺 */
     getItems: () => PackBomMatrixDetail[];
     isEditable: boolean;
+    /** 单元格问题标记（三张表共用的一份，本表只认 `section = colors` 那几条） */
+    cellIssues?: BomMatrixCellIssueMap;
+    /** 某一格被改了：父级据此撤掉这一格的「校验不通过」标记 */
+    onCellChange?: (rowKey: string, field: string) => void;
 }
 
 /**
@@ -39,7 +44,7 @@ export type BomMatrixColorViewProps = {
  * 选中后两列一起写回；物料没开 `vfree6` 这一项的，`canCellEdit` 会把它拦在编辑态之外。
  */
 const BomMatrixColorView = React.forwardRef<BomMatrixGridApi, BomMatrixColorViewProps>(
-    ({matrix, items, getItems, isEditable}, ref) => {
+    ({matrix, items, getItems, isEditable, cellIssues, onCellChange}, ref) => {
 
         /* 首帧按「当前明细」铺（可能已经比 props.items 多/少几行），这份同时是第一份本地改动 */
         const [initialRows] = useState(() => toColorRows(matrix, getItems()));
@@ -149,7 +154,10 @@ const BomMatrixColorView = React.forwardRef<BomMatrixGridApi, BomMatrixColorView
                 [`${colorName}_val`]: vfree.pk_defdoc,
             });
             activeRow?.endEdit();
-        }, []);
+            // 弹窗回填不走 onCellValueChange：自己报一声，别让标红的格子选完还红着
+            const rowKey = rowKeyOf(activeRow?.record);
+            if (rowKey) onCellChange?.(rowKey, colorName);
+        }, [onCellChange]);
 
         /** 按行标识改若干字段；原地合并保持行对象身份（原因见 itemView 的 updateRow） */
         const updateRow = useCallback((rowKey: string, fields: Record<string, unknown>) => {
@@ -181,8 +189,16 @@ const BomMatrixColorView = React.forwardRef<BomMatrixGridApi, BomMatrixColorView
                 const rowKey = rowKeyOf(record) || rowKeyOf(rows[rowIndex]);
                 if (!rowKey) return;
                 updateRow(rowKey, {[field]: value});
+                // 这一格改过了：父级撤掉它的标记（否则红底会留到下一轮保存）
+                onCellChange?.(rowKey, field);
             },
-            [rows, updateRow],
+            [rows, updateRow, onCellChange],
+        );
+
+        /** 校验不通过的格子：红底 + 悬停说明（与另外两张表同一套，见 `./cellIssues.ts`） */
+        const {cellStyle, cellTooltip} = useMemo(
+            () => createCellIssueHooks('colors', cellIssues),
+            [cellIssues],
         );
 
         useImperativeHandle(ref, () => ({
@@ -199,6 +215,7 @@ const BomMatrixColorView = React.forwardRef<BomMatrixGridApi, BomMatrixColorView
                            editableFields={editableFields}
                            canEditCell={canCellEdit}
                            onCellValueChange={handleCellValueChange}
+                           cellStyle={cellStyle} cellTooltip={cellTooltip}
                            multiSelect={false} rowNumber={false} widthMode={'autoWidth'}/>
                 {/* 色号弹窗：用本表专属的 editorKey，取数固定 vfree6、回填写回
                 `{颜色}` + `{颜色}_val`（与子项物料表那套不是一回事） */}

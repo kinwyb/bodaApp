@@ -32,6 +32,19 @@ export const rowKeyOf = (row: Record<string, unknown> | undefined): string =>
     String(row?.PackBomMatrixDetailID ?? '');
 
 /**
+ * 这一行有没有物料。
+ *
+ * 编辑态的子项物料表**末尾永远留一行空行**等用户输入（见 itemView 的 `ensureBlankAfter`），
+ * 它不是明细：保存时不该提交，校验时不该报错，配色 / 配码也不该为它留一格。
+ *
+ * 三个地方必须同一口径（所以放这里，别各写一份 `MaterialVID !== ''`）：
+ * `bomMatrixPayload`（装配）、`bomMatrixValidation`（校验）、`match.ts`（反推 ColorMatch / SizeMatch）。
+ * 判据取「VID 或编码有一个就算有」：极少数历史数据只有编码、没有 VID。
+ */
+export const rowHasMaterial = (row: Record<string, unknown> | undefined): boolean =>
+    toStringOrEmpty(row?.MaterialVID) !== '' || toStringOrEmpty(row?.MaterialCode) !== '';
+
+/**
  * 未落库的新行主键。
  *
  * 必须唯一且**跨三张表一致**：这张表插入一行后，配色 / 配码按同一个 key 各插一行。

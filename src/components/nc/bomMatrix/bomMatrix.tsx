@@ -1,4 +1,4 @@
-import React, {useCallback, useImperativeHandle, useMemo, useRef} from "react";
+import React, {useCallback, useEffect, useImperativeHandle, useMemo, useRef} from "react";
 import type {PackBomMatrix, PackBomMatrixDetail} from "@/api/schemas/nc/bomMatrix.ts";
 import {Tabs, type TabsProps} from "antd";
 import BomMatrixItemView from "./itemView.tsx";
@@ -8,6 +8,8 @@ import {bomMatrixSectionLabel} from "./sections.ts";
 import type {GridTableApi} from "@/components/grid-table";
 import type {BomMatrixGridApi, BomMatrixRowEvent} from "./gridApi.ts";
 import {toColorRows, toSizeRows} from "./rows.ts";
+import type {BomMatrixCellIssueMap} from "./cellIssues.ts";
+import type {BomMatrixSection} from "./sections.ts";
 
 export type BomMatrixViewProps = {
     bomMatrix: PackBomMatrix;
@@ -22,6 +24,15 @@ export type BomMatrixViewProps = {
      */
     activeKey: string;
     onActiveKeyChange: (key: string) => void;
+    /**
+     * 单元格问题标记（保存校验算出来的）：三张表都拿这一份，各自按 `section` 取。
+     *
+     * 只有标记、不管规则 —— 规则在业务侧的 `bomMatrixValidation`，这里只负责把
+     * 「哪一格不对」画成红底 + 悬停说明。
+     */
+    cellIssues?: BomMatrixCellIssueMap;
+    /** 某一格被改了（三张表都报）：父级据此撤掉这一格的标记 */
+    onCellChange?: (section: BomMatrixSection, rowKey: string, field: string) => void;
 };
 
 /** 交给外面的能力：读表格实例、读行数据 */
@@ -66,7 +77,7 @@ export type BomMatrixViewApi = {
  * 这一层不认识界面桥：它只把「当前是哪个标签页」交给外面，把三张表的实例与行数据交出去。
  */
 export const BomMatrixView = React.forwardRef<BomMatrixViewApi, BomMatrixViewProps>((
-    {bomMatrix, tabs, isEditMode, activeKey, onActiveKeyChange},
+    {bomMatrix, tabs, isEditMode, activeKey, onActiveKeyChange, cellIssues, onCellChange},
     ref,
 ) => {
 
@@ -151,6 +162,16 @@ export const BomMatrixView = React.forwardRef<BomMatrixViewApi, BomMatrixViewPro
     }), [bomMatrix, currentDetail, detailItems]);
 
     /*
+     * 标记变了要重绘：`cellStyle` 只是 canvas 绘制时读的一次快照，数据没变时 vtable 不会自己重画
+     * （与预订单明细那边 `repaint` 同一个理由）。懒挂载还没渲染过的面板是 null，跳过即可。
+     */
+    useEffect(() => {
+        [itemsRef, colorsRef, sizesRef].forEach((box) => {
+            box.current?.table()?.repaint();
+        });
+    }, [cellIssues]);
+
+    /*
      * 依赖里必须带 `isEdit`：能不能编辑是各表的属性，重建元素才能把新值传下去。
      * 三张表都重新创建元素没关系 —— key 不变，React 只更新不重挂载，各自的行数据都还在。
      */
@@ -159,20 +180,28 @@ export const BomMatrixView = React.forwardRef<BomMatrixViewApi, BomMatrixViewPro
             label: bomMatrixSectionLabel('items'),
             key: 'items',
             children: <BomMatrixItemView ref={itemsRef} items={detailItems} isEditable={isEdit}
-                                         onRowEvent={syncProjections}/>,
+                                         onRowEvent={syncProjections}
+                                         cellIssues={cellIssues}
+                                         onCellChange={(rowKey, field) => onCellChange?.('items', rowKey, field)}/>,
         },
         {
             label: bomMatrixSectionLabel('colors'),
             key: 'colors',
             children: <BomMatrixColorView ref={colorsRef} matrix={bomMatrix} items={detailItems}
-                                          getItems={currentDetail} isEditable={isEdit}/>,
+                                          getItems={currentDetail} isEditable={isEdit}
+                                          cellIssues={cellIssues}
+                                          onCellChange={(rowKey, field) => onCellChange?.('colors', rowKey, field)}/>,
         },
         {
             label: bomMatrixSectionLabel('sizes'),
             key: 'sizes',
             children: <BomMatrixSizeView ref={sizesRef} matrix={bomMatrix} items={detailItems}
-                                         getItems={currentDetail} isEditable={isEdit}/>,
-        }, ...(tabs ?? [])], [bomMatrix, currentDetail, detailItems, isEdit, syncProjections, tabs]);
+                                         getItems={currentDetail} isEditable={isEdit}
+                                         cellIssues={cellIssues}
+                                         onCellChange={(rowKey, field) => onCellChange?.('sizes', rowKey, field)}/>,
+        }, ...(tabs ?? [])], [
+        bomMatrix, currentDetail, detailItems, isEdit, syncProjections, tabs, cellIssues, onCellChange,
+    ]);
 
     return (
         <>
