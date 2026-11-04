@@ -25,7 +25,7 @@ import type {FormInstance} from 'antd';
 import {ncBaseApi} from '@/api/modules/nc/base.ts';
 import {ncMaterialApi} from '@/api/modules/nc/material.ts';
 import type {NCMaterial, NCMaterialConvert} from '@/api/schemas/nc/NCMaterial.ts';
-import type {NCProductor} from '@/api/schemas/nc/NCBase.ts';
+import type {NCProductor, NCProject} from '@/api/schemas/nc/NCBase.ts';
 import type {PackBomMatrix} from '@/api/schemas/nc/bomMatrix.ts';
 import {ensureConverts} from '@/components/nc/convertCache.ts';
 import {buildColorColumns, buildSizeColumns, ITEM_COLUMNS} from '@/components/nc/bomMatrix/columns.ts';
@@ -34,8 +34,8 @@ import {colorCells, createItemRow, rowKeyOf, sizeCells} from '@/components/nc/bo
 import {nextRowNo} from '@/components/nc/bomMatrix/rowNo.ts';
 import {
     BOM_MATRIX_SECTIONS,
-    bomMatrixSectionLabel,
     type BomMatrixSection,
+    bomMatrixSectionLabel,
     DEFAULT_BOM_MATRIX_SECTION,
     isBomMatrixSection,
 } from '@/components/nc/bomMatrix/sections.ts';
@@ -84,6 +84,13 @@ export type BomMatrixFormField = {
     material?: BomMatrixFieldGroup;
     /** 单位：界面上是 ConvertSelect（候选来自这个物料的换算单位） */
     convert?: BomMatrixFieldGroup;
+    /**
+     * 项目：界面上是 ProjectSelect（分类树 + 按项目号查一次）。
+     *
+     * 它是唯一「一个字段对应两个值」的：`ProjectCode` 与 `ProjectID`（后端两者都要）——
+     * agent 侧配了对应的查询动作 `project.query`，查到 code + id 再用 form.setMany 一次写。
+     */
+    project?: true;
 };
 
 /**
@@ -92,7 +99,14 @@ export type BomMatrixFormField = {
  * 弹窗的 JSX 直接用它渲染，所以这里少写一个字段，界面上也就少一个 —— 不会与 agent 看到的对不上。
  */
 export const PACK_FIELDS: BomMatrixFormField[] = [
-    {id: 'PackMaterialCode', label: '物料编码', agentLabel: '包装物料编码', group: 'pack', type: 'text', material: 'pack'},
+    {
+        id: 'PackMaterialCode',
+        label: '物料编码',
+        agentLabel: '包装物料编码',
+        group: 'pack',
+        type: 'text',
+        material: 'pack'
+    },
     {
         id: 'PackMaterialName',
         label: '物料名称',
@@ -150,7 +164,7 @@ export const PACK_FIELDS: BomMatrixFormField[] = [
     {id: 'Cassmeasure', label: '单位', agentLabel: '包装单位', group: 'pack', type: 'text', convert: 'pack'},
     {id: 'PackMethod', label: '包装方法', agentLabel: '包装方法', group: 'pack', type: 'text'},
     {id: 'PackNum', label: '包装数量', agentLabel: '包装数量', group: 'pack', type: 'text'},
-    {id: 'ProjectCode', label: '项目', agentLabel: '项目编码', group: 'pack', type: 'text'},
+    {id: 'ProjectCode', label: '项目', agentLabel: '项目编码', group: 'pack', type: 'text', project: true},
 ];
 
 /**
@@ -161,7 +175,14 @@ export const PACK_FIELDS: BomMatrixFormField[] = [
  * 让 agent 单独填 VID 只会填出脏数据。
  */
 export const SEW_FIELDS: BomMatrixFormField[] = [
-    {id: 'SewMaterialCode', label: '物料编码', agentLabel: '产成品物料编码', group: 'sew', type: 'text', material: 'sew'},
+    {
+        id: 'SewMaterialCode',
+        label: '物料编码',
+        agentLabel: '产成品物料编码',
+        group: 'sew',
+        type: 'text',
+        material: 'sew'
+    },
     {
         id: 'SewMaterialName',
         label: '物料名称',
@@ -246,16 +267,18 @@ const FORM_GUIDE: UIGuide = {
         '**先定产成品的物料**（SewMaterialCode）：它决定下面三张表能不能编，配色 / 配码的列也按它的颜色（vfree6）、尺码（vfree7）生成',
         '要改多个字段就用 form.setMany 传一整张 {字段id: 新值}；只改一处用 form.set。字段 id 见 form.fields[].id',
         '物料编码与单位可以直接写：写编码会先按编码查库、把名称 / 版本 / 规格 / 型号 / 主单位一起带出；' +
-            '写单位会从这个物料的换算单位里取，并带出换算率',
+        '写单位会从这个物料的换算单位里取，并带出换算率',
+        '**项目要成对写**：先用 project.query 查（给项目号或名称的一截，回 code + id），' +
+        '再用 form.setMany 一次写 ProjectCode 与 ProjectID —— 两个都要，保存时缺一个都不行',
         '要核对手上的矩阵数据用 matrix.get（默认读当前标签页）；换一张表先 matrix.tab',
         '改矩阵用 matrix.update 传 rowId + {字段: 新值}；加行用 matrix.add（只加在子项物料里，配色 / 配码会自动补同一行）；' +
-            '删行用 matrix.remove（行号 10 那行不能删）',
+        '删行用 matrix.remove（行号 10 那行不能删）',
         '**保存前会先校验**（与原系统一致）：包装物料 / 产成品 / 包装方法 / 包装数量 / 订单号必填；' +
-            '明细每一行按物料启用的辅助属性（款号 / 批号 / 季度号 / 特性 / 色纱色）必须填全，' +
-            '配色每行的色号、配码每行的尺码系数也要填全。不过就把原因原样回给你，照着改就行',
+        '明细每一行按物料启用的辅助属性（款号 / 批号 / 季度号 / 特性 / 色纱色）必须填全，' +
+        '配色每行的色号、配码每行的尺码系数也要填全。不过就把原因原样回给你，照着改就行',
         '**保存已接后端**：form.submit 会校验 → 查重 → 落库，回执里带新的 `PackBomMatrixID`，' +
-            '弹窗随即按这个主键重新载入（可以接着改，也可以「生成」/「复制」）。' +
-            '生成 / 复制本身还没接：点了只会回「功能还没接入」',
+        '弹窗随即按这个主键重新载入（可以接着改，也可以「生成」/「复制」）。' +
+        '生成 / 复制本身还没接：点了只会回「功能还没接入」',
         '不打算继续就 form.cancel 关掉弹窗',
     ],
     terms: {
@@ -263,7 +286,7 @@ const FORM_GUIDE: UIGuide = {
         产成品: '上半第二组：缝制物料（编码 3 开头），决定子项明细能不能编，也决定配色 / 配码有哪些列',
         包装方法: 'PackMethod，包装方式的文字说明',
         包装数量: 'PackNum，一份包装里的数量（接口里是字符串）',
-        订单号: 'ProjectCode，界面上叫「项目」；保存时必填（原系统还要求项目主键，界面目前带不出来）',
+        订单号: 'ProjectCode + ProjectID，界面上叫「项目」：两者成对、保存时缺一不可；agent 用 project.query 查了再写，界面上用项目选择器选',
         子项物料: '下半第一张表 items：一行一个物料，行号 10 那一行就是产成品本身',
         配色: '下半第二张表 colors：每列一个缝制颜色，格子里是该颜色下这个物料的色号',
         配码: '下半第三张表 sizes：每个尺码三列（损耗数量 / 尺码系数 / 尺码用量）',
@@ -271,9 +294,11 @@ const FORM_GUIDE: UIGuide = {
     },
     cautions: [
         '保存是**真的入库**：form.submit 成功后矩阵就有了主键，之后的 matrix.update / add / remove 只会改界面，' +
-            '**不点保存就不入库**；关掉弹窗这些改动就没了 —— 别把它们当成「数据已经改好」',
+        '**不点保存就不入库**；关掉弹窗这些改动就没了 —— 别把它们当成「数据已经改好」',
         '两组的「物料编码 / 单位」短名重复：form.setMany 一律用字段 id（PackMaterialCode / SewMaterialCode / Cassmeasure / SewCassmeasure），不要用中文名',
         '物料编码写的是**编码**，不是名称也不是 VID；编码查不到、或匹配到多个版本时会被如实拒绝，交给用户在界面上选',
+        '项目（ProjectCode / ProjectID）两格都能写，但**必须成对**：只写编码会让保存卡在「请选择订单号」。' +
+        '先 project.query 拿 id，再 form.setMany 一起写；同一条编码返回多个 id 时让用户在界面上选',
         '产成品那一组只认 3 开头的物料，包装成品只认 4 开头的',
         '产成品没设之前下方三张表是禁用的（界面上整块蒙住）：此时 matrix.update / add / remove 一律拒绝',
         '子项物料里「物料名称 / 版本 / 规格 / 主单位」这些列不可写（由物料带出）：要换就换 MaterialCode，整组会一起换',
@@ -322,10 +347,34 @@ const FORM_WRITE_ACTIONS: UIAction[] = [
     },
 ];
 
-/** 弹窗打开时的动作表：改字段 / 切矩阵标签页 / 读矩阵行 / 保存 / 关闭 */
+/** 弹窗打开时的动作表：改字段 / 查项目 / 切矩阵标签页 / 读矩阵行 / 保存 / 关闭 */
 function formActions(): UIAction[] {
     return [
         ...FORM_WRITE_ACTIONS,
+        {
+            /*
+             * 项目查询：项目是唯一「一个字段要两个值」的字段（`ProjectCode` + `ProjectID`），
+             * 而界面上选项目要翻分类树，agent 没有树可点 —— 给它一条按关键字查的直路。
+             */
+            id: 'project.query',
+            label: '查项目（编码 / 名称 → 编码 + 主键）',
+            group: 'form',
+            // 纯读：不回推快照、不等落定
+            returns: 'result',
+            params: [
+                {
+                    name: 'keyword',
+                    type: 'text',
+                    required: true,
+                    hint: '项目号（编码）或项目名称，支持部分匹配；不知道编码就先拿名称里的几个字查',
+                },
+                {
+                    name: 'limit',
+                    type: 'number',
+                    hint: '最多返回几个，默认 10、上限 50',
+                },
+            ],
+        },
         {
             id: 'matrix.tab',
             label: '切换矩阵标签页',
@@ -468,6 +517,7 @@ function currentFields(
         if (field.readOnly) spec.hint = field.readOnlyReason;
         else if (field.material) spec.hint = `界面上的「${field.label}」（${GROUP_LABEL[field.group]}那一组）：填编码会先查库，带出整组物料属性`;
         else if (field.convert) spec.hint = `界面上的「${field.label}」：只能从这个物料的换算单位里选，写进去会带出换算率`;
+        else if (field.project) spec.hint = '界面上的「项目」：先用 project.query 查到 code 与 id，再 form.setMany 一次写 ProjectCode + ProjectID（两个都要，保存时缺一不可）';
         else spec.hint = `界面上的「${field.label}」（${GROUP_LABEL[field.group]}那一组）`;
         return spec;
     });
@@ -611,8 +661,8 @@ type ColumnLike = {
 };
 
 /** 列定义 → 叶子列（field + 列头）：分组表头本身不是一列，配色 / 配码还有分组嵌套 */
-function flattenColumns(columns: unknown[]): Array<{field: string; title: string}> {
-    const result: Array<{field: string; title: string}> = [];
+function flattenColumns(columns: unknown[]): Array<{ field: string; title: string }> {
+    const result: Array<{ field: string; title: string }> = [];
     const seen = new Set<string>();
     const walk = (list: unknown) => {
         if (!Array.isArray(list)) return;
@@ -669,7 +719,7 @@ function writableFieldsOf(section: BomMatrixSection, matrix: PackBomMatrix): str
 /** 一行只留非空的列：几十列里通常一半以上是空的，键名往往比值还贵 */
 function pickCells(
     row: Record<string, unknown>,
-    fields: Array<{field: string; title: string}>,
+    fields: Array<{ field: string; title: string }>,
 ): Record<string, unknown> {
     const cells: Record<string, unknown> = {
         // 三张表共用明细主键做行标识：跨表对行直接拿它（见 guide）
@@ -754,7 +804,7 @@ export type BomMatrixEditBridgeContext = {
      * `SizeMatch.VFree7` 要**编码**（存在 `{列名}_val`）。agent 只知道名称，
      * 桥靠这份字典把编码一起写进去。
      */
-    readValueOptions: (kind: 'color' | 'size') => Array<{name: string, id: string}>;
+    readValueOptions: (kind: 'color' | 'size') => Array<{ name: string, id: string }>;
     /** 表单级提示（详情加载失败这类不属于任何字段的） */
     formErrors: () => string[];
     /**
@@ -768,7 +818,7 @@ export type BomMatrixEditBridgeContext = {
      * **`ok` 只在真的入库后才为 true**：模型拿它决定「已保存」还是「回去改」，
      * 谎报成功它会去核对一份不存在的记录。
      */
-    submit: () => Promise<{ok: boolean; message: string}>;
+    submit: () => Promise<{ ok: boolean; message: string }>;
     close: () => void;
 };
 
@@ -825,7 +875,7 @@ function itemMaterialFields(material: NCMaterial): Record<string, unknown> {
 function coerceItemValue(
     field: string,
     value: unknown,
-): {ok: true; value: unknown} | {ok: false; reason: string} {
+): { ok: true; value: unknown } | { ok: false; reason: string } {
     if (ITEM_DATE_FIELDS.has(field)) {
         const date = toDayjs(value);
         return date ? {ok: true, value: date} : {ok: false, reason: '不是日期，格式要 YYYY-MM-DD'};
@@ -958,7 +1008,7 @@ async function resolveItemProductor(value: unknown): Promise<Record<string, unkn
 async function buildItemPatch(
     values: Record<string, unknown>,
     row: Record<string, unknown>,
-): Promise<{fields: Record<string, unknown>; notes: string[]}> {
+): Promise<{ fields: Record<string, unknown>; notes: string[] }> {
     const fields: Record<string, unknown> = {};
     const notes: string[] = [];
     const rowNo = toStringOrEmpty(row.VRowNo);
@@ -1134,7 +1184,7 @@ function writableGrid(ctx: BomMatrixEditBridgeContext, section: BomMatrixSection
 function requireRow(
     grid: BomMatrixGridApi,
     rowId: unknown,
-): {rowKey: string; row: Record<string, unknown>; rows: Array<Record<string, unknown>>} {
+): { rowKey: string; row: Record<string, unknown>; rows: Array<Record<string, unknown>> } {
     const rows = grid.getRows();
     const key = toStringOrEmpty(rowId).trim();
     if (!key) throw new Error('需要 rowId（matrix.get 返回的 rowId，不是行号）');
@@ -1213,6 +1263,42 @@ export function createBomMatrixEditBridge(read: () => BomMatrixEditBridgeContext
         handlers: {
             // 改字段的两条由桥的通用实现接管：参数解析、锁判断、回执都在那一层
             ...createFormWriteHandlers(writer),
+            /*
+             * 查项目：按项目号 / 名称查一次，回 `id`（项目主键）与 `code`（项目编码）。
+             *
+             * 刻意不给空结果抛错 —— 「没查到」是有效答案（模型据此换关键字），
+             * 只有接口真的失败才抛。拿到结果用 form.setMany 一次写两个字段，
+             * 只写编码不写主键的话保存时会被「请选择订单号」挡下。
+             */
+            'project.query': async (params) => {
+                const keyword = toStringOrEmpty(params.keyword).trim();
+                if (!keyword) {
+                    throw new Error('需要 keyword：项目号（编码）或项目名称的一部分');
+                }
+                const limit = clampInt(params.limit, 10, 1, 50);
+                let list: NCProject[] = [];
+                try {
+                    list = (await ncBaseApi.projectByName(keyword)).data ?? [];
+                } catch (error) {
+                    const reason = error instanceof Error ? error.message : '网络 / 后端异常';
+                    throw new Error(
+                        `查项目「${keyword}」失败：${reason}。稍后重试；要是不通就让用户在界面上用项目选择器选`,
+                    );
+                }
+                const projects = list.slice(0, limit).map((project) => ({
+                    id: toStringOrEmpty(project.pk_project),
+                    code: toStringOrEmpty(project.project_code),
+                    name: toStringOrEmpty(project.project_name),
+                }));
+                return {
+                    count: list.length,
+                    projects,
+                    next:
+                        projects.length === 0
+                            ? '没查到：换项目号或名称里的别的字再试'
+                            : '用 form.setMany 一次写 ProjectCode(这里用name值不是code值) 与 ProjectID（两个都要）；同一条 code 有多个 id 时让用户在界面上选',
+                };
+            },
             'matrix.tab': (params) => {
                 const key = params.key;
                 if (!isBomMatrixSection(key)) {

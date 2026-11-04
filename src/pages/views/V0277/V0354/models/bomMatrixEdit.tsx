@@ -19,9 +19,11 @@ import {CopyOutlined, SaveOutlined, ThunderboltOutlined} from "@ant-design/icons
 import {BomMatrixView, type BomMatrixViewApi} from "@/components/nc/bomMatrix";
 import {createItemRow} from "@/components/nc/bomMatrix/rows.ts";
 import MaterialSelect from "@/components/nc/materialSelect.tsx";
+import ProjectSelect from "@/components/nc/projectSelect.tsx";
 import ConvertSelect from "@/components/nc/convertSelect.tsx";
 import {putConverts} from "@/components/nc/convertCache.ts";
 import type {NCMaterial, NCMaterialConvert, NCMaterialVFree} from "@/api/schemas/nc/NCMaterial.ts";
+import type {NCProject} from "@/api/schemas/nc/NCBase.ts";
 import {type BomMatrixSection, DEFAULT_BOM_MATRIX_SECTION} from "@/components/nc/bomMatrix/sections.ts";
 import {BOMMATRIX_COLOR_VFREE_FIELD, BOMMATRIX_SIZE_VFREE_FIELD,} from "@/components/nc/bomMatrix/common.ts";
 import {ncMaterialApi} from "@/api/modules/nc/material.ts";
@@ -95,7 +97,7 @@ const EDIT_TITLE = '编辑包装 BOM 矩阵';
  * 挤成一个 `ok + message + payload` 会让调用方到处判空。
  */
 type SavePreparation =
-    /** `issues` = 具体到格子的那几条（行内校验）；必填类的没有格子可标，是空数组 */
+/** `issues` = 具体到格子的那几条（行内校验）；必填类的没有格子可标，是空数组 */
     | { kind: 'invalid'; messages: string[]; issues: BomMatrixCellIssue[] }
     | { kind: 'duplicate'; payload: PackBomMatrix }
     | { kind: 'ready'; payload: PackBomMatrix };
@@ -752,6 +754,27 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
     }, [form]);
 
     /**
+     * 选中项目：**主键与编码是一组**（后端 `ProjectID` / `ProjectCode` 都要）。
+     *
+     * 编码那一格由 `ProjectSelect` 自己写（受控），这里补的是主键 ——
+     * 只留编码不写主键，保存时会被「请选择订单号」挡下（原系统就是这么判的）。
+     */
+    const applyProject = useCallback((project: NCProject) => {
+        form.setFieldsValue({
+            ProjectID: project.pk_project,
+            ProjectCode: project.project_name,
+        });
+    }, [form]);
+
+    /**
+     * 项目被清空：主键一并清掉。
+     * 编码空了、主键还指着上一个项目，保存时后端会按旧项目入库 —— 那是最难查的一类脏数据。
+     */
+    const clearProject = useCallback(() => {
+        form.setFieldsValue({ProjectID: undefined, ProjectCode: undefined});
+    }, [form]);
+
+    /**
      * 选中单位：单位名、单位主键与换算率是**一组**（后端按「单位 + 换算率」还原子项数量），
      * 只改单位名会留下上一个单位的比率 —— 与 itemView 的 `applyConvert` 同一口径。
      */
@@ -954,8 +977,8 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
      * 两边都要「能读懂的一句话」，所以在这一层收敛成 `{ok, message}`。
      */
     const persist = useCallback(async (
-        prepared: {payload: PackBomMatrix},
-    ): Promise<{ok: true; id: string} | {ok: false; message: string}> => {
+        prepared: { payload: PackBomMatrix },
+    ): Promise<{ ok: true; id: string } | { ok: false; message: string }> => {
         const body = toSavePayload(prepared.payload);
         console.log('[包装BOM矩阵] 提交保存', body);
         try {
@@ -965,7 +988,10 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
             const id = toStringOrEmpty(saved?.PackBomMatrixID).trim();
             if (!id) {
                 // 存进去了却没回主键：没法重取、没法继续编辑/生成，如实说，别当成功
-                return {ok: false, message: '保存已提交，但接口没有返回 PackBomMatrixID，无法重新载入这份矩阵（请刷新列表确认）'};
+                return {
+                    ok: false,
+                    message: '保存已提交，但接口没有返回 PackBomMatrixID，无法重新载入这份矩阵（请刷新列表确认）'
+                };
             }
             return {ok: true, id};
         } catch (err) {
@@ -1196,6 +1222,7 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
      *
      * - 物料编码：`MaterialSelect`（输入框 + 弹窗 + 输入编码查库，组件自己管这几个交互）；
      * - 单位：`ConvertSelect`（按**这个物料的**换算单位选，选完带出换算率）；
+     * - 项目：`ProjectSelect`（项目分类树 + 分页列表，选完带出项目主键）；
      * - 其余：普通输入框，`readOnly` 的禁用（值由物料带出）。
      */
     const renderControl = useCallback((field: BomMatrixFormField) => {
@@ -1219,10 +1246,13 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
                 />
             );
         }
+        if (field.project) {
+            return <ProjectSelect onSelect={applyProject} onClear={clearProject}/>;
+        }
         return <Input disabled={field.readOnly}/>;
     }, [
         applyPackMaterial, applySewMaterial, applyPackConvert, applySewConvert,
-        clearPackMaterial, clearSewMaterial, packMaterialVID, sewMaterialVID,
+        applyProject, clearProject, clearPackMaterial, clearSewMaterial, packMaterialVID, sewMaterialVID,
     ]);
 
     return (
@@ -1303,6 +1333,14 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
                             <Input/>
                         </Form.Item>
                         <Form.Item name="Cassmeasureid" hidden>
+                            <Input/>
+                        </Form.Item>
+                        {/*
+                         * 项目主键：只由「项目」选择器带出（界面上没有单独的入口）。
+                         * 必须注册：`form.getFieldsValue()` 只含已注册字段 —— 不注册的话
+                         * `setFieldsValue` 写得进去、保存装配时却读不到，主键会静默丢失。
+                         */}
+                        <Form.Item name="ProjectID" hidden>
                             <Input/>
                         </Form.Item>
                         {PACK_FIELDS.map((field) => (

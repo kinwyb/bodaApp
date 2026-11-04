@@ -48,6 +48,8 @@ const MATRIX_HEAD_FIELDS = [
     'VChangerate',
     'PackMethod',
     'PackNum',
+    // 项目主键与编码要一起提交：只有项目选择器能同时给出这两个（见 bomMatrixEdit 的 applyProject）
+    'ProjectID',
     'ProjectCode',
     'SewMaterialVID',
 ] as const;
@@ -69,7 +71,7 @@ const DRAFT_ID_PREFIX = 'draft-';
 
 export type BomMatrixPayloadInput = {
     mode: FormMode;
-    /** 底稿（弹窗里派生出来的那份 `matrix`）：界面没管的字段（项目主键 / 创建人…）从它带回来 */
+    /** 底稿（弹窗里派生出来的那份 `matrix`）：界面没管的字段（创建人 / 矩阵版本…）从它带回来 */
     base?: PackBomMatrix | null;
     /** 表单值，`form.getFieldsValue()` 原样给进来 */
     values: Record<string, unknown>;
@@ -152,7 +154,7 @@ export function buildPackBomMatrix(input: BomMatrixPayloadInput): PackBomMatrix 
         ));
 
     const payload: PackBomMatrix = {
-        // 打底：界面上没有入口的字段（ProjectID / 创建人 / 矩阵版本…）原样带回去
+        // 打底：界面上没有入口的字段（创建人 / 矩阵版本…）原样带回去
         ...(base ?? {}),
         Detail: rows,
         ColorMatch: rebuildColorMatch(colorRows, colorSort ?? []),

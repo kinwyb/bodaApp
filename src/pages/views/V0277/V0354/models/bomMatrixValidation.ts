@@ -70,9 +70,9 @@ const VFREE_LABELS: Record<string, string> = {
 /**
  * 头部必填（顺序照原系统，报错也按这个顺序读）。
  *
- * 「订单号」只校验 `ProjectCode`：界面上「项目」是一个文本框，带不出项目主键（`ProjectID`），
- * 新增时它必然为空 —— 连 `ProjectID` 一起要求的话，新增永远过不去。
- * 换成项目选择器（能带出主键）以后，把 `ProjectID` 那条按原逻辑加回来即可。
+ * 「订单号」= 项目：`ProjectID` 与 `ProjectCode` **缺一不可**（与原系统一致）。
+ * 界面上「项目」已经是项目选择器，选中时两个一起写；只在文本框里手打过编码的（历史数据 /
+ * 底稿带来的）会只有编码没有主键，那种情况也如实报出来 —— 让用户重选一个，别拿空主键去保存。
  */
 export function checkRequiredFields(input: BomMatrixCheckInput): string[] {
     const values = input.values;
@@ -85,7 +85,7 @@ export function checkRequiredFields(input: BomMatrixCheckInput): string[] {
     }
     if (isBlank(values.PackMethod)) messages.push('请填写包装方法');
     if (isBlank(values.PackNum)) messages.push('请填写包装数量');
-    if (isBlank(values.ProjectCode)) messages.push('请选择订单号');
+    if (isBlank(values.ProjectID) || isBlank(values.ProjectCode)) messages.push('请选择订单号');
     return messages;
 }
 
