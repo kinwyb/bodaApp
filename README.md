@@ -130,7 +130,7 @@ Agent 侧有三个工具（后端 `buibuiCodex` 实现），全部由一条 **�
 
 ② 执行命令  ui_act(cmd, params, rev)
    服务端 → 桥    ui.request { op: "act", cmd, params, rev }
-   桥            rev 校验 → 在 actions 里找 cmd → disabled 校验 → handler(params)
+   桥            在 actions 里找 cmd → rev 校验 → disabled 校验 → handler(params)
    桥 → 页面      真正执行（可能异步：拉数据、开弹窗、提交）
    桥            等落定 → 取新快照 → 与锚点比结构/变化 → 决定档位
    桥 → 服务端    ui.response { result, patch 或 snapshot, rev }
@@ -217,8 +217,20 @@ Agent 侧有三个工具（后端 `buibuiCodex` 实现），全部由一条 **�
 命令可以显式覆盖档位（`returns: 'result' | 'patch' | 'full'`），但 **正常不用写**。唯一值得写的是纯读命令标 `'result'`
 ：它不改状态，桥能省掉"等页面落定 + 取新快照"这一趟，回执立刻发出。
 
-`rev` 是乐观锁：命令必须带上看快照时的 `rev`，不匹配就拒绝并要求重新 observe。版本号 **按 view 分域** ——
-切页面和当前页的版本本来就没关系，共用一个计数器必然混乱。
+`rev` 是乐观锁，但**对不上不等于要重新 observe**，要按命令的副作用分档：
+
+| 情况 | 处理 |
+|------|------|
+| `rev` 一致 | 直接执行 |
+| 纯读命令（`returns: 'result'`，如 `<表名>.page` / `.row`） | 直接执行：它不改状态，读的就是此刻的页面 |
+| 幂等写（`form.set` / `form.setMany` / `query.set` / `<表名>.filter` / `.select`） | 模型报上来的那个 `rev` 的**结构指纹与写目标（表单 id + recordId）都没变**时直接执行，回补丁 |
+| 其余写命令（`form.submit` / 删除 / 新增这类不可重放的动作） | 拒绝并重新 observe：模型手里那份状态可能已经不对了（例如选中行被换过），不能只换个 rev 就重试 |
+
+为什么敢放宽：这些命令的语义是「设成给定值」，重复执行结果相同；而 `rev` 只在桥自己执行完一条
+非纯读命令后 +1，用户手动改动不会推进它。真正决定模型那份快照还作不作数的是
+**结构与写目标**，不是数字本身。反过来，`submit` / `delete` 每执行一次都算一次，必须继续严格卡。
+
+版本号 **按 view 分域** —— 切页面和当前页的版本本来就没关系，共用一个计数器必然混乱。
 
 ### 表格桥：`createTableBridge`
 

@@ -9,7 +9,9 @@
  *    早先的「前 20 行」既不是用户看到的 20 行（排序在表格内部），也白占上下文。
  * 2. 行标识用**业务主键**（rowId），不要用行号或数组下标 —— 排序一变就全错。
  *    但「按行号取数据」是允许的，且**必须与用户屏幕一致**：见 UIDataSummary.total。
- * 3. rev 是乐观锁：命令必须带上看快照时的 rev，不匹配就拒绝并要求重新观察。
+ * 3. rev 是乐观锁：命令必须带上看快照时的 rev。对不上时不是一律拒绝 —— 纯读直接放行，
+ *    `form.set*` 这类**幂等写**在模型那个 rev 的结构与写目标都没变时也放行（回补丁即可）；
+ *    只有命令每执行一次都算一次（submit / delete 这类不可重放的动作）时才要求重新观察。
  * 4. **模型能做的任何事都必须出现在 actions 里**：filters / selection / data 只是「当前是什么」，
  *    不是「怎么改」。只发数据不发命令，模型就只能干猜（筛选条件踩过这个坑）。
  * 5. **回执默认是补丁，不是整页快照**（v3）：一条命令只回它真正改变的那几段，列目录 / guide /
@@ -499,7 +501,12 @@ export type UIRequestPayload = {
   /** act 的命令 ID，必须来自最近一次快照的 actions[].id */
   cmd?: string;
   params?: Record<string, unknown>;
-  /** 看快照时的页面版本 */
+  /**
+   * 看快照时的页面版本。
+   *
+   * 对不上时桥按命令副作用分档处理（见文件头第 3 条）：纯读与「设成给定值」的幂等写
+   * 在结构与写目标没变时照常执行；只有不可重放的动作才会被拦下。
+   */
   rev?: number;
   /** navigate 的目标页面（菜单的 View 字段）；与 query 二选一 */
   view?: string;
@@ -513,10 +520,19 @@ export type UIResponsePayload = {
   /** ok=false 必填：会原样交给模型，所以要说清「为什么」 */
   error?: string;
   rev?: number;
-  /** observe / navigate 的返回，或 `returns: 'full'` 命令的新快照 */
-  snapshot?: UISnapshot;
-  /** 本次只变了这些段（与 snapshot 二选一，不同时出现；绝大多数命令走这条） */
-  patch?: UISnapshotPatch;
+  /**
+   * observe / navigate 的返回，或 `returns: 'full'` 命令的新快照。
+   *
+   * 类型为 string 时是 ui-snap-c 紧凑编码文本（见 encoder.ts），
+   * 后端透传、模型直接读；为对象时是原始 JSON（兼容旧路径）。
+   */
+  snapshot?: UISnapshot | string;
+  /**
+   * 本次只变了这些段（与 snapshot 二选一，不同时出现；绝大多数命令走这条）。
+   *
+   * 类型为 string 时是 ui-snap-c 紧凑编码文本，为对象时是原始 JSON。
+   */
+  patch?: UISnapshotPatch | string;
   /** 命令自身的执行结果 */
   result?: unknown;
 };

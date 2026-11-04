@@ -37,6 +37,27 @@ const dialogHosts = new Map<string, () => UIDialogHost | null>();
 const revByView = new Map<string, number>();
 
 /**
+ * 「模型看过的每个版本」对应的结构与写目标，按 view 维护。
+ *
+ * 为什么按 rev 留档，而不是只记当前结构：rev 对不上时要判断的从来不是「现在这页变没变」，
+ * 而是「模型手里那份（它报上来的 rev）还作不作数」。只比当前那份的话，上一条命令打开弹窗、
+ * 模型拿着旧列表快照发 `form.setMany` 也会被放进来 —— 它的 `form` 段根本不存在。
+ *
+ * `target` 是写目标（表单 `id#recordId`）：结构一样但换了单据时，字段集合一个没变，
+ * 只比结构就会把「改 A 单」的意图写到 B 单上。
+ */
+export type RevContext = {
+  /** 与快照 `fp` / 补丁 `basedOn` 同一个值 */
+  structure: string;
+  /** 表单是 `id#recordId`；非表单为空串 */
+  target: string;
+};
+
+/** 每个 view 只留最近若干个版本：模型不会拿很久以前的 rev 重试 */
+const REV_CONTEXT_LIMIT = 32;
+const contextByRev = new Map<string, Map<number, RevContext>>();
+
+/**
  * 「模型手里那份快照」的锚点，按 view 维护。
  *
  * 桥每发一次完整快照就记下它的结构指纹，每发一次补丁就记下变化段指纹；
@@ -98,6 +119,28 @@ export function getDialogHost(view: string): UIDialogHost | null {
 /** 某个页面的当前版本 */
 export function currentRev(view: string): number {
   return revByView.get(view) ?? 1;
+}
+
+/** 记下「这个版本发给模型的是什么」：rev 落后时靠它判断旧快照还作不作数 */
+export function rememberRevContext(view: string, rev: number, context: RevContext): void {
+  let byRev = contextByRev.get(view);
+  if (!byRev) {
+    byRev = new Map();
+    contextByRev.set(view, byRev);
+  }
+  // 同一个 rev 可能因为页面自己变化而被重发（没有 act，rev 不动）：以最后发出去的为准
+  byRev.delete(rev);
+  byRev.set(rev, context);
+  while (byRev.size > REV_CONTEXT_LIMIT) {
+    const oldest = byRev.keys().next().value;
+    if (oldest === undefined) break;
+    byRev.delete(oldest);
+  }
+}
+
+/** 取某个版本当时发出去的结构与写目标；没留档（重启、已裁剪）返回 null */
+export function revContextOf(view: string, rev: number): RevContext | null {
+  return contextByRev.get(view)?.get(rev) ?? null;
 }
 
 /** 模型手里那份快照的锚点；从没发过完整快照时返回 null（第一次操作必须给 full） */

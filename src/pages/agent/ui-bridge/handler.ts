@@ -35,10 +35,14 @@ import {
   currentRev,
   getDialogHost,
   getPageHost,
+  rememberRevContext,
+  revContextOf,
   setAnchor,
   getWorkbenchHost,
 } from './store';
+import type { RevContext } from './store';
 import type { UIBridgeHost, UIDialogHost, UIWorkbenchHost } from './types';
+import { encodeSnapshot, encodePatch } from './encoder';
 
 /** 没有业务页面时快照里的 view 标识（对应 MainLayout 的工作台页签） */
 const HOME_VIEW = 'home';
@@ -96,7 +100,7 @@ async function answer(request: AgentUIRequest): Promise<void> {
       request.respond({
         ok: true,
         rev: currentRev(view),
-        snapshot,
+        snapshot: encodeSnapshot(snapshot),
       });
       return;
     }
@@ -109,7 +113,7 @@ async function answer(request: AgentUIRequest): Promise<void> {
         ok: true,
         rev: currentRev(outcome.view),
         result: outcome.result,
-        snapshot,
+        snapshot: encodeSnapshot(snapshot),
       });
       return;
     }
@@ -123,7 +127,7 @@ async function answer(request: AgentUIRequest): Promise<void> {
           '请先用 ui_navigate 打开目标页面',
       );
     }
-    const outcome = await runAction(view, request.payload);
+    const outcome = await runAction(workbench, view, request.payload);
     /*
      * 命令显式声明了 `returns: 'result'`（纯读）就到此为止：**不推版本、不等落定、不回状态**。
      *
@@ -153,11 +157,11 @@ async function answer(request: AgentUIRequest): Promise<void> {
     const receipt = decideReceipt(view, composeSnapshot(workbench, view), outcome.declared);
 
     if (receipt.mode === 'full') {
-      request.respond({ ...base, snapshot: receipt.snapshot });
+      request.respond({ ...base, snapshot: encodeSnapshot(receipt.snapshot) });
       return;
     }
     if (receipt.mode === 'patch') {
-      request.respond({ ...base, patch: receipt.patch });
+      request.respond({ ...base, patch: encodePatch(receipt.patch) });
       return;
     }
     // 执行完状态与上次发出去的那份一模一样：没什么可合并的，只回一句执行结果
@@ -184,7 +188,7 @@ async function answer(request: AgentUIRequest): Promise<void> {
        * 而一份整页快照恰恰是这条回执里最贵、也最没用的部分。
        * 取状态本身失败就省略它 —— 回执必须发出去，不能因为附赠信息再炸一次。
        */
-      patch,
+      patch: patch ? encodePatch(patch) : undefined,
     });
   }
 }
@@ -214,6 +218,7 @@ function buildSnapshotPatch(
   // 补丁发出去就算重新锚定：模型会把它合并进手里那份，下一次 diff 以这份全量投影为基准
   const anchor = anchorOf(view);
   setAnchor(view, { structure: patch.basedOn, dynamic: dynamicKey(patch), state: patch });
+  rememberRevContext(view, snapshot.rev, revContextOfSnapshot(snapshot, patch.basedOn));
   const delta = anchor && anchor.structure === patch.basedOn ? diffPatch(anchor.state, patch) : patch;
   // 失败但页面什么都没变时，就别发一份只有 view + basedOn 的空补丁
   return hasContent(delta) ? delta : undefined;
@@ -263,15 +268,15 @@ function toSnapshotPatch(snapshot: SnapshotContent, structure: string): UISnapsh
 }
 
 /**
- * 一次命令的回执：形态 + 要发出去的那份状态。
+ * decideReceipt 的结果是**可辨识联合**：`mode` 决定携带哪一份数据。
  *
- * `declared` 是命令自己声明的 `returns`（覆盖），没有就按下面的规则算。
+ * 不用「可选字段 + mode」那种形状：那样调用方即便在 `mode === 'full'` 分支里，
+ * `snapshot` 在类型上仍是 `UISnapshot | undefined`，编码时会传进 undefined。
  */
-type Receipt = {
-  mode: UIActionMode;
-  snapshot?: UISnapshot;
-  patch?: UISnapshotPatch;
-};
+type Receipt =
+  | { mode: 'full'; snapshot: UISnapshot }
+  | { mode: 'patch'; patch: UISnapshotPatch }
+  | { mode: 'result' };
 
 /**
  * **这条命令该回什么，由桥比对新旧快照得出**（页面正常不用声明 `returns`）：
@@ -304,7 +309,8 @@ function decideReceipt(
         : 'patch');
   // 无论发的是哪一种，模型合并之后看到的就是这一份（result 时两者本就相同）
   setAnchor(view, { structure, dynamic, state: full });
-  if (mode === 'full') return { mode, snapshot };
+  rememberRevContext(view, snapshot.rev, revContextOfSnapshot(snapshot, structure));
+  if (mode === 'full') return { mode: 'full', snapshot };
   /*
    * 补丁本身也是增量的：拿锚点里那份全量投影逐条比，只发变了的那几项。
    *
@@ -313,9 +319,9 @@ function decideReceipt(
    */
   if (mode === 'patch') {
     const delta = diffPatch(anchor?.state, full);
-    return hasContent(delta) ? { mode, patch: delta } : { mode: 'result' };
+    return hasContent(delta) ? { mode: 'patch', patch: delta } : { mode: 'result' };
   }
-  return { mode };
+  return { mode: 'result' };
 }
 
 /** 发整页快照（observe / navigate）等于重新锚定：之后的补丁都以这一份为基准 */
@@ -323,6 +329,23 @@ function rememberFull(view: string, snapshot: UISnapshot): void {
   const structure = structureKey(snapshot);
   const full = toSnapshotPatch(snapshot, structure);
   setAnchor(view, { structure, dynamic: dynamicKey(full), state: full });
+  rememberRevContext(view, snapshot.rev, revContextOfSnapshot(snapshot, structure));
+}
+
+/**
+ * 模型在某个 rev 上看到的「结构 + 写目标」。
+ *
+ * 写目标只对表单有意义：同一个弹窗结构，`recordId` 换了就是另一张单，
+ * 旧快照里的字段值不能当成这一单的。
+ */
+function revContextOfSnapshot(
+  snapshot: { form?: UIForm | null },
+  structure: string,
+): RevContext {
+  return {
+    structure,
+    target: snapshot.form ? `${snapshot.form.id}#${snapshot.form.recordId ?? 'new'}` : '',
+  };
 }
 
 /** 值比较：补丁里每个「给不给」都问它（浏览器侧计算，不占 token） */
@@ -644,19 +667,26 @@ function baseSnapshot(workbench: UIWorkbenchHost, view: string): UISnapshotData 
   };
 }
 
+/**
+ * 幂等写：重复执行结果相同，旧 rev 上重放不会多出一次副作用。
+ *
+ * 判据是「设成给定值」，不是「改状态」—— 所以 `form.submit`、`matrix.remove` 这类
+ * 每执行一次都算一次的写命令不在里面。命名与桥生成的命令一致（见 form.ts / table.ts）：
+ * - `form.set` / `form.setMany`：把字段设成给定值；
+ * - `query.set`：把页面查询条件设成给定值；
+ * - `<表名>.filter` / `<表名>.filter.clear` / `<表名>.select`：把筛选、选中设成给定值。
+ */
+const IDEMPOTENT_WRITE = /^(?:form\.setMany|form\.set|query\.set|[\w$.-]+\.(?:filter|filter\.clear|select))$/;
+
 /** 执行一条命令；任何不满足的前置条件都抛成模型可读的原因 */
 async function runAction(
+  workbench: UIWorkbenchHost,
   view: string,
   payload: UIRequestPayload,
 ): Promise<{ declared: UIActionReturn | null; value: unknown }> {
   const cmd = payload.cmd ?? '';
   if (!cmd) {
     throw new Error('缺少命令 ID');
-  }
-  if (payload.rev !== undefined && payload.rev !== currentRev(view)) {
-    throw new Error(
-      `页面状态已变化（快照 rev=${payload.rev}，当前 rev=${currentRev(view)}），请重新 ui_observe`,
-    );
   }
 
   const dialog = getDialogHost(view);
@@ -670,6 +700,7 @@ async function runAction(
   if (!action) {
     throw new Error(`命令不可用：${cmd}。请以最近一次 ui_observe 返回的 actions[].id 为准`);
   }
+  assertRevFresh(workbench, view, payload.rev, action.id, action.returns);
   if (action.disabled) {
     throw new Error(`命令 ${cmd} 当前不可执行：${action.disabledReason ?? '页面状态不允许'}`);
   }
@@ -682,6 +713,47 @@ async function runAction(
   // 这里只把命令**自己声明的**档位带出去（可能是 undefined = 交给桥 diff），
   // 真正决定回什么在 decideReceipt —— 别在这里补默认值，一补就又把 diff 变成摆设。
   return { declared: action.returns ?? null, value };
+}
+
+/**
+ * rev 对不上时还能不能执行。
+ *
+ * 三档：
+ * 1. rev 一致 → 直接执行；
+ * 2. 纯读（`returns: 'result'`）→ 放行：它不改状态，读的本来就是此刻的页面；
+ * 3. 幂等写（`form.set*` 这类）→ 模型报上来的那个 rev 与此刻**结构和写目标都没变**才放行。
+ *
+ * 第 3 档必须比「模型手里那个 rev」，不能比桥当前那份：上一条命令打开弹窗之后，
+ * 当前结构已经是对的，可模型手里还是旧列表快照 —— 拿当前结构做判据就会把这种写入放进来。
+ */
+function assertRevFresh(
+  workbench: UIWorkbenchHost,
+  view: string,
+  rev: number | undefined,
+  cmd: string,
+  declared: UIActionReturn | undefined,
+): void {
+  if (rev === undefined) return;
+  const current = currentRev(view);
+  if (rev === current) return;
+  if (declared === 'result') return;
+  if (IDEMPOTENT_WRITE.test(cmd) && revStillMatches(workbench, view, rev)) return;
+  /*
+   * 其余命令（submit / delete / 新增这类）每执行一次都算一次：旧 rev 下不给「换个数重试」，
+   * 因为模型手里那份状态可能已经不对了（例如选中行被换过），必须重新 observe。
+   */
+  throw new Error(
+    `页面状态已变化（快照 rev=${rev}，当前 rev=${current}），请重新 ui_observe`,
+  );
+}
+
+/** 模型报上来的那个 rev 与此刻是不是同一套视野（结构 + 写目标） */
+function revStillMatches(workbench: UIWorkbenchHost, view: string, rev: number): boolean {
+  const seen = revContextOf(view, rev);
+  if (!seen) return false;
+  const snapshot = composeSnapshot(workbench, view);
+  const now = revContextOfSnapshot(snapshot, structureKey(snapshot));
+  return seen.structure === now.structure && seen.target === now.target;
 }
 
 /** 打开页面（或在只给 query 时搜菜单），返回落点 view 与给模型看的结果 */

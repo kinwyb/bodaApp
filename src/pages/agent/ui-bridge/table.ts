@@ -657,8 +657,8 @@ export function createTableBridge(options: TableBridgeOptions): TableBridge {
           name: 'fields',
           type: 'text',
           hint:
-            `只取这些列（逗号分隔，取值见 columns[].field）。不给 = 只回关键列（${defaultFields.join('、')}）；` +
-            `要全部列传 "*"。每行都自带 rowId（就是 ${rowKeyField}），不必再点名主键`,
+            '只取这些列（逗号分隔，取值见该表列目录的 f 列）。不给 = 只回关键列；' +
+            '要全部列传 "*"。每行都自带 rowId',
         },
       ],
     },
@@ -681,7 +681,7 @@ export function createTableBridge(options: TableBridgeOptions): TableBridge {
           name: 'rowId',
           type: 'text',
           required: true,
-          hint: `行主键值（就是 ${rowKeyField} 字段的值，取 ${pageCmd} 的 rowId）`,
+          hint: '行主键值（取该表 .page 返回的 rowId，主键字段见表的 rk）',
         },
         {
           name: 'fields',
@@ -704,7 +704,7 @@ export function createTableBridge(options: TableBridgeOptions): TableBridge {
           name: 'rowIds',
           type: 'text',
           required: true,
-          hint: `要选中的行 rowId，多个用逗号分隔（取 ${pageCmd} 或 ${name} 段的 active.rowId）`,
+          hint: '要选中的行 rowId，多个用逗号分隔',
         },
       ],
     },
