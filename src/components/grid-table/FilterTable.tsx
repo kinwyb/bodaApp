@@ -187,6 +187,13 @@ export interface FilterTableProps {
     pageSize?: number;
     /** 可选页码 */
     pageSizeOptions?: number[];
+    /**
+     * 是否显示分页上的「每页条数」下拉框，默认 true。
+     *
+     * 页大小由别处决定时（后端固定每页条数、或分页只是「翻页看看」）关掉它 ——
+     * 留着它等于摆一个点了没用的控件。
+     */
+    showSizeChanger?: boolean;
 
     /** 是否显示底部计数，默认 true */
     showCount?: boolean;
@@ -285,6 +292,7 @@ export const FilterTable = React.forwardRef<FilterTableApi, FilterTableProps>(
             page = 1,
             pageSize = DEFAULT_PAGE_SIZE,
             pageSizeOptions = [10, 30, 50, 100],
+            showSizeChanger = true,
             showCount = true,
             showPagination = true,
             showSummary = true,
@@ -752,7 +760,7 @@ export const FilterTable = React.forwardRef<FilterTableApi, FilterTableProps>(
                             current={page}
                             pageSize={pageSize}
                             total={total}
-                            showSizeChanger
+                            showSizeChanger={showSizeChanger}
                             pageSizeOptions={pageSizeOptions}
                             showTotal={(count) => `共 ${count} 条`}
                             onChange={handlePageChange}
