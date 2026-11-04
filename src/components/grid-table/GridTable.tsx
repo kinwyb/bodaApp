@@ -32,6 +32,7 @@ import type {
 } from './editing';
 import { resolveAutoEditor } from './editors/register';
 import type { GridTableExportCsvOptions, GridTableExportExcelOptions } from './export';
+import { fitColumnsToContainer } from './fillWidth';
 import { prepareBottomFrozen, scheduleBottomFrozen } from './frozen';
 import {
   buildExpandColumn,
@@ -1722,6 +1723,54 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
     table.renderWithRecreateCells();
     scheduleBottomFrozen(table, summaryRef.current ? 1 : 0);
   }, []);
+
+  /**
+   * autoFillWidth + 额外列（行号列 / 展开列）时的宽度补偿。
+   *
+   * @visactor/vtable 的 autoFillWidth 只补白、不收缩，而它的「总宽」把行号列也算在内 ——
+   * 列宽配成「正好铺满容器」的表格一加序号列就超出容器，横向滚动条白冒出来。
+   * 补偿逻辑见 ./fillWidth.ts（那边写了完整的原因与边界）。
+   *
+   * 两个触发点：建表后一帧（首屏布局刚结束，tableNoFrameWidth 才是终值）、
+   * 容器尺寸变化（弹窗缩放、拖分隔条）。用户手动拖过列宽就不再插手，
+   * 否则「拖宽一点又被收回去」比滚动条更让人抓狂。
+   */
+  useEffect(() => {
+    const table = tableRef.current;
+    const container = containerRef.current;
+    if (!table || !container) return undefined;
+    // autoFillWidth 只对 standard 有意义（见 props 上 widthMode 的说明）
+    if (!autoFillWidth || widthMode !== 'standard') return undefined;
+
+    let userResized = false;
+    const fit = () => {
+      const current = tableRef.current;
+      const host = containerRef.current;
+      if (userResized || !current || !host) return;
+      // 行号列由 @visactor/vtable 插在 columns 之外的最前面；展开列插在 columns 头部，
+      // 两者都不跟业务列一起缩放
+      fitColumnsToContainer(
+        current,
+        (current.leftRowSeriesNumberCount ?? 0) + (hasExpandable ? 1 : 0),
+        host.clientWidth,
+      );
+    };
+
+    const raf = requestAnimationFrame(fit);
+    // 容器变化时 @visactor/vtable 自己会先补白一次，排到下一帧再判断要不要收
+    const observer = new ResizeObserver(() => requestAnimationFrame(fit));
+    observer.observe(container);
+    // 用户手动拖过列宽就退出：那条语义归用户
+    const onResizeColumnEnd = () => {
+      userResized = true;
+    };
+    table.on('resize_column_end', onResizeColumnEnd);
+    return () => {
+      cancelAnimationFrame(raf);
+      observer.disconnect();
+      table.off('resize_column_end', onResizeColumnEnd);
+    };
+  }, [autoFillWidth, widthMode, finalColumns, hasExpandable, rowNumber]);
 
   /**
    * 统一导出入口，转发给插件挂在 ListTable 实例上的 exportToExcel / exportToCsv。
