@@ -1,11 +1,13 @@
 /**
  * 新增 / 编辑 / 复制包装 BOM 矩阵的表单弹窗。
  *
- * **保存只「组合」不「入库」**：这个模块还没有保存接口。点保存会把两份表单 + 三张表拼成一个
- * 完整的 `PackBomMatrix`（装配规则在 `./bomMatrixPayload`），摆在一个只读弹窗里让人核对；
- * 接上接口以后，那里就是 `await packBomMatrixApi.save(payload)`，别的地方不用改。
+ * **保存**：校验（`./bomMatrixValidation`）→ 查重确认 → 组合完整 `PackBomMatrix`
+ * （`./bomMatrixPayload`）→ `packBomMatrixApi.save` 落库 → **按返回的 `PackBomMatrixID`
+ * 重新取一遍详情**。重取这一步是关键：接口会补上界面拼不出来的东西（明细主键、矩阵版本…），
+ * 重取之后这份记录才有身份，用户可以接着改，也可以点「生成 / 复制」。
+ *
  * 字段名按接口 schema 来（`PackBomMatrix`），后端暂时没有的那几个（规格 / 型号 /
- * 产成品的编码名称等）用同名占位，接上以后把值一起提交即可。
+ * 产成品的编码名称等）用同名占位一起提交，后端接上就不必回头改这里。
  *
  * 下半部分是**编辑态的矩阵表**（`BomMatrixView isEditMode`）：三张表各自可增删改，
  * 子项物料表的行事件会自动同步到配色 / 配码（那套编排在控件里，弹窗不参与）。
@@ -32,7 +34,7 @@ import type {
     PackBomMatrixSizeMatch
 } from "@/api/schemas/nc/bomMatrix.ts";
 import {isBlank, toStringOrEmpty} from "@/utils";
-import {buildPackBomMatrix} from "./bomMatrixPayload.ts";
+import {buildPackBomMatrix, toSavePayload} from "./bomMatrixPayload.ts";
 import {dataSingleCheck, validateBomMatrix} from "./bomMatrixValidation.ts";
 import {
     type BomMatrixCellIssue,
@@ -65,6 +67,13 @@ export type BomMatrixEditProps = {
     mode: FormMode;
     /** 编辑 / 复制时的底稿；新增为 null */
     record: PackBomMatrix | null;
+    /**
+     * 保存成功后的通知（参数是落库后的 `PackBomMatrixID`）。
+     *
+     * 页面拿它去刷新列表 —— 不刷新的话新存的这份在关掉弹窗后仍然看不见，
+     * 用户会以为没存上（弹窗里已经重取过详情，所以这里是「外面那份」的事）。
+     */
+    onSaved?: (matrixID: string) => void;
     onClose: () => void;
 };
 
@@ -75,6 +84,9 @@ const MODE_TITLE: Record<FormMode, string> = {
     copy: '复制包装 BOM 矩阵',
     view: '查看包装 BOM 矩阵',
 };
+
+/** 存下来之后统一叫「编辑」：新增 / 复制一旦落库，改的就是已有记录 */
+const EDIT_TITLE = '编辑包装 BOM 矩阵';
 
 /**
  * 「按保存」的准备结果。
@@ -201,7 +213,7 @@ function readSewFields(record: PackBomMatrix): Record<string, unknown> {
  * - `material` / `convert`：这个字段在界面上是 `MaterialSelect`（输入框 + 物料弹窗 + 输码查库）
  *   还是 `ConvertSelect`（按**这个物料的**换算单位选），`pack` / `sew` 决定回填到哪一组。
  */
-const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, onClose}) => {
+const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, onSaved, onClose}) => {
     const {message, modal} = App.useApp();
     const [form] = Form.useForm<Record<string, unknown>>();
     /**
@@ -251,13 +263,6 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
     const [loadingDetail, setLoadingDetail] = useState<boolean>(matrixID !== '');
     const [detailFailed, setDetailFailed] = useState<boolean>(false);
 
-    /**
-     * 点「保存」组合出来的那份矩阵（`null` = 没在预演）。
-     *
-     * 接口还没接，所以「保存」= 把要提交的完整对象摆出来给人核对；接上接口后它退化成
-     * 「提交前的最后一次确认」，或者干脆去掉。
-     */
-    const [payloadPreview, setPayloadPreview] = useState<PackBomMatrix | null>(null);
     /** 保存进行中（校验要发请求、查重还要等用户确认）：既防连点，也给按钮一个禁用态 */
     const [saving, setSaving] = useState(false);
 
@@ -288,12 +293,19 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
      *
      * 页面那份跟着「主表选中行」走，而编辑按钮只看「有没有选中」—— 详情可能还在路上，
      * 也可能还是上一行的。混用两份数据会在弹窗里出现「编码是 A、明细是 B」。
+     *
+     * @param targetID 要取哪一份。**保存成功后必须按新主键重取**：新增时 props 上的
+     *   `matrixID` 还是空串，只有接口返回的 `PackBomMatrixID` 才指向刚落库的那一份。
+     * @param quiet 静默刷新（保存后的重取）：不切「加载中」占位。那时屏幕上已经是好数据，
+     *   切过去等于把三张表整块卸掉再装回来 —— 行内编辑、滚动位置、选中的标签页全丢。
      */
-    const loadDetail = useCallback(async () => {
+    const loadDetail = useCallback(async (targetID?: string, quiet = false) => {
+        const id = toStringOrEmpty(targetID).trim();
         const seq = ++detailSeqRef.current;
-        if (!matrixID) return;
+        if (!id) return;
+        if (!quiet) setLoadingDetail(true);
         try {
-            const result = await packBomMatrixApi.detail(matrixID);
+            const result = await packBomMatrixApi.detail(id);
             if (seq !== detailSeqRef.current) return;
             const next = result.data ?? null;
             setDetailRecord(next);
@@ -311,7 +323,7 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
         } finally {
             if (seq === detailSeqRef.current) setLoadingDetail(false);
         }
-    }, [matrixID, form, message]);
+    }, [form, message]);
 
     /*
      * 加载放在 effect 里，只有「打开」这一个触发点（弹窗由页面用 key 重挂载，open 恒定）。
@@ -328,15 +340,16 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
         }
         // 新增没有详情可拉；编辑 / 复制 / 查看一挂载就去取
         if (!matrixID) return;
-        void loadDetail();
+        void loadDetail(matrixID);
     }, [open, matrixID, loadDetail]);
 
     /** 重试：先把状态摆回「在加载」，再发一次请求（首次加载的 loading 由 state 初值负责） */
     const retryDetail = useCallback(() => {
         setDetailFailed(false);
         setLoadingDetail(true);
-        void loadDetail();
-    }, [loadDetail]);
+        // 保存成功后 recordID 会变成本次落库的主键，重试按它取（拿不到才退回打开时那个）
+        void loadDetail(recordID || matrixID);
+    }, [loadDetail, recordID, matrixID]);
 
     /**
      * 弹窗里用的底稿：拿到详情就全用详情，没拿到（新增 / 加载中）用主表那一行兜着。
@@ -935,15 +948,63 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
     }, [fieldLock, form, readMatrixRows, mode, matrix, recordID, detailRecord, record]);
 
     /**
-     * 保存：**校验 →（查重确认）→ 组合出完整矩阵，但不入库**（这个模块还没有保存接口）。
+     * 真正落库：把组合结果转成接口形态提交，拿回 `PackBomMatrixID`。
+     *
+     * 失败原样回原因（不抛）：保存按钮要把这句话弹成 toast，桥的 `form.submit` 要把它塞进回执，
+     * 两边都要「能读懂的一句话」，所以在这一层收敛成 `{ok, message}`。
+     */
+    const persist = useCallback(async (
+        prepared: {payload: PackBomMatrix},
+    ): Promise<{ok: true; id: string} | {ok: false; message: string}> => {
+        const body = toSavePayload(prepared.payload);
+        console.log('[包装BOM矩阵] 提交保存', body);
+        try {
+            const result = await packBomMatrixApi.save(body);
+            const saved = result.data;
+            console.log('[包装BOM矩阵] 保存返回', saved);
+            const id = toStringOrEmpty(saved?.PackBomMatrixID).trim();
+            if (!id) {
+                // 存进去了却没回主键：没法重取、没法继续编辑/生成，如实说，别当成功
+                return {ok: false, message: '保存已提交，但接口没有返回 PackBomMatrixID，无法重新载入这份矩阵（请刷新列表确认）'};
+            }
+            return {ok: true, id};
+        } catch (err) {
+            return {ok: false, message: ErrorMessage(err, '保存失败')};
+        }
+    }, []);
+
+    /**
+     * 保存成功之后：记主键 → 丢掉本地派生 → **按新主键重取一遍完整数据**。
+     *
+     * 为什么要重取：接口落库时会补一堆界面上没有的东西（明细主键、矩阵版本、审计字段、颜色/尺码
+     * 匹配的真实键），不重取的话用户接着改的是「自己拼的那一份」—— 再保存一次就成了另一次新增。
+     * 重取也是「生成 / 复制」能用的前提：它们要按库里的那份记录做事。
+     */
+    const acceptSaved = useCallback(async (id: string) => {
+        setRecordID(id);
+        // 上一轮的校验标记作废（新数据可能已经合规）
+        setCellIssues({});
+        /*
+         * 三个本地派生全部清掉：`matrix` 的 memo 优先用它们（换产成品时的第一行快照、
+         * 回收的明细、按产成品算的颜色尺码列），留着就会把刚取回来的明细盖住 ——
+         * 屏幕上还是保存前那份，用户以为没存上。
+         */
+        setSewRow(null);
+        setDetailRows(null);
+        setSewSort(null);
+        await loadDetail(id, true);
+        onSaved?.(id);
+    }, [loadDetail, onSaved]);
+
+    /**
+     * 保存：**校验 →（查重确认）→ 落库 → 按新主键重取**。
      *
      * 校验不过一次列全（`modal.warning`），别一条条弹；查重命中就问一次
      * 「是否重复添加」（原系统 `Common.ShowQuestion` 的口径），选「否」直接中止。
-     * 组合结果摆在一个只读弹窗里让人核对字段名。
-     * 接上接口以后这里就是：`await packBomMatrixApi.save(prepared.payload)`。
+     * 存成功后弹窗**不关**：表单换成库里那一份，「生成 / 复制」当场可用。
      *
      * `saving` 既当重入闸也当按钮态：校验要查 `useVFree`（网络请求）、查重还要等用户点确认，
-     * 期间连点两下会叠出两个确认框、两次组合。
+     * 期间连点两下会叠出两个确认框、两次提交。
      */
     const handleSave = useCallback(async () => {
         if (saving) return;
@@ -999,36 +1060,17 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
                 });
                 if (!confirmed) return;
             }
-            /*
-             * 组合结果里带着主键：编辑态来自详情，接上保存接口后来自接口返回值
-             * （`payload.PackBomMatrixID = result.data?.PackBomMatrixID`）。
-             * 同步到 state，「生成 / 复制」的可用性就跟着它走 —— 不用再单独记「保存过没有」。
-             */
-            const savedID = toStringOrEmpty(prepared.payload.PackBomMatrixID);
-            if (savedID && savedID !== recordID) setRecordID(savedID);
-            // 接口没接：把组合出来的这一份摆给用户核对（字段名就是接口字段名）
-            setPayloadPreview(prepared.payload);
+            const saved = await persist(prepared);
+            if (!saved.ok) {
+                void message.error(saved.message);
+                return;
+            }
+            await acceptSaved(saved.id);
+            void message.success(mode === 'edit' ? '已保存' : '已保存，可以接着编辑或生成');
         } finally {
             setSaving(false);
         }
-    }, [saving, prepareSave, modal, recordID]);
-
-    /** 预演里的 JSON：`Dayjs` 由 `JSON.stringify` 自己转成 ISO 串，不用手写 replacer */
-    const payloadJSON = useMemo(
-        () => (payloadPreview ? JSON.stringify(payloadPreview, null, 2) : ''),
-        [payloadPreview],
-    );
-
-    /** 复制预演出来的 JSON（贴给后端对字段用） */
-    const copyPayloadJSON = useCallback(async () => {
-        if (!payloadJSON) return;
-        try {
-            await navigator.clipboard.writeText(payloadJSON);
-            void message.success('已复制矩阵 JSON');
-        } catch (err) {
-            void message.error(ErrorMessage(err, '复制失败：浏览器不允许访问剪贴板'));
-        }
-    }, [payloadJSON, message]);
+    }, [saving, prepareSave, modal, persist, acceptSaved, message, mode]);
 
     /**
      * 色号 / 尺码系数的字典（名称 → 编码）。
@@ -1075,12 +1117,11 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
     /**
      * 保存（界面桥的 form.submit 走这里）。
      *
-     * 与界面上的「保存」同一条路（`prepareSave`：校验 → 查重 → 组合），但**不弹窗** ——
-     * 模型看不见弹窗，它要的是回执。三件事分开说：
-     * - 校验不过 → 把原因原样回给模型（它能据此改字段，或如实转告用户）；
-     * - 查重命中 → 需要**用户**在界面上点「是 / 否」，模型不能替人决定，所以这里只如实说；
-     * - 组合成功 → 说清规模，并明确**没有入库**（只回「接口没接」，模型不知道数据到底成没成形；
-     *   回「已保存」更糟 —— 它会去核对一份不存在的记录）。
+     * 与界面上的「保存」同一条路（`prepareSave` 校验+查重 → `persist` 落库 → `acceptSaved` 重取），
+     * 只是**不弹确认框** —— 模型看不见弹窗，它要的是回执：
+     * - 校验不过 → 原因原样回（它能据此改字段，或如实转告用户）；
+     * - 查重命中 → 要**用户**在界面上点「是 / 否」，模型不能替人决定，所以只如实说；
+     * - 存成功 → 返回新主键 + 规模（模型接下来要核对/继续编辑就靠这个 ID）。
      */
     const submit = useCallback(async (): Promise<{ ok: boolean; message: string }> => {
         const prepared = await prepareSave();
@@ -1094,16 +1135,19 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
                     + '确认后才会保存。别替用户决定，把这句话原样转告他',
             };
         }
+        const saved = await persist(prepared);
+        if (!saved.ok) return {ok: false, message: saved.message};
+        await acceptSaved(saved.id);
         const {payload} = prepared;
         const rowCount = payload.Detail?.length ?? 0;
         const colorCount = Object.keys(payload.ColorMatch ?? {}).length;
         const sizeCount = Object.keys(payload.SizeMatch ?? {}).length;
         return {
-            ok: false,
-            message: `校验已通过、已按界面组合出完整矩阵（明细 ${rowCount} 行、颜色 ${colorCount} 个、尺码 ${sizeCount} 个），`
-                + '但保存接口还没接：这一份**没有入库**，别当已保存，也别重试；要核对内容就用 matrix.get',
+            ok: true,
+            message: `已保存（PackBomMatrixID ${saved.id}；明细 ${rowCount} 行、颜色 ${colorCount} 个、尺码 ${sizeCount} 个），`
+                + '弹窗已按新主键重新载入，可以继续改，也可以点「生成」/「复制」',
         };
-    }, [prepareSave]);
+    }, [prepareSave, persist, acceptSaved]);
 
     /**
      * 交给弹窗桥的状态与能力：字段表、动作表、提交语义都在 `./bomMatrixEditBridge`。
@@ -1112,7 +1156,7 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
      * 所以宿主不必跟着每次渲染重建。
      */
     const bridgeContext = useMemo<BomMatrixEditBridgeContext>(() => ({
-        title: MODE_TITLE[mode],
+        title: hasRecord && (mode === 'add' || mode === 'copy') ? EDIT_TITLE : MODE_TITLE[mode],
         mode,
         recordId: recordID || null,
         form,
@@ -1132,7 +1176,7 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
         submit,
         close: onClose,
     }), [
-        mode, recordID, form, detailReady, fieldLock, applyMaterialByGroup, applyConvertByGroup,
+        mode, recordID, hasRecord, form, detailReady, fieldLock, applyMaterialByGroup, applyConvertByGroup,
         matrix, activeKey, readMatrixRows, readMatrixGrid, matrixEditLock, readValueOptions,
         formErrors, submit, onClose,
     ]);
@@ -1184,7 +1228,11 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
     return (
         <Modal
             open={open}
-            title={MODE_TITLE[mode]}
+            /*
+             * 保存成功后这份矩阵已经有身份了，标题跟着改成「编辑」——
+             * 否则用户明明在改一份已落库的记录，标题却还写着「新增」。
+             */
+            title={hasRecord && (mode === 'add' || mode === 'copy') ? EDIT_TITLE : MODE_TITLE[mode]}
             width={'80%'}
             onCancel={onClose}
             // 没有底部按钮：保存 / 生成 / 复制在顶部工具栏（与原界面一致）
@@ -1323,31 +1371,6 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
                 )}
             </div>
 
-            {/*
-             * 保存预演：接口还没接，所以「保存」= 把要提交的完整对象摆出来核对。
-             *
-             * 画在这个 Modal 里面（antd 会把它 portal 到 body、盖在外层之上），
-             * 是为了不用把整块 JSX 再套一层 Fragment。
-             * 只读、可复制 —— 字段名就是接口字段名，能直接对着后端 schema 一条条看。
-             */}
-            <Modal
-                open={payloadPreview !== null}
-                title="保存：组合出的完整包装 BOM 矩阵"
-                width={760}
-                onCancel={() => setPayloadPreview(null)}
-                footer={[
-                    <Button key="copy" onClick={() => void copyPayloadJSON()}>复制 JSON</Button>,
-                    <Button key="close" type="primary" onClick={() => setPayloadPreview(null)}>知道了</Button>,
-                ]}
-            >
-                <div className="bom-matrix-edit-payload-hint">
-                    保存接口还没接，这一份<strong>不会入库</strong>。下面是按当前界面组合出来的
-                    PackBomMatrix（明细 {payloadPreview?.Detail?.length ?? 0} 行、颜色{' '}
-                    {Object.keys(payloadPreview?.ColorMatch ?? {}).length} 个、尺码{' '}
-                    {Object.keys(payloadPreview?.SizeMatch ?? {}).length} 个），字段名即接口字段名。
-                </div>
-                <pre className="bom-matrix-edit-payload">{payloadJSON}</pre>
-            </Modal>
         </Modal>
     );
 };

@@ -22,14 +22,12 @@
  */
 
 import {isBlank, toStringOrEmpty} from '@/utils';
-import {
-    BOMMATRIX_COLOR_VFREE_FIELD,
-    BOMMATRIX_SIZE_VFREE_FIELD,
-} from '@/components/nc/bomMatrix/common.ts';
-import {colorCells, rowKeyOf, rowHasMaterial, sizeCells} from '@/components/nc/bomMatrix/rows.ts';
+import {BOMMATRIX_COLOR_VFREE_FIELD, BOMMATRIX_SIZE_VFREE_FIELD,} from '@/components/nc/bomMatrix/common.ts';
+import {colorCells, rowHasMaterial, rowKeyOf, sizeCells} from '@/components/nc/bomMatrix/rows.ts';
 import {ensureUseVFrees, readUseVFrees} from '@/components/nc/bomMatrix/vfreeCache.ts';
 import type {BomMatrixCellIssue} from '@/components/nc/bomMatrix/cellIssues.ts';
 import type {FormMode} from '../command/types.ts';
+import {packBomMatrixApi} from "@/api/modules/nc/bomMatrix.ts";
 
 /** 校验要看的东西：与装配的入参几乎一样（少一个 `base`，多一个模式） */
 export type BomMatrixCheckInput = {
@@ -275,6 +273,10 @@ export async function validateBomMatrix(input: BomMatrixCheckInput): Promise<Bom
  * @param input.matrixID 编辑态要把自己排除掉（否则每次改都会「和自己重复」）
  */
 export async function dataSingleCheck(input: BomMatrixCheckInput): Promise<boolean> {
-    void input;
-    return false;
+    const mid = input.matrixID ?? '';
+    const materialCode = toStringOrEmpty(input.values.PackMaterialCode);
+    const packMethod = toStringOrEmpty(input.values.PackMethod);
+    const packNum = toStringOrEmpty(input.values.PackNum);
+    const projectCode = toStringOrEmpty(input.values.ProjectCode);
+    return packBomMatrixApi.duplicate(mid, materialCode, projectCode, packMethod, packNum);
 }

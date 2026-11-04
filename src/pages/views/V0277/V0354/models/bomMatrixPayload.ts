@@ -22,7 +22,7 @@
 import type {PackBomMatrix, PackBomMatrixDetail} from '@/api/schemas/nc/bomMatrix.ts';
 import {rebuildColorMatch, rebuildSizeMatch} from '@/components/nc/bomMatrix/match.ts';
 import {rowHasMaterial} from '@/components/nc/bomMatrix/rows.ts';
-import {toStringOrEmpty} from '@/utils';
+import {DATE_FORMAT, toDayjs, toStringOrEmpty} from '@/utils';
 import type {FormMode} from '../command/types.ts';
 
 /**
@@ -180,4 +180,34 @@ export function buildPackBomMatrix(input: BomMatrixPayloadInput): PackBomMatrix 
     }
 
     return payload;
+}
+
+/** 模型里的日期（`Dayjs`）→ 接口要的 `YYYY-MM-DD`；没有日期给 `null` */
+function dateText(value: unknown): string | null {
+    const day = toDayjs(value);
+    // 空串不行：后端拿它转 datetime 会报「从字符串转换日期/时间失败」，null 才是「没有日期」
+    return day ? day.format(DATE_FORMAT) : null;
+}
+
+/**
+ * 业务模型 → **提交给保存接口的形态**。
+ *
+ * 只差日期字段：模型里是 `BeginDate` / `EndDate`（`Dayjs`，见 `PackBomMatrixDetailSchema` 的
+ * transform），接口收的是 `Cbeginperiod` / `Cendperiod`（那一对 transform 的**入参**）。
+ * 不转的话 `JSON.stringify(Dayjs)` 会变成 `2026-11-04T02:40:00.000Z`，后端那条 transform
+ * 指望的是日期串，字段名还对不上 —— 生效日期/失效日期会静默变成空。
+ *
+ * 矩阵头没有日期字段，只处理 `Detail`。返回的是**浅拷贝**：调用方（保存流程）之后可能还要
+ * 拿原来的 payload 打印/对比，别把它的行改掉。
+ */
+export function toSavePayload(matrix: PackBomMatrix): PackBomMatrix {
+    const detail = (matrix.Detail ?? []).map((row) => {
+        const {BeginDate, EndDate, ...rest} = row as Record<string, unknown>;
+        return {
+            ...rest,
+            Cbeginperiod: dateText(BeginDate),
+            Cendperiod: dateText(EndDate),
+        };
+    });
+    return {...matrix, Detail: detail} as unknown as PackBomMatrix;
 }

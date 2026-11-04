@@ -433,6 +433,8 @@ const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({view, trail}) => {
                 传 view 是因为弹窗自己注册界面桥：打开时它顶掉页面的动作表与列表数据，
                 关闭后再让位回来 —— 桥按 view 找「这一页上打开的是哪个弹窗」。 */}
             <BomMatrixEdit key={formKey} open={formOpen} view={view} mode={formMode} record={formRecord}
+                           // 保存成功后刷新主表：不刷的话新存的这份关掉弹窗也看不见
+                           onSaved={() => void loadData()}
                            onClose={handleCloseForm}/>
         </div>
     );

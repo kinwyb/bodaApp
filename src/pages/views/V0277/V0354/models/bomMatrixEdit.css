@@ -163,35 +163,6 @@
 }
 
 /*
- * 保存预演：组合出来的那份 `PackBomMatrix`。
- *
- * 高度封顶 + 内部滚动：一份带颜色的矩阵 JSON 动辄上千行，任它撑开就会把弹窗顶出视口，
- * 底部按钮跟着消失（用户会以为点了没反应）。字号按代码走，方便逐字段核对。
- */
-.bom-matrix-edit-payload-hint {
-    margin-bottom: 8px;
-    font-size: 12px;
-    line-height: 1.6;
-    color: rgba(0, 0, 0, 0.65);
-}
-
-.bom-matrix-edit-payload {
-    max-height: 52vh;
-    margin: 0;
-    padding: 8px 10px;
-    overflow: auto;
-    font-family: Menlo, Consolas, monospace;
-    font-size: 12px;
-    line-height: 1.5;
-    color: rgba(0, 0, 0, 0.88);
-    background: #fafafa;
-    border: 1px solid #e5e5e5;
-    border-radius: 3px;
-    /* 长字符串（VID / 编码）不换行，靠横向滚动看全，避免每行被折成好几段 */
-    white-space: pre;
-}
-
-/*
  * 保存校验没通过时列出来的原因。
  *
  * 一条一行、左对齐缩进 16px：`modal.warning` 的内容区是纯 HTML，

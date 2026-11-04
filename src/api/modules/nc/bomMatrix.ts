@@ -6,6 +6,8 @@ import {
     PackBomMatrixRuleSchema,
     PackBomMatrixSchema,
 } from '../../schemas/nc/bomMatrix.ts';
+import {sqlApi} from "@/api";
+import {isBlank, toStringOrEmpty} from "@/utils";
 
 /**
  * 包装bom列表请求参数
@@ -59,7 +61,7 @@ export const packBomMatrixApi = {
     },
 
     /**
-     * 包装矩阵发布情况
+     * 包装 BOM 矩阵发布情况
      * @param packBomMatrixID
      */
     pushRules: async (packBomMatrixID: string): Promise<ApiResponse<PackBomMatrixRule[]>> => {
@@ -68,5 +70,33 @@ export const packBomMatrixApi = {
             return {...res, data: undefined};
         }
         return {...res, data: PackBomMatrixRuleSchema.array().parse(res.data)};
+    },
+
+    /**
+     * 包装 BOM 矩阵保存
+     * @param bomMatrix
+     */
+    save: async (bomMatrix: PackBomMatrix): Promise<ApiResponse<PackBomMatrix>> => {
+        const res = await http.post('/nc/bom/packBomMatrix/save', bomMatrix);
+        if (res.data === undefined || res.data === null) {
+            return {...res, data: undefined};
+        }
+        return {...res, data: PackBomMatrixSchema.parse(res.data)};
+    },
+
+    /**
+     * 检测包装 BOM 矩阵是否重复，false代表不重复，true代表重复，检测范围：包装物料+项目号+包装方法+包装数量
+     */
+    duplicate: async (bomMatrixID: string, packMaterialCode: string, projectCode: string, packMethod: string, packNum: string): Promise<boolean> => {
+        const query = "SELECT PackBomMatrixID FROM [transitDB].dbo.NC_PackBomMatrix WHERE IsDel = 0 AND PackMaterialCode = ? AND ProjectCode = ? AND PackMethod = ? AND PackNum = ? ";
+        const result = await sqlApi.query({
+            SQL: query,
+            Args: [packMaterialCode, projectCode, packMethod, packNum]
+        })
+        if (result.data && !result.data.IsError && result.data.DataVals && result.data.DataVals.length > 0) {
+            const mid = toStringOrEmpty(result.data.DataVals[0].PackBomMatrixID)
+            return !isBlank(mid) && mid !== bomMatrixID
+        }
+        return false;
     }
 };

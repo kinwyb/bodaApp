@@ -253,8 +253,9 @@ const FORM_GUIDE: UIGuide = {
         '**保存前会先校验**（与原系统一致）：包装物料 / 产成品 / 包装方法 / 包装数量 / 订单号必填；' +
             '明细每一行按物料启用的辅助属性（款号 / 批号 / 季度号 / 特性 / 色纱色）必须填全，' +
             '配色每行的色号、配码每行的尺码系数也要填全。不过就把原因原样回给你，照着改就行',
-        '**保存 / 生成 / 复制都还没接后端**：form.submit 会按界面组合出完整矩阵（明细 / 配色 / 配码都算上），' +
-            '但如实回「没有入库」—— 别当成已保存',
+        '**保存已接后端**：form.submit 会校验 → 查重 → 落库，回执里带新的 `PackBomMatrixID`，' +
+            '弹窗随即按这个主键重新载入（可以接着改，也可以「生成」/「复制」）。' +
+            '生成 / 复制本身还没接：点了只会回「功能还没接入」',
         '不打算继续就 form.cancel 关掉弹窗',
     ],
     terms: {
@@ -269,9 +270,8 @@ const FORM_GUIDE: UIGuide = {
         标签页: '三张表同一时刻只渲染一张，key 分别是 items / colors / sizes；当前是哪一张见 form.fields 里的「当前矩阵标签页」',
     },
     cautions: [
-        '保存 / 生成 / 复制都还没接后端：form.submit 会组合出完整矩阵、但**写不进库**（回执里只有规模，没有主键）。' +
-            '矩阵改动（matrix.update / add / remove）' +
-            '界面上立刻看得到，但**不会入库**，关掉弹窗就没了 —— 别把它们当成「数据已经改好」',
+        '保存是**真的入库**：form.submit 成功后矩阵就有了主键，之后的 matrix.update / add / remove 只会改界面，' +
+            '**不点保存就不入库**；关掉弹窗这些改动就没了 —— 别把它们当成「数据已经改好」',
         '两组的「物料编码 / 单位」短名重复：form.setMany 一律用字段 id（PackMaterialCode / SewMaterialCode / Cassmeasure / SewCassmeasure），不要用中文名',
         '物料编码写的是**编码**，不是名称也不是 VID；编码查不到、或匹配到多个版本时会被如实拒绝，交给用户在界面上选',
         '产成品那一组只认 3 开头的物料，包装成品只认 4 开头的',
@@ -760,10 +760,13 @@ export type BomMatrixEditBridgeContext = {
     /**
      * 保存。`ok=false` 时 `message` 是**可修复的原因**（或「组合成功但没入库」的事实说明）。
      *
-     * 现在它能做两件事：按界面**组合出完整的 `PackBomMatrix`**（明细 / 配色 / 配码都算上，
-     * 见弹窗的 `assemblePayload`），以及如实说明**保存接口还没接**。
-     * 所以 `ok` 恒为 false，但 `message` 会带上这份矩阵的规模 —— 弹窗**不假装成功**：
-     * 假装成功模型会当成已入库，接着去核对一份根本不存在的记录。
+     * 走的是界面上「保存」的同一条路（校验 → 查重 → 落库 → 按新主键重取）：
+     * - 成功 → `ok: true`，`message` 里带新的 `PackBomMatrixID` 与规模；
+     * - 校验不过 / 存失败 → `ok: false` + 原因；
+     * - 查重命中 → `ok: false` + 「要用户在界面上确认」。
+     *
+     * **`ok` 只在真的入库后才为 true**：模型拿它决定「已保存」还是「回去改」，
+     * 谎报成功它会去核对一份不存在的记录。
      */
     submit: () => Promise<{ok: boolean; message: string}>;
     close: () => void;
@@ -1365,7 +1368,8 @@ export function createBomMatrixEditBridge(read: () => BomMatrixEditBridgeContext
                      */
                     throw new Error(outcome.message || '保存未完成，页面没有给出原因');
                 }
-                return '已保存';
+                // 成功也回原文：里面有新的 PackBomMatrixID 与规模，模型接下来核对照它
+                return outcome.message || '已保存';
             },
             'form.cancel': () => {
                 read().close();
