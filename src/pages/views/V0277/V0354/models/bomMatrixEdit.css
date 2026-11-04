@@ -28,12 +28,20 @@
     overflow-y: auto;
 }
 
-/* 顶部工具栏：图标在上、文字在下，与页面命令条同一套观感 */
+/*
+ * 顶部工具栏：图标在上、文字在下，与页面命令条同一套观感。
+ *
+ * 两个间距都是**给焦点环留位置**的，不是随手写的美观值：按钮拿到焦点时 antd 会在盒子
+ * 外面再画一圈（4px 浅蓝 + 1px 偏移，见 antd 的 `genFocusOutline`），它不占布局空间。
+ * - 左 6px：不贴弹窗内容区的左边，否则焦点环的左半边被内容区裁掉；
+ * - `gap` 2px → 8px：环宽出 5px，间距太小时右半边会压到「生成」身上，
+ *   看起来就是**右边那一竖条没有了**（用户报的就是这个）。
+ */
 .bom-matrix-edit-toolbar {
     display: flex;
     align-items: center;
-    gap: 2px;
-    padding-bottom: 6px;
+    gap: 8px;
+    padding: 2px 6px 8px;
     margin-bottom: 8px;
     border-bottom: 1px solid #f0f0f0;
 }
@@ -140,5 +148,47 @@
     gap: 10px;
     font-size: 13px;
     color: rgba(0, 0, 0, 0.45);
+}
+
+/*
+ * 保存预演：组合出来的那份 `PackBomMatrix`。
+ *
+ * 高度封顶 + 内部滚动：一份带颜色的矩阵 JSON 动辄上千行，任它撑开就会把弹窗顶出视口，
+ * 底部按钮跟着消失（用户会以为点了没反应）。字号按代码走，方便逐字段核对。
+ */
+.bom-matrix-edit-payload-hint {
+    margin-bottom: 8px;
+    font-size: 12px;
+    line-height: 1.6;
+    color: rgba(0, 0, 0, 0.65);
+}
+
+.bom-matrix-edit-payload {
+    max-height: 52vh;
+    margin: 0;
+    padding: 8px 10px;
+    overflow: auto;
+    font-family: Menlo, Consolas, monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    color: rgba(0, 0, 0, 0.88);
+    background: #fafafa;
+    border: 1px solid #e5e5e5;
+    border-radius: 3px;
+    /* 长字符串（VID / 编码）不换行，靠横向滚动看全，避免每行被折成好几段 */
+    white-space: pre;
+}
+
+/*
+ * 保存校验没通过时列出来的原因。
+ *
+ * 一条一行、左对齐缩进 16px：`modal.warning` 的内容区是纯 HTML，
+ * 不写样式时多项会挤成一段，用户看不出到底有几处要改。
+ */
+.bom-matrix-edit-errors {
+    margin: 0;
+    padding-left: 16px;
+    font-size: 13px;
+    line-height: 1.8;
 }
 

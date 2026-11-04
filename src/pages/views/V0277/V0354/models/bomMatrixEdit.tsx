@@ -1,8 +1,10 @@
 /**
  * 新增 / 编辑 / 复制包装 BOM 矩阵的表单弹窗。
  *
- * 只有界面：**保存不接后端**（这个模块还没有保存接口），点保存只回一句提示。
- * 字段名尽量按接口 schema 来（`PackBomMatrix`），后端暂时没有的那几个（规格 / 型号 /
+ * **保存只「组合」不「入库」**：这个模块还没有保存接口。点保存会把两份表单 + 三张表拼成一个
+ * 完整的 `PackBomMatrix`（装配规则在 `./bomMatrixPayload`），摆在一个只读弹窗里让人核对；
+ * 接上接口以后，那里就是 `await packBomMatrixApi.save(payload)`，别的地方不用改。
+ * 字段名按接口 schema 来（`PackBomMatrix`），后端暂时没有的那几个（规格 / 型号 /
  * 产成品的编码名称等）用同名占位，接上以后把值一起提交即可。
  *
  * 下半部分是**编辑态的矩阵表**（`BomMatrixView isEditMode`）：三张表各自可增删改，
@@ -30,6 +32,8 @@ import type {
     PackBomMatrixSizeMatch
 } from "@/api/schemas/nc/bomMatrix.ts";
 import {isBlank, toStringOrEmpty} from "@/utils";
+import {buildPackBomMatrix} from "./bomMatrixPayload.ts";
+import {dataSingleCheck, validateBomMatrix} from "./bomMatrixValidation.ts";
 import {useUIBridgeDialog} from "@/pages/agent/ui-bridge";
 import type {FormMode} from "../command";
 import {
@@ -65,6 +69,17 @@ const MODE_TITLE: Record<FormMode, string> = {
     copy: '复制包装 BOM 矩阵',
     view: '查看包装 BOM 矩阵',
 };
+
+/**
+ * 「按保存」的准备结果。
+ *
+ * 三态是必要的：校验不过（要列原因）、查重命中（要问用户）、可以保存（要组合出来的那份）。
+ * 挤成一个 `ok + message + payload` 会让调用方到处判空。
+ */
+type SavePreparation =
+    | { kind: 'invalid'; messages: string[] }
+    | { kind: 'duplicate'; payload: PackBomMatrix }
+    | { kind: 'ready'; payload: PackBomMatrix };
 
 /**
  * 产成品物料 → 「缝制颜色 / 缝制尺码」清单 —— 也就是配色表、配码表的**列**。
@@ -177,7 +192,7 @@ function readSewFields(record: PackBomMatrix): Record<string, unknown> {
  *   还是 `ConvertSelect`（按**这个物料的**换算单位选），`pack` / `sew` 决定回填到哪一组。
  */
 const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, onClose}) => {
-    const {message} = App.useApp();
+    const {message, modal} = App.useApp();
     const [form] = Form.useForm<Record<string, unknown>>();
     /**
      * 弹窗内的标签页：**受控在这里**。
@@ -210,6 +225,16 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
      */
     const [loadingDetail, setLoadingDetail] = useState<boolean>(matrixID !== '');
     const [detailFailed, setDetailFailed] = useState<boolean>(false);
+
+    /**
+     * 点「保存」组合出来的那份矩阵（`null` = 没在预演）。
+     *
+     * 接口还没接，所以「保存」= 把要提交的完整对象摆出来给人核对；接上接口后它退化成
+     * 「提交前的最后一次确认」，或者干脆去掉。
+     */
+    const [payloadPreview, setPayloadPreview] = useState<PackBomMatrix | null>(null);
+    /** 保存进行中（校验要发请求、查重还要等用户确认）：既防连点，也给按钮一个禁用态 */
+    const [saving, setSaving] = useState(false);
 
     /** 详情请求序号：关闭弹窗 / 重新拉取时让在飞的旧结果作废 */
     const detailSeqRef = useRef(0);
@@ -397,16 +422,6 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
     /** 表格能不能编：查看模式恒不能；其余模式要求先选了产成品 */
     const canEditMatrix = mode !== 'view' && hasSewMaterial;
 
-    /**
-     * 保存：**接口没接**。
-     *
-     * 不假装成功 —— 用户会以为已经存进库了。接上以后这里是：
-     * 校验 → `form.validateFields()` → 组装 `{...values, Detail: readRows('items'), ...}` → 调 api。
-     */
-    const handleSave = useCallback(() => {
-        void message.info('保存：矩阵保存接口还没接入（当前只做了界面）');
-    }, [message]);
-
     /** 生成：按「产成品」把子项物料铺出来（原系统语义），同理先占位 */
     const handleGenerate = useCallback(() => {
         void message.info('生成：按产成品生成子项明细的功能还没接入');
@@ -423,25 +438,102 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
      * 口径与 BOM 矩阵里格子的「选物料」一致（见 `components/nc/bomMatrix/itemView.tsx` 的 `applyMaterial`）：
      * 单位取第一个换算单位，没有就退回物料主单位；换算率没有时给 `1/1`（后端按「单位 + 换算率」
      * 还原子项数量，留空会算不出来）。
+     *
+     * `PackMaterialCode` 也一起写：界面上选物料时编码由 `MaterialSelect` 的 onChange 负责，
+     * 而编辑打开时是**按底稿里的 VID 回查档案**（见 `loadPackArchive`），没有 onChange 这一下，
+     * 编码那一格就还是底稿里那串（可能为空）—— 两处写同一个值不会打架。
+     *
+     * @param options.keepUnits 保留表单里已有的「单位 + 换算率」。
+     *   编辑打开时用：库里存的是用户当时选的单位，物料档案里第一个换算单位不一定是它，
+     *   无声替换等于替用户改了单据。
      */
-    const applyPackMaterial = useCallback((material: NCMaterial) => {
+    const applyPackMaterial = useCallback((material: NCMaterial, options?: { keepUnits?: boolean }) => {
         const convert = material.materialconvert?.[0];
         /*
          * 单位列表当场登记进缓存（与 itemView 的 `applyMaterial` 同一做法）：
          * 单位弹窗一打开就是满的，不用再回查一次接口。
          */
         putConverts(toStringOrEmpty(material.pk_material), material.materialconvert);
-        form.setFieldsValue({
+        const fields: Record<string, unknown> = {
             PackMaterialVID: material.pk_material,
+            PackMaterialCode: material.code,
             PackMaterialName: material.name,
             PackMaterialSpec: material.materialspec,
             PackMaterialModel: material.materialtype,
             PackMaterialVersion: material.version,
             CMeasure: material.measdoc,
-            Cassmeasure: convert?.measdoc ?? material.measdoc,
-            VChangerate: convert?.measrate ?? '1/1',
-        });
+            // 主单位的主键：矩阵头上与明细行一样要带（保存时后端按它认单位）
+            CMeasureid: material.pk_measdoc,
+        };
+        if (!options?.keepUnits) {
+            fields.Cassmeasure = convert?.measdoc ?? material.measdoc;
+            fields.Cassmeasureid = convert?.pk_measdoc ?? material.pk_measdoc;
+            fields.VChangerate = convert?.measrate ?? '1/1';
+        } else if (isBlank(form.getFieldValue('Cassmeasureid'))) {
+            // 详情没带单位主键（历史数据）：按库里存的单位名，在物料档案里对上一条
+            const kept = toStringOrEmpty(form.getFieldValue('Cassmeasure')).trim();
+            const matched = (material.materialconvert ?? []).find(
+                (item) => toStringOrEmpty(item.measdoc).trim() === kept,
+            );
+            if (!isBlank(matched?.pk_measdoc)) fields.Cassmeasureid = matched?.pk_measdoc;
+        }
+        form.setFieldsValue(fields);
     }, [form]);
+
+    /** 包装物料档案回查的请求序号：重试 / 换底稿时只认最后一次的结果 */
+    const packArchiveSeqRef = useRef(0);
+
+    /**
+     * 按底稿里的包装物料回查一次物料档案（编辑 / 复制 / 查看打开时）。
+     *
+     * 为什么要查：详情接口只给 `PackMaterialVID` / `PackMaterialCode` / `PackMaterialName` / 换算率，
+     * **没有版本、规格、型号、主单位** —— 不查的话编辑一打开这几个格子全是空的，看着像数据丢了；
+     * 顺便把换算单位登记进缓存，点「单位」不用再等一次接口。
+     *
+     * 查不到不算失败：档案里没有这个物料（历史脏数据）时只说一句，表单照样能看能改。
+     */
+    const loadPackArchive = useCallback(async (packVID: string, packCode: string, keepUnits: boolean) => {
+        const seq = ++packArchiveSeqRef.current;
+        try {
+            // 优先按主键查（同编码可能有多个版本）；只拿到编码时才按编码查
+            const result = await ncMaterialApi.query(packVID ? {materialPK: packVID} : {code: packCode});
+            if (seq !== packArchiveSeqRef.current) return;
+            const list = result.data ?? [];
+            const material =
+                list.find((item) => toStringOrEmpty(item.pk_material) === packVID)
+                ?? list.find((item) => toStringOrEmpty(item.code) === packCode)
+                ?? list[0];
+            if (!material) {
+                void message.warning(
+                    `没查到包装物料「${packCode || packVID}」的档案：版本 / 规格 / 型号显示不出来（不影响改单，保存时以编码为准）`,
+                );
+                return;
+            }
+            applyPackMaterial(material, {keepUnits});
+        } catch (err) {
+            if (seq !== packArchiveSeqRef.current) return;
+            // 只是补展示字段：失败不拦编辑，也不把已经显示出来的值清掉
+            void message.warning(ErrorMessage(err, '包装物料档案查询失败：版本 / 规格 / 型号显示不全'));
+        }
+    }, [applyPackMaterial, message]);
+
+    /*
+     * 详情一到就按它回查包装物料（新增没有底稿，不走这条）。
+     *
+     * 依赖 `detailRecord` 而不是 `open`：详情是异步来的，第一帧只有主表摘要。
+     * 清理时作废在飞的请求 —— 弹窗销毁后表单实例已经摘下来，结果回来没有地方落。
+     */
+    useEffect(() => {
+        if (!open || !detailRecord) return;
+        const packVID = toStringOrEmpty(detailRecord.PackMaterialVID).trim();
+        const packCode = toStringOrEmpty(detailRecord.PackMaterialCode).trim();
+        if (!packVID && !packCode) return;
+        // 库里存过单位就留着它（见 applyPackMaterial 的 keepUnits）
+        void loadPackArchive(packVID, packCode, !isBlank(detailRecord.Cassmeasure));
+        return () => {
+            packArchiveSeqRef.current += 1;
+        };
+    }, [open, detailRecord, loadPackArchive]);
 
     /**
      * 把产成品物料铺成子项明细的一行（**行号固定 10**）。
@@ -586,23 +678,32 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
      * 否则会留下「编码空了、名称还挂着上一个物料」的假数据，看着像还在编辑那一份。
      */
     const clearPackMaterial = useCallback(() => {
+        // 在飞的档案回查一并作废：它回来时物料已经被清掉，不该再把属性填回去
+        packArchiveSeqRef.current += 1;
         form.setFieldsValue({
             PackMaterialVID: undefined,
             PackMaterialName: undefined,
+            PackMaterialVersion: undefined,
             PackMaterialSpec: undefined,
             PackMaterialModel: undefined,
             CMeasure: undefined,
+            CMeasureid: undefined,
             Cassmeasure: undefined,
+            Cassmeasureid: undefined,
             VChangerate: undefined,
         });
     }, [form]);
 
     /**
-     * 选中单位：单位名与换算率是**一组**（后端按「单位 + 换算率」还原子项数量），
+     * 选中单位：单位名、单位主键与换算率是**一组**（后端按「单位 + 换算率」还原子项数量），
      * 只改单位名会留下上一个单位的比率 —— 与 itemView 的 `applyConvert` 同一口径。
      */
     const applyPackConvert = useCallback((convert: NCMaterialConvert) => {
-        form.setFieldsValue({Cassmeasure: convert.measdoc, VChangerate: convert.measrate});
+        form.setFieldsValue({
+            Cassmeasure: convert.measdoc,
+            Cassmeasureid: convert.pk_measdoc,
+            VChangerate: convert.measrate,
+        });
     }, [form]);
 
     const applySewConvert = useCallback((convert: NCMaterialConvert) => {
@@ -712,6 +813,148 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
     }, [mode, hasSewMaterial]);
 
     /**
+     * 保存前的全部准备：**校验 → 查重 → 组合**（顺序照原系统 `btnSave_Click`）。
+     *
+     * 取值全走「此刻能读到的最新状态」：表单是 `form.getFieldsValue()`（含刚写的值），
+     * 表格是 `readRows`（含未保存的增删改，且懒挂载的那两张会按当前明细现算）。
+     * 规则分两处：校验与查重在 `./bomMatrixValidation`，装配在 `./bomMatrixPayload`。
+     * 界面上的「保存」与 agent 的 `form.submit` 都走这一条路 —— 两边各写一份迟早对不上。
+     *
+     * 详情还在路上 / 加载失败 / 查看模式一律不往下走：那时表单只有主表摘要、三张表是空的，
+     * 拿它去校验只会报一堆「没填」，组合出来的也是一份空矩阵。
+     */
+    const prepareSave = useCallback(async (): Promise<SavePreparation> => {
+        const blocked = fieldLock('form.submit');
+        if (blocked) return {kind: 'invalid', messages: [blocked]};
+
+        const values = form.getFieldsValue();
+        const detailRows = readMatrixRows('items');
+        const colorRows = readMatrixRows('colors');
+        const sizeRows = readMatrixRows('sizes');
+        const checkInput = {
+            mode,
+            matrixID,
+            values,
+            detail: detailRows,
+            colorRows,
+            sizeRows,
+            colorSort: matrix.ColorSort,
+            sizeSort: matrix.SizeSort,
+        };
+
+        const check = await validateBomMatrix(checkInput);
+        if (!check.ok) {
+            // 被拦下时也打一份：不然只能靠猜「界面此刻到底是什么样」
+            console.log('[包装BOM矩阵] 保存校验没通过', {
+                mode,
+                matrixID: matrixID || '(新增)',
+                原因: check.messages,
+                表单值: values,
+                明细行: detailRows,
+                配色行: colorRows,
+                配码行: sizeRows,
+            });
+            return {kind: 'invalid', messages: check.messages};
+        }
+
+        const payload = buildPackBomMatrix({...checkInput, base: matrix});
+        // 查重（`dataSingleCheck` 现在恒 false，具体检测逻辑在那边补）
+        const duplicate = await dataSingleCheck(checkInput);
+
+        /*
+         * 打一份到控制台：接保存接口前要拿「组合结果」跟「原始编辑对象」逐字段对，
+         * 界面上只看得到 JSON、没法展开对比。分组打印，需要哪块展开哪块。
+         */
+        console.log('[包装BOM矩阵] 保存组合', {
+            mode,
+            matrixID: matrixID || '(新增)',
+            查重命中: duplicate,
+            原始编辑对象: detailRecord ?? record,
+            基底矩阵: matrix,
+            表单值: values,
+            明细行: detailRows,
+            配色行: colorRows,
+            配码行: sizeRows,
+            组合结果: payload,
+        });
+
+        return duplicate ? {kind: 'duplicate', payload} : {kind: 'ready', payload};
+    }, [fieldLock, form, readMatrixRows, mode, matrix, matrixID, detailRecord, record]);
+
+    /**
+     * 保存：**校验 →（查重确认）→ 组合出完整矩阵，但不入库**（这个模块还没有保存接口）。
+     *
+     * 校验不过一次列全（`modal.warning`），别一条条弹；查重命中就问一次
+     * 「是否重复添加」（原系统 `Common.ShowQuestion` 的口径），选「否」直接中止。
+     * 组合结果摆在一个只读弹窗里让人核对字段名。
+     * 接上接口以后这里就是：`await packBomMatrixApi.save(prepared.payload)`。
+     *
+     * `saving` 既当重入闸也当按钮态：校验要查 `useVFree`（网络请求）、查重还要等用户点确认，
+     * 期间连点两下会叠出两个确认框、两次组合。
+     */
+    const handleSave = useCallback(async () => {
+        if (saving) return;
+        setSaving(true);
+        try {
+            const prepared = await prepareSave();
+            if (prepared.kind === 'invalid') {
+                modal.warning({
+                    title: '保存校验没通过',
+                    width: 520,
+                    okText: '知道了',
+                    content: (
+                        <ul className="bom-matrix-edit-errors">
+                            {prepared.messages.map((item) => <li key={item}>{item}</li>)}
+                        </ul>
+                    ),
+                });
+                return;
+            }
+            if (prepared.kind === 'duplicate') {
+                /*
+                 * 原系统：`Common.ShowQuestion(...，是否重复添加？)` —— 只问、不阻止。
+                 *
+                 * 用自己的 Promise 包一层：`modal.confirm` 返回的是关闭句柄，拿不到用户点了哪个。
+                 * `afterClose` 也 resolve(false)：点遮罩 / 按 ESC 关闭等于「不重复添加」，不能让调用挂着。
+                 */
+                const confirmed = await new Promise<boolean>((resolve) => {
+                    modal.confirm({
+                        title: '确认',
+                        content: '该订单当前包装物料存在相同的包装方法及数量数据，是否重复添加？',
+                        okText: '是',
+                        cancelText: '否',
+                        onOk: () => resolve(true),
+                        onCancel: () => resolve(false),
+                        afterClose: () => resolve(false),
+                    });
+                });
+                if (!confirmed) return;
+            }
+            // 接口没接：把组合出来的这一份摆给用户核对（字段名就是接口字段名）
+            setPayloadPreview(prepared.payload);
+        } finally {
+            setSaving(false);
+        }
+    }, [saving, prepareSave, modal]);
+
+    /** 预演里的 JSON：`Dayjs` 由 `JSON.stringify` 自己转成 ISO 串，不用手写 replacer */
+    const payloadJSON = useMemo(
+        () => (payloadPreview ? JSON.stringify(payloadPreview, null, 2) : ''),
+        [payloadPreview],
+    );
+
+    /** 复制预演出来的 JSON（贴给后端对字段用） */
+    const copyPayloadJSON = useCallback(async () => {
+        if (!payloadJSON) return;
+        try {
+            await navigator.clipboard.writeText(payloadJSON);
+            void message.success('已复制矩阵 JSON');
+        } catch (err) {
+            void message.error(ErrorMessage(err, '复制失败：浏览器不允许访问剪贴板'));
+        }
+    }, [payloadJSON, message]);
+
+    /**
      * 色号 / 尺码系数的字典（名称 → 编码）。
      *
      * 配色 / 配码表里可编辑的是**名称列**（`红` / `260`），而保存时 `ColorMatch.VFree6`、
@@ -756,12 +999,35 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
     /**
      * 保存（界面桥的 form.submit 走这里）。
      *
-     * 接口没接：**如实回失败**。假装成功的话模型会当成已入库，接着去核对一份不存在的记录。
+     * 与界面上的「保存」同一条路（`prepareSave`：校验 → 查重 → 组合），但**不弹窗** ——
+     * 模型看不见弹窗，它要的是回执。三件事分开说：
+     * - 校验不过 → 把原因原样回给模型（它能据此改字段，或如实转告用户）；
+     * - 查重命中 → 需要**用户**在界面上点「是 / 否」，模型不能替人决定，所以这里只如实说；
+     * - 组合成功 → 说清规模，并明确**没有入库**（只回「接口没接」，模型不知道数据到底成没成形；
+     *   回「已保存」更糟 —— 它会去核对一份不存在的记录）。
      */
-    const submit = useCallback(async (): Promise<{ ok: boolean; message: string }> => ({
-        ok: false,
-        message: '保存：矩阵保存接口还没接入（当前只做了界面）—— 这一份没有落库能力，别重试，如实告诉用户',
-    }), []);
+    const submit = useCallback(async (): Promise<{ ok: boolean; message: string }> => {
+        const prepared = await prepareSave();
+        if (prepared.kind === 'invalid') {
+            return {ok: false, message: prepared.messages.join('；')};
+        }
+        if (prepared.kind === 'duplicate') {
+            return {
+                ok: false,
+                message: '该订单当前包装物料存在相同的包装方法及数量数据：这一步要**用户在界面上确认**「是否重复添加」，'
+                    + '确认后才会保存。别替用户决定，把这句话原样转告他',
+            };
+        }
+        const {payload} = prepared;
+        const rowCount = payload.Detail?.length ?? 0;
+        const colorCount = Object.keys(payload.ColorMatch ?? {}).length;
+        const sizeCount = Object.keys(payload.SizeMatch ?? {}).length;
+        return {
+            ok: false,
+            message: `校验已通过、已按界面组合出完整矩阵（明细 ${rowCount} 行、颜色 ${colorCount} 个、尺码 ${sizeCount} 个），`
+                + '但保存接口还没接：这一份**没有入库**，别当已保存，也别重试；要核对内容就用 matrix.get',
+        };
+    }, [prepareSave]);
 
     /**
      * 交给弹窗桥的状态与能力：字段表、动作表、提交语义都在 `./bomMatrixEditBridge`。
@@ -857,7 +1123,8 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
         >
             <div className="bom-matrix-edit-toolbar">
                 <Button type="text" className="bom-matrix-edit-action" icon={<SaveOutlined/>}
-                        onClick={handleSave}>保存</Button>
+                        loading={saving} disabled={saving}
+                        onClick={() => void handleSave()}>保存</Button>
                 {/*
                  * 「生成」与「复制」都只在**编辑**时可用：
                  * 生成要按已存在的产成品铺明细，复制是把当前这份内容另存一份 ——
@@ -887,6 +1154,27 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
                 <section className="bom-matrix-group">
                     <div className="bom-matrix-group-title">包装成品</div>
                     <div className="bom-matrix-fields">
+                        {/*
+                         * 隐藏字段：包装物料的关联键 —— 「单位」的可选列表按它取换算单位。
+                         *
+                         * 必须注册成 Form.Item，不能只靠 `setFieldsValue` 往 store 里塞：
+                         * `Form.useWatch` 读的是 `getFieldsValue()`（**只含已注册字段**），
+                         * 没注册时 watch 永远拿到 undefined，于是编辑打开后点「单位」只会提示
+                         * 「先选物料」—— 明明编码那一格是有值的。
+                         */}
+                        <Form.Item name="PackMaterialVID" hidden>
+                            <Input/>
+                        </Form.Item>
+                        {/*
+                         * 两个单位主键同样只靠物料带出（界面上没有入口）：
+                         * 矩阵头上存的是「单位名 + 单位主键 + 换算率」一组，少一个保存时后端认不出单位。
+                         */}
+                        <Form.Item name="CMeasureid" hidden>
+                            <Input/>
+                        </Form.Item>
+                        <Form.Item name="Cassmeasureid" hidden>
+                            <Input/>
+                        </Form.Item>
                         {PACK_FIELDS.map((field) => (
                             <Form.Item key={field.id} name={field.id} label={field.label}>
                                 {renderControl(field)}
@@ -950,6 +1238,32 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
                     </>
                 )}
             </div>
+
+            {/*
+             * 保存预演：接口还没接，所以「保存」= 把要提交的完整对象摆出来核对。
+             *
+             * 画在这个 Modal 里面（antd 会把它 portal 到 body、盖在外层之上），
+             * 是为了不用把整块 JSX 再套一层 Fragment。
+             * 只读、可复制 —— 字段名就是接口字段名，能直接对着后端 schema 一条条看。
+             */}
+            <Modal
+                open={payloadPreview !== null}
+                title="保存：组合出的完整包装 BOM 矩阵"
+                width={760}
+                onCancel={() => setPayloadPreview(null)}
+                footer={[
+                    <Button key="copy" onClick={() => void copyPayloadJSON()}>复制 JSON</Button>,
+                    <Button key="close" type="primary" onClick={() => setPayloadPreview(null)}>知道了</Button>,
+                ]}
+            >
+                <div className="bom-matrix-edit-payload-hint">
+                    保存接口还没接，这一份<strong>不会入库</strong>。下面是按当前界面组合出来的
+                    PackBomMatrix（明细 {payloadPreview?.Detail?.length ?? 0} 行、颜色{' '}
+                    {Object.keys(payloadPreview?.ColorMatch ?? {}).length} 个、尺码{' '}
+                    {Object.keys(payloadPreview?.SizeMatch ?? {}).length} 个），字段名即接口字段名。
+                </div>
+                <pre className="bom-matrix-edit-payload">{payloadJSON}</pre>
+            </Modal>
         </Modal>
     );
 };
