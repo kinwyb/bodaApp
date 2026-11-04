@@ -44,6 +44,14 @@ const NCMaterialView: React.FC<NCMaterialViewProps> = ({filter, onSelect}) => {
     const [keyword, setKeyword] = useState('');
 
     const [treeData, setTreeData] = useState<treeNode[]>();
+    /**
+     * 树的展开状态 —— **受控**。
+     *
+     * 分类树是异步取回来的，`defaultExpandedKeys` / `defaultExpandAll` 只在首帧生效，
+     * 那时 `treeData` 还是空的，写默认值等于没写。想让「第一级分类」默认展开，
+     * 只能在数据到达那一刻把根节点的 key 填进受控的 `expandedKeys`。
+     */
+    const [expandedKeys, setExpandedKeys] = useState<React.Key[]>([]);
     const [query, setQuery] = useState<NCMaterialQuery>({});
     const [nodeSelectedKeys, setSelectedNodes] = useState<string[]>([]);
     const [loadingMaterial, setLoadingMaterial] = useState<boolean>(false);
@@ -84,6 +92,14 @@ const NCMaterialView: React.FC<NCMaterialViewProps> = ({filter, onSelect}) => {
                 return node;
             }).filter((node) => canShow(node.code ?? ''));
             setTreeData(datas);
+            /*
+             * 默认展开**第一级**（根节点）：只展开一层，不递归 ——
+             * 全展开的话节点一多，用户得先往回滚才能看到自己要的那一支。
+             * 之后折叠 / 展开交给 `onExpand`，这里不再干预。
+             */
+            setExpandedKeys(datas
+                .map((node) => toStringOrEmpty(node.pkMarbasclass))
+                .filter((key) => key !== ''));
         }
     }, [treeNodeParse]);
 
@@ -168,10 +184,13 @@ const NCMaterialView: React.FC<NCMaterialViewProps> = ({filter, onSelect}) => {
             overflow: 'hidden',
         }}>
             {/* Splitter 面板不是 flex 容器，树要占满高度同样得靠 .splitter-pane-body */}
-            <Splitter.Panel defaultSize="15%" min="10%" max="20%" className="splitter-pane-body">
+            <Splitter.Panel defaultSize="20%" min="10%" max="25%" className="splitter-pane-body">
                 <Tree
                     showLine
                     fieldNames={{title: 'name', key: 'pkMarbasclass'}}
+                    // 受控展开：数据到达时默认展开第一级（见 expandedKeys 上的注释）
+                    expandedKeys={expandedKeys}
+                    onExpand={(keys) => setExpandedKeys([...keys])}
                     onSelect={(_, e) => {
                         let pkClass: string | undefined = undefined;
                         if (e.node) {
