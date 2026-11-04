@@ -3,6 +3,7 @@
  * 业务逻辑（跨接口加工、领域规则）放 @/services。
  */
 export * from './types';
+export {parseData} from './parse';
 export {
     ApiError,
     clearToken,

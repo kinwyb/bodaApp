@@ -1,4 +1,6 @@
+import type {ZodType} from 'zod';
 import type {ApiResponse, RequestOptions} from './types';
+import {fetchParsed} from './parse';
 
 /** 接口基础路径。后端接口统一带 /v1/boda 前缀，兜底值与 .env 保持一致。 */
 const BASE_URL: string = import.meta.env.VITE_API_BASE_URL ?? '/v1/boda';
@@ -188,6 +190,24 @@ export const http = {
         request<T>('PATCH', path, {body, ...options}),
     delete: <T = unknown>(path: string, params?: RequestOptions['params'], options?: Omit<RequestOptions, 'params'>) =>
         request<T>('DELETE', path, {params, ...options}),
+
+    /*
+     * 以下五个是带 schema 的变体，命名规则就是原方法名 + Schema。
+     * 与原生方法的唯一区别：紧跟 path 多一个 `schema` 参数，其余位置一一对应。
+     * 响应体先按 schema 校验/转换再返回；data 为 null/undefined 时跳过校验
+     * （后端用 null 表示「没查到」，不是错误）。数组传 `XxxSchema.array()`，
+     * 单体传 `XxxSchema` —— 类型由 schema 自动推导，写错编译期就报。
+     */
+    getSchema: <T>(path: string, schema: ZodType<T>, params?: RequestOptions['params'], options?: Omit<RequestOptions, 'params' | 'body'>) =>
+        fetchParsed(request('GET', path, {params, ...options}), schema),
+    postSchema: <T>(path: string, schema: ZodType<T>, body?: unknown, options?: Omit<RequestOptions, 'body'>) =>
+        fetchParsed(request('POST', path, {body, ...options}), schema),
+    putSchema: <T>(path: string, schema: ZodType<T>, body?: unknown, options?: Omit<RequestOptions, 'body'>) =>
+        fetchParsed(request('PUT', path, {body, ...options}), schema),
+    patchSchema: <T>(path: string, schema: ZodType<T>, body?: unknown, options?: Omit<RequestOptions, 'body'>) =>
+        fetchParsed(request('PATCH', path, {body, ...options}), schema),
+    deleteSchema: <T>(path: string, schema: ZodType<T>, params?: RequestOptions['params'], options?: Omit<RequestOptions, 'params'>) =>
+        fetchParsed(request('DELETE', path, {params, ...options}), schema),
 };
 
 /**

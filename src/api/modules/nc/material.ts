@@ -28,37 +28,22 @@ export const ncMaterialApi = {
     /**
      * 物料分类树
      */
-    classTree: async (): Promise<ApiResponse<NCMaterialClassTree[]>> => {
-        const res = await http.get('/nc/material/materialClassTree');
-        if (res.data === undefined || res.data === null) {
-            return {...res, data: undefined};
-        }
-        return {...res, data: NCMaterialClassTreeSchema.array().parse(res.data)};
-    },
+    classTree: (): Promise<ApiResponse<NCMaterialClassTree[]>> =>
+        http.getSchema('/nc/material/materialClassTree', NCMaterialClassTreeSchema.array()),
 
     /**
      * 物料查询
      * @param params
      */
-    query: async (params: NCMaterialQuery): Promise<ApiResponse<NCMaterial[]>> => {
-        const res = await http.post('/nc/material/query', params);
-        if (res.data === undefined || res.data === null) {
-            return {...res, data: undefined};
-        }
-        return {...res, data: NCMaterialSchema.array().parse(res.data)};
-    },
+    query: (params: NCMaterialQuery): Promise<ApiResponse<NCMaterial[]>> =>
+        http.postSchema('/nc/material/query', NCMaterialSchema.array(), params),
 
     /**
      * 物料辅助属性查询
      * @param params
      */
-    vfree: async (params: NCMaterialVFreeQuery): Promise<ApiResponse<NCMaterialVFree[]>> => {
-        const res = await http.post('/nc/material/queryVFree', params);
-        if (res.data === undefined || res.data === null) {
-            return {...res, data: undefined};
-        }
-        return {...res, data: NCMaterialVFreeSchema.array().parse(res.data)};
-    },
+    vfree: (params: NCMaterialVFreeQuery): Promise<ApiResponse<NCMaterialVFree[]>> =>
+        http.postSchema('/nc/material/queryVFree', NCMaterialVFreeSchema.array(), params),
 
     /**
      * 物料可用的辅助属性

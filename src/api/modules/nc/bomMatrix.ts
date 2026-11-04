@@ -39,38 +39,23 @@ export const packBomMatrixApi = {
      * 包装 BOM 矩阵列表
      * @param params
      */
-    list: async (params: packBomMatrixListReq, page: PageQuery): Promise<ApiResponse<PackBomMatrix[]>> => {
-        const res = await http.post('/nc/bom/packBomMatrix/list', params, {params: page});
-        if (res.data === undefined || res.data === null) {
-            return {...res, data: undefined};
-        }
-        return {...res, data: PackBomMatrixSchema.array().parse(res.data)};
-    },
+    list: (params: packBomMatrixListReq, page: PageQuery): Promise<ApiResponse<PackBomMatrix[]>> =>
+        http.postSchema('/nc/bom/packBomMatrix/list', PackBomMatrixSchema.array(), params, {params: page}),
 
     /**
      * 包装 BOM 矩阵详情。
      *
      * GET /nc/bom/packBomMatrix?packBomMatrixID=xxx
      */
-    detail: async (packBomMatrixID: string): Promise<ApiResponse<PackBomMatrix>> => {
-        const res = await http.get<unknown>('/nc/bom/packBomMatrix', {packBomMatrixID});
-        if (res.data === undefined || res.data === null) {
-            return {...res, data: undefined};
-        }
-        return {...res, data: PackBomMatrixSchema.parse(res.data)};
-    },
+    detail: (packBomMatrixID: string): Promise<ApiResponse<PackBomMatrix>> =>
+        http.getSchema('/nc/bom/packBomMatrix', PackBomMatrixSchema, {packBomMatrixID}),
 
     /**
      * 包装 BOM 矩阵发布情况
      * @param packBomMatrixID
      */
-    pushRules: async (packBomMatrixID: string): Promise<ApiResponse<PackBomMatrixRule[]>> => {
-        const res = await http.get<unknown>('/nc/bom/packBomMatrix/pushRule', {packBomMatrixID});
-        if (res.data === undefined || res.data === null) {
-            return {...res, data: undefined};
-        }
-        return {...res, data: PackBomMatrixRuleSchema.array().parse(res.data)};
-    },
+    pushRules: (packBomMatrixID: string): Promise<ApiResponse<PackBomMatrixRule[]>> =>
+        http.getSchema('/nc/bom/packBomMatrix/pushRule', PackBomMatrixRuleSchema.array(), {packBomMatrixID}),
 
     /**
      * 包装 BOM 矩阵推送（发布）。
@@ -106,13 +91,8 @@ export const packBomMatrixApi = {
      * 包装 BOM 矩阵保存
      * @param bomMatrix
      */
-    save: async (bomMatrix: PackBomMatrix): Promise<ApiResponse<PackBomMatrix>> => {
-        const res = await http.post('/nc/bom/packBomMatrix/save', bomMatrix);
-        if (res.data === undefined || res.data === null) {
-            return {...res, data: undefined};
-        }
-        return {...res, data: PackBomMatrixSchema.parse(res.data)};
-    },
+    save: (bomMatrix: PackBomMatrix): Promise<ApiResponse<PackBomMatrix>> =>
+        http.postSchema('/nc/bom/packBomMatrix/save', PackBomMatrixSchema, bomMatrix),
 
     /**
      * 检测包装 BOM 矩阵是否重复，false代表不重复，true代表重复，检测范围：包装物料+项目号+包装方法+包装数量
