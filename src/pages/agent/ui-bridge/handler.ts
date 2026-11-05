@@ -35,9 +35,11 @@ import {
   currentRev,
   getDialogHost,
   getPageHost,
+  rememberWaitConfirm,
   rememberRevContext,
   revContextOf,
   setAnchor,
+  withUIEventSuppression,
   getWorkbenchHost,
 } from './store';
 import type { RevContext } from './store';
@@ -127,7 +129,7 @@ async function answer(request: AgentUIRequest): Promise<void> {
           '请先用 ui_navigate 打开目标页面',
       );
     }
-    const outcome = await runAction(workbench, view, request.payload);
+    const outcome = await runAction(workbench, view, request.payload, request.id);
     /*
      * 命令显式声明了 `returns: 'result'`（纯读）就到此为止：**不推版本、不等落定、不回状态**。
      *
@@ -151,8 +153,12 @@ async function answer(request: AgentUIRequest): Promise<void> {
      * 不等的话，回执里的快照是「操作刚发出去」的样子 —— 编辑弹窗里字段全空，
      * 模型会以为这单本来就是空白的。等不到不算失败（动作确实执行了），只是快照未必够新。
      */
-    await waitForReady(view, ACT_READY_TIMEOUT_MS);
-    await settleBeforeSnapshot();
+    // handler 返回后页面还可能异步重渲染（例如选中后拉明细）。把落定窗口一并抑制，
+    // 避免 agent 的 ui_act 通过 selection.change 反过来唤醒自己。
+    await withUIEventSuppression(async () => {
+      await waitForReady(view, ACT_READY_TIMEOUT_MS);
+      await settleBeforeSnapshot();
+    });
     const base = { ok: true as const, rev: currentRev(view), result: outcome.value ?? null };
     const receipt = decideReceipt(view, composeSnapshot(workbench, view), outcome.declared);
 
@@ -683,6 +689,7 @@ async function runAction(
   workbench: UIWorkbenchHost,
   view: string,
   payload: UIRequestPayload,
+  requestId: string,
 ): Promise<{ declared: UIActionReturn | null; value: unknown }> {
   const cmd = payload.cmd ?? '';
   if (!cmd) {
@@ -709,7 +716,11 @@ async function runAction(
   if (!run) {
     throw new Error(`命令 ${cmd} 还没有接入处理函数`);
   }
-  const value = await run(payload.params ?? {});
+  // agent 自己触发的界面变化不能反过来再唤醒 agent；确认框后续的用户终态不受这里影响。
+  const value = await withUIEventSuppression(() => run(payload.params ?? {}));
+  if (action.waitConfirm) {
+    rememberWaitConfirm(view, action.id, requestId);
+  }
   // 这里只把命令**自己声明的**档位带出去（可能是 undefined = 交给桥 diff），
   // 真正决定回什么在 decideReceipt —— 别在这里补默认值，一补就又把 diff 变成摆设。
   return { declared: action.returns ?? null, value };

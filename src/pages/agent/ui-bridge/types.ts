@@ -5,7 +5,30 @@
  * 「快照长什么样、命令怎么校验、回执怎么发」都在桥这一层，页面不重复实现。
  */
 
-import type { UIAction, UIGuide, UIForm, UINavItem, UISnapshotData } from '../protocol';
+import type { UIAction, UIActionParam, UIGuide, UIForm, UINavItem, UISnapshotData } from '../protocol';
+
+/**
+ * 页面可主动上报的界面事件。
+ *
+ * 事件不是 agent 可调用的命令：触发点必须在真实用户交互里，桥只负责校验、
+ * 合并和交给会话层缓冲。`events` 不进入 agent 快照，避免常驻 token。
+ */
+export type UIEventDefinition = {
+  id: string;
+  label: string;
+  hint?: string;
+  /** 载荷字段说明；required 字段会在发送前校验 */
+  payload?: UIActionParam[];
+  /** 默认 batch；immediate 只用于 waitConfirm 动作的终态结果 */
+  delivery?: 'batch' | 'immediate';
+  /**
+   * 命中该 action 的 waitConfirm 上下文时才允许即时发送。
+   * 支持一个终态事件覆盖多条需要确认的命令。
+   */
+  waitConfirmFor?: string | string[];
+  /** 普通批量事件的合并对象；默认按事件类型合并 */
+  mergeBy?: string[];
+};
 
 /** 一条命令的执行函数：参数来自模型，返回值作为 result 回传给模型 */
 export type UIBridgeHandler = (params: Record<string, unknown>) => unknown | Promise<unknown>;
@@ -23,6 +46,8 @@ export type UIBridgeHost = {
   snapshot: () => UISnapshotData;
   /** 命令 ID → 执行函数；ID 必须与 snapshot().actions[].id 对齐 */
   handlers?: Record<string, UIBridgeHandler>;
+  /** 页面显式声明可上报的界面事件 */
+  events?: UIEventDefinition[];
   /**
    * 是否已就绪；ui_navigate 会等它变 true 再回执。不填视为「挂载即就绪」。
    *
@@ -84,6 +109,8 @@ export type UIDialogHost = {
   actions: () => UIAction[];
   /** 弹窗自己的命令处理（form.setMany / form.set / form.submit / ...） */
   handlers: Record<string, UIBridgeHandler>;
+  /** 弹窗显式声明可上报的界面事件 */
+  events?: UIEventDefinition[];
   /** 本弹窗的操作说明；不填则沿用页面的 guide */
   guide?: UIGuide;
   /** 是否已就绪（编辑/复制要先把数据拉回来，那之前字段是空的） */

@@ -1,5 +1,6 @@
 import {ExclamationCircleOutlined, SendOutlined} from '@ant-design/icons';
 import {ApiError, yupaiApi, type YupaiOrder} from '@/api';
+import {emitActiveUIEvent} from '@/pages/agent/ui-bridge';
 import type {YupaiOrderCommandFactory} from './types';
 import {toNumberOrZero} from "@/utils";
 
@@ -41,10 +42,23 @@ export const publishCommand: YupaiOrderCommandFactory = ({message, modal, getSel
             okText: '确认',
             okButtonProps: {danger: true},
             mask: {blur: true},
+            onCancel: () => {
+                emitActiveUIEvent('action.outcome', {
+                    actionId: 'publish',
+                    outcome: 'cancelled',
+                    targetIds: targets.map((order) => order.ID),
+                });
+            },
             onOk: async () => {
                 try {
                     const succMsg = await yupaiApi.submit(targets.map((order) => order.ID));
                     void message.success(succMsg.data);
+                    emitActiveUIEvent('action.outcome', {
+                        actionId: 'publish',
+                        outcome: 'confirmed',
+                        targetIds: targets.map((order) => order.ID),
+                        message: succMsg.data,
+                    });
                     await reload();
                 } catch (error) {
                     void message.error(error instanceof ApiError ? error.message : '发布失败');

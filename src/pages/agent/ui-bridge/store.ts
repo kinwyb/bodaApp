@@ -14,8 +14,9 @@
  * 打开另一个页面跟当前页面的版本本来就没有关系。
  */
 
-import type { UIBridgeHost, UIDialogHost, UIWorkbenchHost } from './types';
-import type { UISnapshotPatch } from '../protocol';
+import type { UIEventDefinition, UIBridgeHost, UIDialogHost, UIWorkbenchHost } from './types';
+import type { UIEventNotice, UISnapshotPatch } from '../protocol';
+import { isDebugEnv } from '@/utils';
 
 /** 锚点：结构指纹（决定 full / patch）、变化段指纹（决定 patch / result）、以及上次那份全量投影（做逐条 diff） */
 export type SnapshotAnchor = {
@@ -32,6 +33,30 @@ let workbenchGetter: (() => UIWorkbenchHost | null) | null = null;
 
 /** 弹窗层宿主：view -> getter，只在弹窗打开期间存在 */
 const dialogHosts = new Map<string, () => UIDialogHost | null>();
+
+/** 会话层注册的事件接收器；页面只发通知，不直接依赖 chat hook */
+type UIEventSink = (notice: UIEventNotice, definition: UIEventDefinition) => void;
+let eventSink: UIEventSink | null = null;
+/** 会话层把“用户已手动开启且有真实消息”同步到这里，waitConfirm 登记也遵守该门槛 */
+let eventCaptureEnabled = false;
+
+/** ui_act 执行期间暂停采集事件，防止 agent 自己改页面后反向唤醒自己 */
+let eventSuppressionDepth = 0;
+
+/** agent 发起 waitConfirm 命令后留下的短期上下文 */
+export type PendingUIConfirm = {
+  view: string;
+  actionId: string;
+  requestId: string;
+  expiresAt: number;
+};
+
+const CONFIRM_TTL_MS = 5 * 60 * 1000;
+const pendingConfirms = new Map<string, PendingUIConfirm>();
+
+function confirmKey(view: string, actionId: string): string {
+  return `${view}\u0000${actionId}`;
+}
 
 /** 页面版本（乐观锁），按 view 维护 */
 const revByView = new Map<string, number>();
@@ -79,7 +104,10 @@ export function registerPageHost(view: string, getter: () => UIBridgeHost | null
   pageHosts.set(view, getter);
   return () => {
     // 只有还是自己注册的那个才清空，避免后注册者被先卸载的页面误注销
-    if (pageHosts.get(view) === getter) pageHosts.delete(view);
+    if (pageHosts.get(view) === getter) {
+      pageHosts.delete(view);
+      clearWaitConfirms(view);
+    }
   };
 }
 
@@ -114,6 +142,129 @@ export function registerDialogHost(view: string, getter: () => UIDialogHost | nu
 export function getDialogHost(view: string): UIDialogHost | null {
   const getter = dialogHosts.get(view);
   return getter ? getter() : null;
+}
+
+/** 会话层注册/注销界面事件接收器 */
+export function registerUIEventSink(sink: UIEventSink): () => void {
+  eventSink = sink;
+  return () => {
+    if (eventSink === sink) eventSink = null;
+  };
+}
+
+/** 更新当前会话是否允许记录界面事件 */
+export function setUIEventCaptureEnabled(enabled: boolean): void {
+  eventCaptureEnabled = enabled;
+  if (!enabled) clearWaitConfirms();
+}
+
+/** 当前弹窗优先、页面兜底，查找事件声明 */
+export function getUIEventDefinition(view: string, event: string): UIEventDefinition | null {
+  const host = getDialogHost(view) ?? getPageHost(view);
+  return host?.events?.find((item) => item.id === event) ?? null;
+}
+
+function validatePayload(
+  definition: UIEventDefinition,
+  payload: Record<string, unknown>,
+): string | null {
+  for (const field of definition.payload ?? []) {
+    if (!field.required) continue;
+    const value = payload[field.name];
+    if (value === undefined || value === null || value === '') {
+      return `界面事件 ${definition.id} 缺少必填载荷 ${field.name}`;
+    }
+  }
+  return null;
+}
+
+/**
+ * 从真实业务交互中上报事件。
+ *
+ * 未声明、载荷不合法、ui_act 正在执行时都不会进入会话缓冲。校验失败只在开发期
+ * 打日志，避免用户点击因为桥配置问题直接抛异常。
+ */
+export function emitUIEvent(
+  view: string,
+  event: string,
+  payload: Record<string, unknown> = {},
+): void {
+  const definition = getUIEventDefinition(view, event);
+  if (!definition) {
+    if (isDebugEnv) {
+      console.error(`[ui-bridge] ${view} 没有声明界面事件 ${event}；事件未发送`);
+    }
+    return;
+  }
+  // ui_act 的落定窗口只抑制普通页面变化；确认框终态必须允许用户立刻点击后上报。
+  if (eventSuppressionDepth > 0 && definition.delivery !== 'immediate') return;
+  if (definition.delivery === 'immediate' && !definition.waitConfirmFor) {
+    if (isDebugEnv) {
+      console.error(`[ui-bridge] 即时事件 ${event} 必须声明 waitConfirmFor；事件未发送`);
+    }
+    return;
+  }
+  const invalid = validatePayload(definition, payload);
+  if (invalid) {
+    if (isDebugEnv) console.error(`[ui-bridge] ${invalid}；事件未发送`);
+    return;
+  }
+  eventSink?.({ ts: Date.now(), view, event, payload }, definition);
+}
+
+/** 业务命令通常不持有 view，用工作台当前激活页作为事件来源 */
+export function emitActiveUIEvent(
+  event: string,
+  payload: Record<string, unknown> = {},
+): void {
+  const view = getWorkbenchHost()?.currentView() ?? '';
+  if (!view) return;
+  emitUIEvent(view, event, payload);
+}
+
+/** ui_act 的 handler 执行期间抑制页面事件 */
+export async function withUIEventSuppression<T>(run: () => T | Promise<T>): Promise<T> {
+  eventSuppressionDepth += 1;
+  try {
+    return await run();
+  } finally {
+    eventSuppressionDepth -= 1;
+  }
+}
+
+/** 记录一次 agent 发起的 waitConfirm，供确认框终态事件认领 */
+export function rememberWaitConfirm(view: string, actionId: string, requestId: string): void {
+  if (!eventCaptureEnabled) return;
+  pendingConfirms.set(confirmKey(view, actionId), {
+    view,
+    actionId,
+    requestId,
+    expiresAt: Date.now() + CONFIRM_TTL_MS,
+  });
+}
+
+/**
+ * 认领确认上下文。只有 agent 发起的命令会留下记录；用户自己点同一按钮时返回 null，
+ * 终态事件因此按普通批量事件处理。
+ */
+export function consumeWaitConfirm(view: string, actionId: string): PendingUIConfirm | null {
+  const key = confirmKey(view, actionId);
+  const pending = pendingConfirms.get(key);
+  if (!pending) return null;
+  pendingConfirms.delete(key);
+  if (pending.expiresAt <= Date.now()) return null;
+  return pending;
+}
+
+/** 会话切换、清空或页面卸载时清掉短期确认上下文 */
+export function clearWaitConfirms(view?: string): void {
+  if (!view) {
+    pendingConfirms.clear();
+    return;
+  }
+  for (const [key, item] of pendingConfirms) {
+    if (item.view === view) pendingConfirms.delete(key);
+  }
 }
 
 /** 某个页面的当前版本 */

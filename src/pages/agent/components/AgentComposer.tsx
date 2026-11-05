@@ -9,7 +9,7 @@
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { App as AntdApp, Button, Tooltip } from 'antd';
+import { App as AntdApp, Button, Switch, Tooltip } from 'antd';
 import type { UploadFile } from 'antd';
 import { PaperClipOutlined, ReloadOutlined } from '@ant-design/icons';
 import { Attachments, Sender } from '@ant-design/x';
@@ -46,9 +46,26 @@ export const AgentComposer: React.FC<{
    * 没有用量记录（新对话、老数据）时不传，底部就不显示这一项。
    */
   usage?: AgentTokenUsage;
+  /** 是否已手动开启当前会话的界面联动 */
+  uiFollow: boolean;
+  /** 当前会话已有真实用户消息后，才允许开启 */
+  canFollow: boolean;
+  onUIFollowChange: (enabled: boolean) => void;
   onSend: (text: string, attachments?: AgentAttachment[]) => void;
   onAbort: () => void;
-}> = ({ streaming, mode, connection, latency, compact = false, usage, onSend, onAbort }) => {
+}> = ({
+  streaming,
+  mode,
+  connection,
+  latency,
+  compact = false,
+  usage,
+  uiFollow,
+  canFollow,
+  onUIFollowChange,
+  onSend,
+  onAbort,
+}) => {
   const { message } = AntdApp.useApp();
   const [inputValue, setInputValue] = useState('');
   const [fileList, setFileList] = useState<ComposerFile[]>([]);
@@ -284,7 +301,29 @@ export const AgentComposer: React.FC<{
         }
         footer={
           <div className="agent-sender-footer">
-            <span className="agent-sender-conn">{footerText}</span>
+            <span className="agent-sender-left">
+              <Tooltip
+                title={
+                  canFollow
+                    ? uiFollow
+                      ? '界面联动已开启：普通事件会合并，确认终态会立即发送'
+                      : '界面联动已关闭：页面事件不会记录或发送'
+                    : '先发送一条消息开始对话，之后才能开启界面联动'
+                }
+              >
+                <label className="agent-ui-follow">
+                  <span>界面联动</span>
+                  <Switch
+                    size="small"
+                    checked={uiFollow}
+                    disabled={!canFollow}
+                    aria-label="界面联动"
+                    onChange={onUIFollowChange}
+                  />
+                </label>
+              </Tooltip>
+              <span className="agent-sender-conn">{footerText}</span>
+            </span>
             <span className="agent-sender-meta">
               {/* token 用量：服务端从来没给过数（新对话 / 老数据）就不占位 */}
               {usage ? <AgentTokenMeter usage={usage} /> : null}

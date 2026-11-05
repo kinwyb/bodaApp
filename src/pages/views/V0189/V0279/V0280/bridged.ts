@@ -262,6 +262,27 @@ export function createYupaiOrderBridge(read: () => YupaiOrderBridgeContext): UIB
     return {
         snapshot,
         handlers: {...buildHandlers(read), ...tableBridge.handlers},
+        events: [
+            {
+                id: 'selection.change',
+                label: '预订单选中变化',
+                mergeBy: ['table'],
+                payload: [{name: 'rowId', type: 'text'}],
+                hint: '用户点击、勾选或框选预订单时上报，连续变化只保留最后一次',
+            },
+            {
+                id: 'action.outcome',
+                label: '需要确认的命令结果',
+                delivery: 'immediate',
+                waitConfirmFor: ['cancel', 'publish', 'copyOrdered'],
+                mergeBy: ['actionId'],
+                payload: [
+                    {name: 'actionId', type: 'text', required: true},
+                    {name: 'outcome', type: 'text', required: true},
+                ],
+                hint: '只在 agent 发起 cancel/publish/copyOrdered 后，用户最终确认或取消时立即上报',
+            },
+        ],
         /*
          * **不报 ready：挂载即可用**。
          *

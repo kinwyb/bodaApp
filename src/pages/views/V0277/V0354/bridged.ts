@@ -632,5 +632,37 @@ export function createBomMatrixBridge(read: () => BomMatrixBridgeContext): UIBri
         };
     });
 
-    return {snapshot, handlers, ready: () => read().isReady()};
+    return {
+        snapshot,
+        handlers,
+        ready: () => read().isReady(),
+        events: [
+            {
+                id: 'selection.change',
+                label: '包装 BOM 主表选中变化',
+                mergeBy: ['table'],
+                payload: [{name: 'rowId', type: 'text'}],
+                hint: '用户选中包装 BOM 主表行时上报，连续变化只保留最后一次',
+            },
+            {
+                id: 'tab.change',
+                label: '包装 BOM 明细标签切换',
+                mergeBy: ['section'],
+                payload: [{name: 'section', type: 'text', required: true}],
+                hint: '用户切换明细标签页时上报，同一标签只保留最后一次',
+            },
+            {
+                id: 'action.outcome',
+                label: '需要确认的命令结果',
+                delivery: 'immediate',
+                waitConfirmFor: ['delete'],
+                mergeBy: ['actionId'],
+                payload: [
+                    {name: 'actionId', type: 'text', required: true},
+                    {name: 'outcome', type: 'text', required: true},
+                ],
+                hint: '只在 agent 发起 delete 后，用户最终确认或取消时立即上报',
+            },
+        ],
+    };
 }

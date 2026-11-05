@@ -5,7 +5,7 @@ import {packBomMatrixApi, type packBomMatrixListReq} from "@/api/modules/nc/bomM
 import {BomMatrixView, type BomMatrixViewApi} from "@/components/nc/bomMatrix";
 import type {PackBomMatrix, PackBomMatrixRule} from "@/api/schemas/nc/bomMatrix.ts";
 import {type BomMatrixSection, DEFAULT_BOM_MATRIX_SECTION} from "@/components/nc/bomMatrix/sections.ts";
-import {useUIBridgeHost} from "@/pages/agent/ui-bridge";
+import {emitActiveUIEvent, useUIBridgeHost} from "@/pages/agent/ui-bridge";
 import {type BomMatrixBridgeContext, createBomMatrixBridge, type MatrixListResult} from "./bridged";
 import {MATRIX_LIST_COLUMNS} from "./columns";
 import {App, Button, Form, Input, Space, Splitter, type TabsProps} from "antd";
@@ -198,9 +198,19 @@ const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({view, trail}) => {
      * 没有激活行时（点空白处、换数据）它是 undefined —— 命令按钮跟着禁用。
      */
     const handleSelectedChange = useCallback((info: GridTableSelectedRowChangeInfo) => {
-        setSelectedMatrix(info.record ? (info.record as PackBomMatrix) : null);
+        const record = info.record ? (info.record as PackBomMatrix) : null;
+        setSelectedMatrix(record);
+        emitActiveUIEvent('selection.change', {
+            table: 'list',
+            rowId: record?.PackBomMatrixID ?? null,
+        });
         if (info.rowKey) void loadMatrix(info.rowKey);
     }, [loadMatrix]);
+
+    const handleActiveKeyChange = useCallback((key: string) => {
+        setActiveKey(key);
+        emitActiveUIEvent('tab.change', {section: key});
+    }, []);
 
     /**
      * 新增 / 编辑 / 复制的表单弹窗。
@@ -460,7 +470,7 @@ const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({view, trail}) => {
                     </Splitter.Panel>
                     <Splitter.Panel className="splitter-pane-body" style={{overflow: 'hidden'}}>
                         <BomMatrixView ref={matrixRef} bomMatrix={bomMatrix}
-                                       activeKey={activeKey} onActiveKeyChange={setActiveKey} tabs={pushRuleTab}/>
+                                       activeKey={activeKey} onActiveKeyChange={handleActiveKeyChange} tabs={pushRuleTab}/>
                     </Splitter.Panel>
                 </Splitter>
             </div>

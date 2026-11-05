@@ -17,12 +17,25 @@ import type {
 } from '../types';
 import type { AgentSendPayload } from '../transport';
 import { agentTransportMode, createAgentTransport } from '../transport';
-import { createUIRequestHandler } from '../ui-bridge';
+import {
+  clearWaitConfirms,
+  consumeWaitConfirm,
+  createUIRequestHandler,
+  registerUIEventSink,
+  setUIEventCaptureEnabled,
+} from '../ui-bridge';
+import type { UIEventDefinition } from '../ui-bridge';
+import { composeUIEventMessage } from '../protocol';
 import { createInitialConversations } from '../mock/fixtures';
 import type { AgentChatState } from './actions';
 import { createConversation, nextMessageKey } from './actions';
 import { chatReducer } from './reducer';
 import { createStreamBuffer } from './stream-buffer';
+import {
+  mergeUIEvent,
+  UI_EVENT_BATCH_THRESHOLD,
+  type BufferedUIEvent,
+} from './ui-event-buffer';
 
 function createInitialState(): AgentChatState {
   // 演示模式给几条带内容的会话；真实模式只留一个空会话，
@@ -65,6 +78,9 @@ export type AgentChatApi = {
   /** 当前选中的 agent */
   agent: string;
   setAgent: (name: string) => void;
+  /** 用户是否手动开启了当前会话的界面联动 */
+  uiFollow: boolean;
+  setUIFollow: (enabled: boolean) => void;
   /** 心跳往返延迟（毫秒），未连真实服务时为 undefined */
   latency?: number;
   /** 连接级错误（投不到具体会话的那些） */
@@ -118,9 +134,19 @@ export function useAgentChat(): AgentChatApi {
   const sessionsCursorRef = useRef<{ beforeLastUpdate?: number; beforeThreadID?: string }>({});
   /** 本次会话列表请求是「整体刷新」还是「翻页追加」，响应回来时要按它合并 */
   const sessionsModeRef = useRef<'replace' | 'append'>('replace');
+  /** 普通页面事件先按对象合并；只有达到阈值或用户发消息时才发送 */
+  const uiEventBufferRef = useRef<BufferedUIEvent[]>([]);
+  /** 一批自动事件还在处理中时，新事件继续攒下一批 */
+  const uiEventBatchInFlightRef = useRef(false);
+  /** 事件 sink 不应依赖 React 渲染闭包 */
+  const connectionRef = useRef<AgentConnectionStatus>('idle');
 
   useEffect(() => {
     stateRef.current = state;
+    const active = state.conversations.find((item) => item.key === state.activeKey);
+    setUIEventCaptureEnabled(
+      Boolean(active?.uiFollow && active.messages.some((message) => message.role === 'user')),
+    );
   }, [state]);
 
   useEffect(() => {
@@ -138,6 +164,66 @@ export function useAgentChat(): AgentChatApi {
      */
     const streamBuffer = createStreamBuffer((action) => dispatch(action));
     streamBufferRef.current = streamBuffer;
+
+    const activeConversationNow = () => {
+      const current = stateRef.current;
+      return current.conversations.find((item) => item.key === current.activeKey);
+    };
+
+    const sendUIEventBatch = (
+      events: BufferedUIEvent['notice'][],
+      conversation: ReturnType<typeof activeConversationNow>,
+    ): boolean => {
+      if (!conversation || connectionRef.current !== 'connected') return false;
+      transport.send({
+        conversationId: conversation.key,
+        sessionId: conversation.sessionId,
+        content: composeUIEventMessage(events),
+        agent: agentRef.current || undefined,
+      });
+      return true;
+    };
+
+    const flushAutoBatch = () => {
+      const conversation = activeConversationNow();
+      if (!conversation?.uiFollow || uiEventBatchInFlightRef.current) return;
+      if (uiEventBufferRef.current.length < UI_EVENT_BATCH_THRESHOLD) return;
+
+      const events = uiEventBufferRef.current.map((item) => item.notice);
+      if (!sendUIEventBatch(events, conversation)) return;
+      uiEventBufferRef.current = [];
+      uiEventBatchInFlightRef.current = true;
+    };
+
+    /*
+     * 业务页面只上报事实：这里决定是即时终态、普通合并，还是达到阈值后自动发送。
+     * 没有真实用户消息时不记录，避免一个空白会话被页面点击意外开启。
+     */
+    const offUIEvent = registerUIEventSink((notice, definition: UIEventDefinition) => {
+      if (connectionRef.current !== 'connected') return;
+      const conversation = activeConversationNow();
+      if (!conversation) return;
+      // 所有发送路径（阈值批量与 waitConfirm 终态）都受同一个手动开关约束。
+      if (!conversation.uiFollow) return;
+      const hasHumanMessage = conversation.messages.some((message) => message.role === 'user');
+      if (!hasHumanMessage) return;
+
+      const actionId = String(notice.payload?.actionId ?? '').trim();
+      const waitConfirmFor = definition.waitConfirmFor;
+      const expectsAction =
+        definition.delivery === 'immediate' &&
+        (Array.isArray(waitConfirmFor)
+          ? waitConfirmFor.includes(actionId)
+          : waitConfirmFor === actionId);
+      if (expectsAction && actionId && consumeWaitConfirm(notice.view, actionId)) {
+        // 确认终态只发这一条，不占用也不清空普通事件缓冲。
+        sendUIEventBatch([notice], conversation);
+        return;
+      }
+
+      uiEventBufferRef.current = mergeUIEvent(uiEventBufferRef.current, notice, definition);
+      flushAutoBatch();
+    });
 
     const offEvent = transport.onEvent((event) => {
       // conversationId 为空的是连接级错误
@@ -216,6 +302,8 @@ export function useAgentChat(): AgentChatApi {
           break;
         case 'reply-done':
           dispatch({ type: 'finish', conversationKey: event.conversationId });
+          uiEventBatchInFlightRef.current = false;
+          flushAutoBatch();
           break;
         case 'session-bound':
           // 草稿落库了：记下 sessionID，刷新会话列表时靠它认领列表里的自己
@@ -227,13 +315,21 @@ export function useAgentChat(): AgentChatApi {
           break;
         case 'error':
           dispatch({ type: 'fail', conversationKey: event.conversationId, message: event.message });
+          uiEventBatchInFlightRef.current = false;
+          flushAutoBatch();
           break;
         default:
           break;
       }
     });
 
-    const offStatus = transport.onStatusChange(setConnection);
+    const offStatus = transport.onStatusChange((status) => {
+      connectionRef.current = status;
+      setConnection(status);
+      if (status !== 'connected') {
+        uiEventBatchInFlightRef.current = false;
+      }
+    });
     const offLatency = transport.onLatency(setLatency);
     const offHello = transport.onHello((hello) => {
       setAgents(hello.agents);
@@ -273,6 +369,11 @@ export function useAgentChat(): AgentChatApi {
       offHello();
       offSessions();
       offUI();
+      offUIEvent();
+      uiEventBufferRef.current = [];
+      uiEventBatchInFlightRef.current = false;
+      clearWaitConfirms();
+      setUIEventCaptureEnabled(false);
       streamBuffer.cancel();
       streamBufferRef.current = null;
       transport.disconnect();
@@ -355,6 +456,8 @@ export function useAgentChat(): AgentChatApi {
     streamBufferRef.current?.flush();
 
     const conversationKey = stateRef.current.activeKey;
+    const bufferedEvents = uiEventBufferRef.current.map((item) => item.notice);
+    uiEventBufferRef.current = [];
     const createdAt = Date.now();
     const userMessage: AgentMessage = {
       key: nextMessageKey('user'),
@@ -383,7 +486,8 @@ export function useAgentChat(): AgentChatApi {
     const payload: AgentSendPayload = {
       conversationId: conversationKey,
       sessionId: conversation?.sessionId,
-      content: question,
+      // 页面变化与用户正文合成同一条消息，避免为上下文额外启动一轮模型。
+      content: composeUIEventMessage(bufferedEvents, question),
       agent: agentRef.current || undefined,
       // 只有真正上传成功的附件才有 fileID（演示模式/失败的都是空），服务端按它还原 media
       fileIds: attachments
@@ -434,6 +538,10 @@ export function useAgentChat(): AgentChatApi {
   }, []);
 
   const switchConversation = useCallback((key: string) => {
+    setUIEventCaptureEnabled(false);
+    uiEventBufferRef.current = [];
+    uiEventBatchInFlightRef.current = false;
+    clearWaitConfirms();
     dispatch({ type: 'switch', key });
     // 切到一个还没拉过历史的会话：顺手拉一次（服务端也会因此订阅该会话）
     const conversation = stateRef.current.conversations.find((item) => item.key === key);
@@ -482,6 +590,10 @@ export function useAgentChat(): AgentChatApi {
   }, []);
 
   const handleCreate = useCallback(() => {
+    setUIEventCaptureEnabled(false);
+    uiEventBufferRef.current = [];
+    uiEventBatchInFlightRef.current = false;
+    clearWaitConfirms();
     dispatch({ type: 'create', conversation: createConversation() });
   }, []);
 
@@ -490,10 +602,20 @@ export function useAgentChat(): AgentChatApi {
   }, []);
 
   const deleteConversation = useCallback((key: string) => {
+    if (key === stateRef.current.activeKey) {
+      setUIEventCaptureEnabled(false);
+      uiEventBufferRef.current = [];
+      uiEventBatchInFlightRef.current = false;
+      clearWaitConfirms();
+    }
     dispatch({ type: 'remove', key });
   }, []);
 
   const clearMessages = useCallback(() => {
+    setUIEventCaptureEnabled(false);
+    uiEventBufferRef.current = [];
+    uiEventBatchInFlightRef.current = false;
+    clearWaitConfirms();
     dispatch({ type: 'clear', key: stateRef.current.activeKey });
   }, []);
 
@@ -516,6 +638,20 @@ export function useAgentChat(): AgentChatApi {
     setAgentState(name);
   }, []);
 
+  const setUIFollow = useCallback((enabled: boolean) => {
+    const { activeKey, conversations } = stateRef.current;
+    const conversation = conversations.find((item) => item.key === activeKey);
+    if (!conversation) return;
+    const hasHumanMessage = conversation.messages.some((message) => message.role === 'user');
+    if (enabled && !hasHumanMessage) return;
+    if (!enabled) {
+      uiEventBufferRef.current = [];
+      uiEventBatchInFlightRef.current = false;
+      clearWaitConfirms();
+    }
+    dispatch({ type: 'setUIFollow', conversationKey: activeKey, enabled });
+  }, []);
+
   return {
     conversations: state.conversations,
     activeConversation,
@@ -531,6 +667,8 @@ export function useAgentChat(): AgentChatApi {
     serverChatId,
     agent,
     setAgent,
+    uiFollow: Boolean(activeConversation.uiFollow),
+    setUIFollow,
     latency,
     lastError,
     clearError,

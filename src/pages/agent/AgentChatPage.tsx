@@ -130,6 +130,7 @@ const AgentChatPage: React.FC<AgentChatPageProps> = ({ embedded = false }) => {
 
   const { messages } = chat.activeConversation;
   const isEmpty = messages.length === 0;
+  const hasHumanMessage = messages.some((message) => message.role === 'user');
   /** 抽出来单独持有：下面的 useMemo 只依赖它，不必依赖整个 chat 对象 */
   const { retry, clearError, replayTurn } = chat;
 
@@ -303,6 +304,9 @@ const AgentChatPage: React.FC<AgentChatPageProps> = ({ embedded = false }) => {
           connection={chat.connection}
           latency={chat.latency}
           usage={chat.usage}
+          uiFollow={chat.uiFollow}
+          canFollow={hasHumanMessage}
+          onUIFollowChange={chat.setUIFollow}
           compact={embedded}
           onSend={chat.send}
           onAbort={chat.abort}

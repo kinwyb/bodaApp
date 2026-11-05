@@ -4,6 +4,7 @@ import type {PackBomMatrix} from '@/api/schemas/nc/bomMatrix.ts';
 import {toStringOrEmpty} from '@/utils';
 import {packBomMatrixApi} from '@/api/modules/nc/bomMatrix.ts';
 import {ErrorMessage} from '@/api/request.ts';
+import {emitActiveUIEvent} from '@/pages/agent/ui-bridge';
 import {PACK_BOM_MATRIX_DEL_MENU_CODE, type PackBomMatrixCommandFactory} from './types';
 
 /**
@@ -90,6 +91,13 @@ export const deleteCommand: PackBomMatrixCommandFactory = ({modal, message, acti
             cancelText: '取消',
             okButtonProps: {danger: true},
             mask: {blur: true},
+            onCancel: () => {
+                emitActiveUIEvent('action.outcome', {
+                    actionId: 'delete',
+                    outcome: 'cancelled',
+                    targetIds: [activeRow.PackBomMatrixID],
+                });
+            },
             onOk: async () => {
                 const matrixID = toStringOrEmpty(activeRow.PackBomMatrixID).trim();
                 if (!matrixID) {
@@ -99,6 +107,12 @@ export const deleteCommand: PackBomMatrixCommandFactory = ({modal, message, acti
                 try {
                     await packBomMatrixApi.delete(matrixID);
                     void message.success('已删除');
+                    emitActiveUIEvent('action.outcome', {
+                        actionId: 'delete',
+                        outcome: 'confirmed',
+                        targetIds: [matrixID],
+                        message: '已删除',
+                    });
                     // 列表按当前查询条件重拉：删完这一行就不该还留在屏幕上
                     await reload();
                 } catch (error) {
@@ -108,6 +122,12 @@ export const deleteCommand: PackBomMatrixCommandFactory = ({modal, message, acti
                      * 要重试就从列表里重新选一行再来。
                      */
                     void message.error(ErrorMessage(error, '删除失败'));
+                    emitActiveUIEvent('action.outcome', {
+                        actionId: 'delete',
+                        outcome: 'failed',
+                        targetIds: [matrixID],
+                        message: ErrorMessage(error, '删除失败'),
+                    });
                 }
             },
         });

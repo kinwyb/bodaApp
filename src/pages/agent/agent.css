@@ -684,6 +684,23 @@
 }
 
 /* 左侧连接信息：窄面板时先让它出省略号，右侧的用量与字数更重要 */
+.agent-sender-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.agent-ui-follow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  color: rgba(0, 0, 0, 0.55);
+  cursor: pointer;
+}
+
 .agent-sender-conn {
   flex: 0 1 auto;
   min-width: 0;

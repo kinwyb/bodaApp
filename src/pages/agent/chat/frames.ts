@@ -10,7 +10,7 @@
  */
 
 import type { AgentEnvelope, AgentEventData } from '../protocol';
-import { AGENT_EVENT, mapAgentEnvelope, mapEnvelopeAttachments } from '../protocol';
+import { AGENT_EVENT, mapAgentEnvelope, mapEnvelopeAttachments, parseUIEventMessage } from '../protocol';
 import type {
   AgentAssistantContent,
   AgentHistoryTurn,
@@ -19,7 +19,8 @@ import type {
   AgentSource,
   AgentTimelineItem,
 } from '../types';
-import { hasRenderableContent } from '../types';
+import { hasRenderableContent, timelineOf } from '../types';
+import { uiEventStepOf } from './ui-event-buffer';
 import {
   appendTimelineText,
   upsertTimelineApproval,
@@ -143,7 +144,9 @@ export function historyMessagesOf(
   frames?: AgentEnvelope[],
 ): AgentMessage[] {
   const messages: AgentMessage[] = [];
-  const question = (turn.question ?? '').trim();
+  const rawQuestion = (turn.question ?? '').trim();
+  const uiEvents = parseUIEventMessage(rawQuestion);
+  const question = uiEvents ? uiEvents.userText : rawQuestion;
 
   if (question) {
     messages.push({
@@ -157,12 +160,28 @@ export function historyMessagesOf(
 
   const fromFrames = frames && frames.length > 0 ? contentFromFrames(frames) : undefined;
   const answer = (turn.answer ?? '').trim();
-  const content: AgentAssistantContent | undefined =
+  let content: AgentAssistantContent | undefined =
     fromFrames && hasRenderableContent(fromFrames)
       ? fromFrames
       : answer
         ? { text: answer }
         : undefined;
+
+  /*
+   * 普通事件批次在服务端会从 userMessage 还原成工具帧；老数据或 frames 被裁掉时，
+   * 这里从 question 里的稳定标记补建，避免刷新后页面操作消失。
+   */
+  if (uiEvents && uiEvents.events.length > 0) {
+    const base = content ?? { text: '' };
+    const timeline = timelineOf(base);
+    if (!timeline.some((item) => item.kind === 'tool' && item.step.origin === 'ui-event')) {
+      const step = uiEventStepOf(uiEvents.events, `ui-event-${turn.turnID || turn.seq}`);
+      content = withTimeline(base, [
+        { kind: 'tool', key: step.key, step },
+        ...timeline,
+      ]);
+    }
+  }
 
   if (content) {
     messages.push({

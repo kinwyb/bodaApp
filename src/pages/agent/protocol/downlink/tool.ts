@@ -18,9 +18,11 @@ export function toToolStep(
 ): AgentToolStep {
   // 工具执行失败的约定：extra.status === 'error' 或 extra.success === false
   const failed = call.extra?.status === 'error' || call.extra?.success === false;
+  const uiEvent = call.extra?.uiEvent === true;
   return {
     key: call.id || `tool-${call.name ?? 'call'}-${fallbackIndex}`,
-    title: call.name || '工具调用',
+    title: uiEvent ? '界面事件批次' : call.name || '工具调用',
+    origin: uiEvent ? 'ui-event' : undefined,
     description: clip(call.params, 160),
     content: call.result || undefined,
     status: failed ? 'error' : status,

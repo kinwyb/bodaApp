@@ -1,6 +1,7 @@
 import {CopyOutlined} from '@ant-design/icons';
 import {Input} from 'antd';
 import {ApiError, type YupaiOrder} from '@/api';
+import {emitActiveUIEvent} from '@/pages/agent/ui-bridge';
 import {yupaiService} from '@/services/yupai';
 import type {YupaiOrderCommandFactory} from './types';
 
@@ -50,6 +51,12 @@ export const copyOrderedCommand: YupaiOrderCommandFactory = ({message, modal, op
             ),
             okText: '查询',
             mask: {blur: true},
+            onCancel: () => {
+                emitActiveUIEvent('action.outcome', {
+                    actionId: 'copyOrdered',
+                    outcome: 'cancelled',
+                });
+            },
             afterClose: () => {
                 const target = pending;
                 pending = null;
@@ -73,6 +80,12 @@ export const copyOrderedCommand: YupaiOrderCommandFactory = ({message, modal, op
                     // 同一订单号可能有多条款式，取一条当代表即可 ——
                     // 表单会按订单号把全部款式取回来，这里带哪一条都不影响结果
                     pending = res.data[0];
+                    emitActiveUIEvent('action.outcome', {
+                        actionId: 'copyOrdered',
+                        outcome: 'confirmed',
+                        targetIds: res.data.map((order) => order.ID),
+                        orderCode: code,
+                    });
                 } catch (error) {
                     void message.error(error instanceof ApiError ? error.message : '订单查询失败');
                     // 失败同样保留弹窗，方便改完重试

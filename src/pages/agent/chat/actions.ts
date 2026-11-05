@@ -65,7 +65,13 @@ export type AgentChatAction =
    * 只补字段、不动别的：草稿要凭它才能和会话列表里的条目对上。
    */
   | { type: 'bind'; conversationKey: string; sessionId?: string; threadId?: string }
-  | { type: 'append'; conversationKey: string; messages: AgentMessage[]; autoLabel?: string }
+  | {
+      type: 'append';
+      conversationKey: string;
+      messages: AgentMessage[];
+      autoLabel?: string;
+    }
+  | { type: 'setUIFollow'; conversationKey: string; enabled: boolean }
   | { type: 'replyStart'; conversationKey: string; messageKey: string }
   | {
       type: 'appendText';

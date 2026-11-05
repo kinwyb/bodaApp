@@ -5,7 +5,7 @@
 import type { AgentChatAction, AgentChatState } from './actions';
 import type { AgentConversation, AgentHistoryThread, AgentTokenUsage } from '../types';
 import { hasRenderableContent, timelineOf } from '../types';
-import { DEFAULT_LABEL, createConversation } from './actions';
+import { DEFAULT_LABEL, createConversation, nextMessageKey } from './actions';
 import { contentFromFrames, groupFramesByReq, historyMessagesOf, isTruncatedContent } from './frames';
 import {
   appendTimelineText,
@@ -88,6 +88,7 @@ export function chatReducer(state: AgentChatState, action: AgentChatAction): Age
       return withConversation(state, action.key, (conversation) => ({
         ...conversation,
         messages: [],
+        uiFollow: false,
         updatedAt: Date.now(),
       }));
 
@@ -184,6 +185,13 @@ export function chatReducer(state: AgentChatState, action: AgentChatAction): Age
       }));
     }
 
+    case 'setUIFollow':
+      return withConversation(state, action.conversationKey, (conversation) =>
+        conversation.uiFollow === action.enabled
+          ? conversation
+          : { ...conversation, uiFollow: action.enabled },
+      );
+
     case 'replyStart':
       return withConversation(state, action.conversationKey, (conversation) => {
         const hasStreaming = conversation.messages.some(
@@ -242,11 +250,30 @@ export function chatReducer(state: AgentChatState, action: AgentChatAction): Age
       );
 
     case 'upsertStep':
-      return withConversation(state, action.conversationKey, (conversation) =>
-        mapStreamingReply(conversation, (content) =>
+      return withConversation(state, action.conversationKey, (conversation) => {
+        const hasStreaming = conversation.messages.some(
+          (message) => message.role === 'assistant' && message.status === 'streaming',
+        );
+        const base = hasStreaming
+          ? conversation
+          : {
+              ...conversation,
+              messages: [
+                ...conversation.messages,
+                {
+                  key: nextMessageKey('ai-ui-event'),
+                  role: 'assistant' as const,
+                  content: { text: '', timeline: [] },
+                  createdAt: Date.now(),
+                  status: 'streaming' as const,
+                },
+              ],
+              updatedAt: Date.now(),
+            };
+        return mapStreamingReply(base, (content) =>
           withTimeline(content, upsertTimelineTool(timelineOf(content), action.step)),
-        ),
-      );
+        );
+      });
 
     case 'setApproval':
       return withConversation(state, action.conversationKey, (conversation) =>

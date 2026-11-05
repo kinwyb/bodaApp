@@ -14,6 +14,8 @@ export type AgentToolStep = {
   key: string;
   /** 工具名，对应 ToolCall.name */
   title: string;
+  /** 页面主动上报的事件批次在 Web 端按工具步骤展示 */
+  origin?: 'ui-event';
   /** 参数摘要，对应 ToolCall.params */
   description?: string;
   status: AgentStepStatus;
@@ -173,6 +175,13 @@ export type AgentConversation = {
   group: string;
   updatedAt: number;
   messages: AgentMessage[];
+  /**
+   * 是否允许界面事件进入缓冲或即时发送。
+   *
+   * 只存在当前页面内存里，必须由用户手动开启，刷新后关闭。
+   * 关闭时普通事件和 waitConfirm 终态都不会记录或发送。
+   */
+  uiFollow?: boolean;
   /**
    * 服务端标识：只出现在「已落库」的会话上。
    *

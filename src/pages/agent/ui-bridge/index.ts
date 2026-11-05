@@ -16,7 +16,15 @@
  */
 
 export { createUIRequestHandler } from './handler';
-export { currentRev } from './store';
+export {
+  clearWaitConfirms,
+  consumeWaitConfirm,
+  currentRev,
+  emitActiveUIEvent,
+  emitUIEvent,
+  registerUIEventSink,
+  setUIEventCaptureEnabled,
+} from './store';
 export { bridgedViewPaths, isBridgedView } from './bridged';
 export { createTableBridge } from './table';
 export type { TableBridge, TableBridgeOptions, TableReadApi } from './table';
@@ -38,5 +46,11 @@ export type {
   FormWriterOptions,
   SequencedFieldSpec,
 } from './form';
-export type { UIBridgeHandler, UIBridgeHost, UIDialogHost, UIWorkbenchHost } from './types';
+export type {
+  UIEventDefinition,
+  UIBridgeHandler,
+  UIBridgeHost,
+  UIDialogHost,
+  UIWorkbenchHost,
+} from './types';
 export { useUIBridgeDialog, useUIBridgeHost, useWorkbenchBridge } from './use-ui-bridge-host';

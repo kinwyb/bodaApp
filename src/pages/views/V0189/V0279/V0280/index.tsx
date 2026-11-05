@@ -13,7 +13,7 @@ import type {
 } from '@/components/grid-table';
 import {FilterTable} from '@/components/grid-table';
 import {PageBreadcrumb} from '@/components/PageBreadcrumb';
-import {useUIBridgeHost} from '@/pages/agent/ui-bridge';
+import {emitActiveUIEvent, useUIBridgeHost} from '@/pages/agent/ui-bridge';
 import type {ViewPageProps} from '@/pages/types';
 import {useTabs} from '@/store/tabs';
 import {yupaiService} from '@/services/yupai.ts';
@@ -172,6 +172,10 @@ const YupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
              */
             activeRowRef.current = next;
             setActiveRow(next);
+            emitActiveUIEvent('selection.change', {
+                table: 'data',
+                rowId: next?.ID ?? null,
+            });
         },
         [dataSource],
     );

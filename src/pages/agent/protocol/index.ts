@@ -24,6 +24,13 @@ export {
 } from './envelope';
 
 export { buildUIResponse, parseUIRequest, UI_SNAPSHOT_VERSION } from './ui';
+export {
+  composeUIEventMessage,
+  formatUIEventBatch,
+  parseUIEventMessage,
+  userTextOf,
+} from './ui-event';
+export type { UIEventBatch, UIEventNotice } from './ui-event';
 export type {
   UIAction,
   UIActionParam,

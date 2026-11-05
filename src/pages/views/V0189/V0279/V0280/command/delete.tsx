@@ -1,6 +1,7 @@
 import {CloseOutlined, ExclamationCircleOutlined} from '@ant-design/icons';
 import {Input} from 'antd';
 import {ApiError, yupaiApi} from '@/api';
+import {emitActiveUIEvent} from '@/pages/agent/ui-bridge';
 import type {YupaiOrderCommandFactory} from './types';
 
 /** 取消（删除）订单：支持批量，确认时必须填写删除原因 */
@@ -43,6 +44,13 @@ export const deleteCommand: YupaiOrderCommandFactory = ({message, modal, getSele
             okText: '确认删除',
             okButtonProps: {danger: true},
             mask: {blur: true},
+            onCancel: () => {
+                emitActiveUIEvent('action.outcome', {
+                    actionId: 'cancel',
+                    outcome: 'cancelled',
+                    targetIds: targets.map((order) => order.ID),
+                });
+            },
             onOk: async () => {
                 const value = memo.trim();
                 if (!value) {
@@ -53,6 +61,12 @@ export const deleteCommand: YupaiOrderCommandFactory = ({message, modal, getSele
                 try {
                     await yupaiApi.delete({ID: targets.map((order) => order.ID), Memo: value});
                     void message.success('已删除');
+                    emitActiveUIEvent('action.outcome', {
+                        actionId: 'cancel',
+                        outcome: 'confirmed',
+                        targetIds: targets.map((order) => order.ID),
+                        message: '已删除',
+                    });
                     await reload();
                 } catch (error) {
                     void message.error(error instanceof ApiError ? error.message : '删除失败');
