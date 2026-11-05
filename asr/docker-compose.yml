@@ -1,0 +1,20 @@
+services:
+  asr:
+    build: .
+    image: bodaway-asr:sensevoice
+    container_name: bodaway-asr
+    ports:
+      - "9383:9383"
+    volumes:
+      # 模型挂进来，不进镜像：docker rm 之后不用重新下 230MB
+      - ./models:/models:ro
+      # 业务词表单独挂载：改词只 restart，不用 rebuild（镜像里也有一份，作为兜底）
+      - ./business_terms.txt:/app/business_terms.txt:ro
+    environment:
+      NUM_THREADS: "2"
+      LANGUAGE: auto
+      USE_ITN: "1"
+    # CPU 就够：2 核 / 2G，常驻内存 350MB 左右
+    cpus: 2
+    mem_limit: 2g
+    restart: unless-stopped

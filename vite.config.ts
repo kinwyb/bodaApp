@@ -31,6 +31,12 @@ export default defineConfig(({ mode }) => {
     }
   })()
 
+  /*
+   * 语音识别服务（仓库 asr/ 目录里那个 Docker，SenseVoice）。
+   * 同样走代理：前端用同源的 /asr，就不必让识别服务处理 CORS 预检。
+   */
+  const asrTarget = env.VITE_ASR_TARGET || 'http://127.0.0.1:9383'
+
   return {
     plugins: [react()],
     resolve: {
@@ -49,6 +55,11 @@ export default defineConfig(({ mode }) => {
         // Agent 附件上传/下载：前缀与 VITE_AGENT_FILES_URL 一致
         '/ws/files': {
           target: agentTarget,
+          changeOrigin: true,
+        },
+        // 语音识别：前端 POST /asr，转发到本地 ASR 容器
+        '/asr': {
+          target: asrTarget,
           changeOrigin: true,
         },
       },

@@ -343,11 +343,13 @@ export const AgentComposer: React.FC<{
                   ? `${uploadingCount} 个附件上传中`
                   : failedCount > 0
                     ? `${failedCount} 个附件上传失败`
-                    : voice.recording
-                      ? '正在听…说完再点麦克风结束'
-                      : inputValue.length > 0
-                        ? `${inputValue.length} 字`
-                        : 'Shift + Enter 换行'}
+                    : voice.transcribing
+                      ? '识别中…'
+                      : voice.recording
+                        ? '正在听…说完再点麦克风结束'
+                        : inputValue.length > 0
+                          ? `${inputValue.length} 字`
+                          : 'Shift + Enter 换行'}
               </span>
             </span>
           </div>
