@@ -93,13 +93,17 @@ export const AgentConversationPanel: React.FC<{
           <Empty className="agent-conv-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有会话" />
         ) : (
           items.map(({ conversation, time }) => {
-            const deleting = deletingKeys.includes(conversation.key);
+            // 只有已落库、能定位到 thread 的会话才能软删除；本地新建草稿没有可删记录。
+            const deletable = Boolean(conversation.threadId);
+            const deleting = deletable && deletingKeys.includes(conversation.key);
             return (
               <div
                 key={conversation.key}
                 className={`agent-conv-item${
                   conversation.key === activeKey ? ' agent-conv-item-active' : ''
-                }${deleting ? ' agent-conv-item-deleting' : ''}`}
+                }${deletable ? ' agent-conv-item-has-delete' : ''}${
+                  deleting ? ' agent-conv-item-deleting' : ''
+                }`}
                 onClick={() => handleSwitch(conversation.key)}
               >
                 <MessageOutlined className="agent-conv-icon" />
@@ -115,29 +119,31 @@ export const AgentConversationPanel: React.FC<{
                     <div className="agent-conv-preview">{conversation.preview}</div>
                   ) : null}
                 </div>
-                <div className="agent-conv-actions" onClick={(event) => event.stopPropagation()}>
-                  <Popconfirm
-                    title="删除这个对话？"
-                    description="删除后不再出现在列表，也不能继续加载历史记录。"
-                    okText="删除"
-                    cancelText="取消"
-                    okButtonProps={{ danger: true }}
-                    disabled={deleting}
-                    onConfirm={() => onDelete(conversation.key)}
-                  >
-                    <Tooltip title="删除对话">
-                      <Button
-                        type="text"
-                        size="small"
-                        danger
-                        className="agent-conv-delete"
-                        icon={<DeleteOutlined />}
-                        loading={deleting}
-                        aria-label="删除对话"
-                      />
-                    </Tooltip>
-                  </Popconfirm>
-                </div>
+                {deletable ? (
+                  <div className="agent-conv-actions" onClick={(event) => event.stopPropagation()}>
+                    <Popconfirm
+                      title="删除这个对话？"
+                      description="删除后不再出现在列表，也不能继续加载历史记录。"
+                      okText="删除"
+                      cancelText="取消"
+                      okButtonProps={{ danger: true }}
+                      disabled={deleting}
+                      onConfirm={() => onDelete(conversation.key)}
+                    >
+                      <Tooltip title="删除对话">
+                        <Button
+                          type="text"
+                          size="small"
+                          danger
+                          className="agent-conv-delete"
+                          icon={<DeleteOutlined />}
+                          loading={deleting}
+                          aria-label="删除对话"
+                        />
+                      </Tooltip>
+                    </Popconfirm>
+                  </div>
+                ) : null}
               </div>
             );
           })

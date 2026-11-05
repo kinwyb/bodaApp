@@ -41,9 +41,13 @@
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  padding: 6px 32px 6px 8px;
+  padding: 6px 8px;
   border-radius: 6px;
   cursor: pointer;
+}
+
+.agent-conv-item-has-delete {
+  padding-right: 32px;
 }
 
 .agent-conv-item:hover {
