@@ -221,6 +221,7 @@ const MainLayout: React.FC = () => {
      */
     const openTab = useCallback(
         (meta: TabMeta) => {
+            isDebugEnv && console.log("打开页面", meta.label, meta.view);
             setOpenTabs((prev) => {
                 const index = prev.findIndex((tab) => tab.key === meta.key);
                 if (index < 0) return [...prev, meta];
@@ -301,7 +302,6 @@ const MainLayout: React.FC = () => {
 
     const handleMenuClick = useCallback(
         (info: { key: string }) => {
-            isDebugEnv && console.log(info);
             const menuMeta = menuMetaMap.get(info.key);
             // 菜单进来的实例标识为空 → 永远是「view」这一个页签，已开着就只激活
             if (menuMeta) {

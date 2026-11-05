@@ -118,21 +118,3 @@ export const PackBomMatrixRuleSchema = z.object({
     PushUserNo: z.string().nullish(), // 发布人工号
 }).loose();
 export type PackBomMatrixRule = z.output<typeof PackBomMatrixRuleSchema>;
-
-export const ProcessRouteMatrixRuleSchema = z.object({
-    Feature: z.string().nullish(), // 特征码
-    FeatureCode: z.string().nullish(), // 特征码ID
-    IsPush: z.boolean().nullish(), // 是否发布
-    MaterialCode: z.string().nullish(), // 物料编码
-    MaterialName: z.string().nullish(), // 物料名称
-    MatrixVersion: z.number().int().nullish(), // 矩阵版本
-    PRID: z.string().nullish(), // 工艺ID
-    PRVersion: z.string().nullish(), // 工艺版本
-    ProcessRouteMatrixID: z.string().nullish(), // 工艺矩阵ID
-    ProcessRouteMatrixRuleID: z.string().nullish(), // 工艺矩阵规则ID
-    PushTime: z.string().nullish(), // 发布时间
-    PushUser: z.string().nullish(), // 发布人
-    PushUserNo: z.string().nullish(), // 发布人工号
-    TS: z.string().nullish(), // NC时间
-}).loose();
-export type ProcessRouteMatrixRule = z.output<typeof ProcessRouteMatrixRuleSchema>;

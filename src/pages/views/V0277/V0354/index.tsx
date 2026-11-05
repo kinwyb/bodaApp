@@ -13,11 +13,12 @@ import {FilterTable, type FilterTableApi, type GridTableSelectedRowChangeInfo} f
 import {CommandBar} from "@/components/CommandBar";
 import {usePackBomMatrixCommands, type FormMode, type PackBomMatrixCommandContext} from "./command";
 import BomMatrixEdit from "./models/bomMatrixEdit";
-import BomMatrixPush from "./models/bomMatrixPush";
+import MatrixPushModal, {type MatrixPushApi} from "@/components/nc/matrixPushModal.tsx";
 import {toStringOrEmpty} from "@/utils";
+import {useTabs} from "@/store/tabs";
 import {ErrorMessage} from "@/api/request.ts";
 import {SearchOutlined} from "@ant-design/icons";
-import PushView from "@/components/nc/bomMatrix/pushView.tsx";
+import MatrixPushView from "@/components/nc/matrixPushView.tsx";
 
 /**
  * V0277_V0354 包装 BOM 矩阵
@@ -43,10 +44,25 @@ const LIST_REQUEST_TIMEOUT_MS = 12000;
  */
 const PUSH_RULE_SECTION = 'pushRules';
 
+/**
+ * 发布弹窗要的四个接口。
+ *
+ * 模块级常量：它是 `MatrixPushModal` 的 `loadRules` 依赖，每次渲染新建一个对象
+ * 会让「打开就取规则」的 effect 反复触发。
+ */
+const PUSH_API: MatrixPushApi = {
+    rules: packBomMatrixApi.pushRules,
+    push: packBomMatrixApi.push,
+    cancelPush: packBomMatrixApi.cancelPush,
+    updatePush: packBomMatrixApi.updatePush,
+};
+
 const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({view, trail}) => {
 
     /** antd 的上下文版 message / modal：命令条那层要用（见 commands.tsx 的 CommandContext） */
     const {message, modal} = App.useApp();
+    /** 跨页跳转（「工艺矩阵」按钮）：目标页是另一个 View，只有标签页层知道怎么打开 */
+    const {openView} = useTabs();
 
     const [bomMatrix, setBomMatrix] = useState<PackBomMatrix>({});
     /**
@@ -237,9 +253,16 @@ const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({view, trail}) => {
 
     const handleCloseForm = useCallback(() => setFormOpen(false), []);
 
+    /**
+     * 打开这一份包装 BOM 对应的工艺矩阵（另一页 V0277_V0367）。
+     *
+     * 传物料编码过去，让对方按它过滤：同一个物料可能有多份工艺矩阵（不同版本），
+     * 但用户从这一行点过去，想看的就是这个物料的工艺。**不能传矩阵主键** ——
+     * 两张表的主键各是各的，工艺矩阵得按物料重新查。
+     */
     const handleOpenProcessMatrix = useCallback((matrix: PackBomMatrix) => {
-        void message.info(`「${toStringOrEmpty(matrix.PackMaterialCode)}」的工艺矩阵：对应页面还没接入`);
-    }, [message]);
+        openView('V0277_V0367', {materialCode: toStringOrEmpty(matrix.PackMaterialCode)});
+    }, [openView]);
 
     /**
      * 发布弹窗（「包装BOM矩阵明细」）。
@@ -376,7 +399,8 @@ const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({view, trail}) => {
         {
             key: PUSH_RULE_SECTION,
             label: '发布情况',
-            children: <PushView Datas={pushData} VersionFieldName={'Bom矩阵版本'} VersionField={'BomVersion'}/>,
+            children: <MatrixPushView Datas={pushData} RowKeyField={'PackBomMatrixRuleID'}
+                                      VersionFieldName={'Bom矩阵版本'} VersionField={'BomVersion'}/>,
         },
     ], [pushData]);
 
@@ -475,13 +499,18 @@ const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({view, trail}) => {
                 </Splitter>
             </div>
             {/* 发布弹窗：命令条的「发布」与编辑弹窗的「生成」打开的是同一个界面 */}
-            <BomMatrixPush open={pushOpen}
-                           matrixID={toStringOrEmpty(pushRecord?.PackBomMatrixID)}
-                           matrixLabel={[toStringOrEmpty(pushRecord?.PackMaterialCode), toStringOrEmpty(pushRecord?.PackMaterialName)]
-                               .filter((text) => text !== '').join(' ')}
-                           // 发布状态变了：第四个标签页要跟着刷新，否则关掉弹窗还是发布前那份
-                           onChanged={() => void reloadPushRules()}
-                           onClose={handleClosePush}/>
+            <MatrixPushModal open={pushOpen}
+                             title={'包装BOM矩阵明细'}
+                             matrixID={toStringOrEmpty(pushRecord?.PackBomMatrixID)}
+                             matrixLabel={[toStringOrEmpty(pushRecord?.PackMaterialCode), toStringOrEmpty(pushRecord?.PackMaterialName)]
+                                 .filter((text) => text !== '').join(' ')}
+                             RuleKeyField={'PackBomMatrixRuleID'}
+                             VersionField={'BomVersion'}
+                             VersionFieldName={'BOM版本'}
+                             api={PUSH_API}
+                             // 发布状态变了：第四个标签页要跟着刷新，否则关掉弹窗还是发布前那份
+                             onChanged={() => void reloadPushRules()}
+                             onClose={handleClosePush}/>
             {/* 新增 / 编辑 / 复用的表单弹窗（保存 / 生成 / 复制都在它自己的工具栏里）。
                 传 view 是因为弹窗自己注册界面桥：打开时它顶掉页面的动作表与列表数据，
                 关闭后再让位回来 —— 桥按 view 找「这一页上打开的是哪个弹窗」。 */}

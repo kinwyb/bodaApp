@@ -1,0 +1,129 @@
+/*
+ * 工艺路线矩阵表单弹窗（新增 / 编辑 / 复制）的布局。
+ *
+ * 与 `bomMatrixEdit.css` 同一套观感（分组标题条 + 字段网格 + 下半部分编辑态表格），
+ * 类名独立：那是包装 BOM 的布局，将来任何一方调整都不该牵动对方。
+ */
+
+/*
+ * 弹窗整体高度：撑到视口内，剩下的都给表格。
+ *
+ * 选择器必须是 **`.ant-modal-container`**：antd v6 的弹窗结构是
+ * `.ant-modal > .ant-modal-container > .ant-modal-header / .ant-modal-body`，
+ * 已经没有 `.ant-modal-content` 了。写成老类名会静默失效 ——
+ * 表现是弹窗高度只由内容决定，小屏上整块顶出视口、底部被裁掉。
+ */
+.process-matrix-edit .ant-modal-container {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 140px);
+    max-height: 860px;
+}
+
+.process-matrix-edit .ant-modal-body {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    padding-top: 4px;
+    /* 屏幕矮到「表单 + 表格最小高度」都放不下时，滚动收在这一层，别顶出弹窗外 */
+    overflow-y: auto;
+}
+
+/*
+ * 顶部工具栏：图标在上、文字在下，与页面命令条同一套观感。
+ * 左右两个间距是给 antd 的焦点环留位置（环不占布局空间，贴太近会被裁掉）。
+ */
+.process-matrix-edit-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 2px 6px 8px;
+    margin-bottom: 8px;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.process-matrix-edit-action.ant-btn {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    height: auto;
+    min-width: 56px;
+    padding: 6px 6px 5px;
+    font-size: 12px;
+    line-height: 1.2;
+}
+
+.process-matrix-edit-action.ant-btn .anticon {
+    font-size: 18px;
+    color: #1677ff;
+}
+
+/* 工具栏里的竖分割线：「保存」与「生成 / 复制」的分界 */
+.ant-divider.process-matrix-edit-divider {
+    height: 32px;
+    margin: 0;
+    border-color: #e5e5e5;
+}
+
+/* 分组：标题条 + 字段网格 */
+.process-matrix-group {
+    border: 1px solid #e5e5e5;
+    border-radius: 3px;
+    overflow: hidden;
+    margin-bottom: 8px;
+}
+
+.process-matrix-group-title {
+    padding: 3px 8px;
+    font-size: 12px;
+    color: rgba(0, 0, 0, 0.72);
+    background: #e9e9e9;
+    border-bottom: 1px solid #e5e5e5;
+}
+
+/*
+ * 每行四个字段；窗口或工作台收窄时按 220px 一列自动折行 ——
+ * 弹窗在工作台里会被 agent 面板挤窄，写死 4 列会让输入框缩成一条缝。
+ */
+.process-matrix-fields {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 0 12px;
+    padding: 8px 8px 0;
+}
+
+.process-matrix-fields .ant-form-item {
+    margin-bottom: 8px;
+}
+
+.process-matrix-fields .ant-form-item-label > label {
+    font-size: 12px;
+    color: rgba(0, 0, 0, 0.65);
+}
+
+/* 下半部分：编辑态工序明细。吃掉表单剩下的高度（`page-tabs-fill` 要确定高度才有参照） */
+.process-matrix-edit-table {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 260px;
+    border: 1px solid #e5e5e5;
+    border-radius: 3px;
+    overflow: hidden;
+    padding: 4px;
+}
+
+.process-matrix-edit-loading {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    font-size: 13px;
+    color: rgba(0, 0, 0, 0.45);
+}

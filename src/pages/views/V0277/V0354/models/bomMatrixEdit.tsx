@@ -55,7 +55,7 @@ import {
     SEW_FIELDS,
 } from "./bomMatrixEditBridge";
 import "./bomMatrixEdit.css";
-import BomMatrixPush from "./bomMatrixPush";
+import MatrixPushModal, {type MatrixPushApi} from "@/components/nc/matrixPushModal.tsx";
 
 export type BomMatrixEditProps = {
     open: boolean;
@@ -78,6 +78,19 @@ export type BomMatrixEditProps = {
      */
     onSaved?: (matrixID: string) => void;
     onClose: () => void;
+};
+
+/**
+ * 发布弹窗要的四个接口。
+ *
+ * 模块级常量：它是 `MatrixPushModal` 的 `loadRules` 依赖，每次渲染新建对象会让
+ * 「打开就取规则」的 effect 反复触发。
+ */
+const PUSH_API: MatrixPushApi = {
+    rules: packBomMatrixApi.pushRules,
+    push: packBomMatrixApi.push,
+    cancelPush: packBomMatrixApi.cancelPush,
+    updatePush: packBomMatrixApi.updatePush,
 };
 
 /** 标题按模式来：复制与新增是同一套空表单，但用户要知道自己在复制哪一份 */
@@ -1432,11 +1445,16 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
              * 生成：打开「包装BOM矩阵明细」发布弹窗（与原系统同一个窗体）。
              * 嵌套在编辑弹窗里由 antd 自己管层级；`destroyOnHidden` 保证每次打开都是新会话。
              */}
-            <BomMatrixPush open={pushOpen}
-                           matrixID={recordID}
-                           matrixLabel={[toStringOrEmpty(baseRecord?.PackMaterialCode), toStringOrEmpty(baseRecord?.PackMaterialName)]
-                               .filter((text) => text !== '').join(' ')}
-                           onClose={handleClosePush}/>
+            <MatrixPushModal open={pushOpen}
+                             title={'包装BOM矩阵明细'}
+                             matrixID={recordID}
+                             matrixLabel={[toStringOrEmpty(baseRecord?.PackMaterialCode), toStringOrEmpty(baseRecord?.PackMaterialName)]
+                                 .filter((text) => text !== '').join(' ')}
+                             RuleKeyField={'PackBomMatrixRuleID'}
+                             VersionField={'BomVersion'}
+                             VersionFieldName={'BOM版本'}
+                             api={PUSH_API}
+                             onClose={handleClosePush}/>
         </>
     );
 };

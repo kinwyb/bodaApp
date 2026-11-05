@@ -1,8 +1,7 @@
 /*
- * 「包装BOM矩阵明细」发布弹窗的版式。
+ * 矩阵发布弹窗的版式（包装 BOM 矩阵与工艺路线矩阵共用）。
  *
- * 与 `bomMatrixEdit.css` 同一套观感（顶部图标竖排按钮 + 下方吃掉剩余高度的表格），
- * 但刻意不复用那边的类名：那是「编辑矩阵」的布局，将来两边任何一方调整都不该牵动对方。
+ * 顶部图标竖排按钮 + 下方吃掉剩余高度的表格。
  */
 
 /*
@@ -13,7 +12,7 @@
  * 不再是 v5 的 `.ant-modal-content`。写成老类名会静默失效 ——
  * 表现就是弹窗只有内容那么高、表格高度塌成 0。
  */
-.bom-matrix-push .ant-modal-container {
+.matrix-push .ant-modal-container {
     display: flex;
     flex-direction: column;
     height: calc(100vh - 220px);
@@ -21,7 +20,7 @@
     min-height: 420px;
 }
 
-.bom-matrix-push .ant-modal-body {
+.matrix-push .ant-modal-body {
     display: flex;
     flex-direction: column;
     flex: 1;
@@ -30,13 +29,13 @@
 }
 
 /* 标题：主标题 + 一小行「是哪一份矩阵」，避免同时开着几份时分不清 */
-.bom-matrix-push-title {
+.matrix-push-title {
     display: flex;
     align-items: baseline;
     gap: 10px;
 }
 
-.bom-matrix-push-subtitle {
+.matrix-push-subtitle {
     font-size: 12px;
     font-weight: normal;
     color: rgba(0, 0, 0, 0.45);
@@ -46,7 +45,7 @@
  * 顶部工具栏：图标在上、文字在下，与页面命令条 / 编辑弹窗的工具栏同一套观感。
  * 间距是给 antd 的焦点环留位置（环不占布局空间，贴太近会被裁掉）。
  */
-.bom-matrix-push-toolbar {
+.matrix-push-toolbar {
     display: flex;
     align-items: center;
     gap: 8px;
@@ -55,7 +54,7 @@
     border-bottom: 1px solid #f0f0f0;
 }
 
-.bom-matrix-push-action.ant-btn {
+.matrix-push-action.ant-btn {
     display: inline-flex;
     flex-direction: column;
     align-items: center;
@@ -68,29 +67,29 @@
     line-height: 1.2;
 }
 
-.bom-matrix-push-action.ant-btn .anticon {
+.matrix-push-action.ant-btn .anticon {
     font-size: 18px;
-    /* 发布：绿勾（与截图一致） */
+    /* 发布：绿勾（与原界面一致） */
     color: #52c41a;
 }
 
-.bom-matrix-push-action-cancel.ant-btn .anticon {
+.matrix-push-action-cancel.ant-btn .anticon {
     color: #ff4d4f;
 }
 
-.bom-matrix-push-action-update.ant-btn .anticon {
+.matrix-push-action-update.ant-btn .anticon {
     color: #faad14;
 }
 
 /* 操作范围说明：靠右、小一号，别和按钮抢注意力 */
-.bom-matrix-push-hint {
+.matrix-push-hint {
     margin-left: auto;
     font-size: 12px;
     color: rgba(0, 0, 0, 0.45);
 }
 
 /* 表格区：吃掉工具栏剩下的高度（GridTable 是 height:100%，父级必须有确定高度） */
-.bom-matrix-push-table {
+.matrix-push-table {
     position: relative;
     display: flex;
     flex-direction: column;
@@ -103,7 +102,7 @@
 }
 
 /* 首次加载的占位：独立一层而不是盖在空表上，避免「空表闪一下再整块重铺」 */
-.bom-matrix-push-loading {
+.matrix-push-loading {
     display: flex;
     flex: 1;
     flex-direction: column;
@@ -118,7 +117,7 @@
  * 动作进行中的遮罩：调接口时表格不能再被点（否则可以在同一批行上叠两次发布）。
  * 半透明白而不是纯灰 —— 用户需要看到「刚才那几行还在」。
  */
-.bom-matrix-push-busy {
+.matrix-push-busy {
     position: absolute;
     inset: 0;
     z-index: 2;
