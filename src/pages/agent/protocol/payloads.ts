@@ -185,6 +185,17 @@ export type SessionListResult = {
   nextBeforeThreadID?: string;
 };
 
+/** protocol.SessionDeleteData（上行：软删除一个对话线程） */
+export type SessionDeleteData = {
+  threadID: string;
+};
+
+/** protocol.SessionDeleteResult（下行） */
+export type SessionDeleteResult = {
+  threadID?: string;
+  deleted?: boolean;
+};
+
 /** protocol.SessionHistoryData（上行） */
 export type SessionHistoryData = {
   sessionID?: string;

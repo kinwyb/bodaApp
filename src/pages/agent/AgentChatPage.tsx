@@ -252,12 +252,14 @@ const AgentChatPage: React.FC<AgentChatPageProps> = ({ embedded = false }) => {
               activeKey={chat.activeKey}
               loading={chat.sessionsLoading}
               hasMore={chat.sessionsHasMore}
+              deletingKeys={chat.deletingConversationKeys}
               // 打开浮层时刷新一次：别的端刚聊过的对话也能看到
               onOpenChange={(open) => {
                 if (open) chat.refreshSessions();
               }}
               onSwitch={chat.switchConversation}
               onCreate={chat.createConversation}
+              onDelete={chat.deleteConversation}
               onLoadMore={chat.loadMoreSessions}
             />
           }

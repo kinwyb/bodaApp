@@ -46,6 +46,8 @@ export const CLIENT_TYPE = {
   sessionHistory: 'session.history',
   /** 拉取对话列表（一条对应一个 thread） */
   sessionList: 'session.list',
+  /** 软删除一个对话线程 */
+  sessionDelete: 'session.delete',
   /** 回放单轮的完整执行过程 */
   turnReplay: 'session.turn.replay',
   ping: 'ping',
@@ -63,6 +65,8 @@ export const SYSTEM_TYPE = {
   sessionHistory: 'session.history',
   /** 对话列表响应与上行同名 */
   sessionList: 'session.list',
+  /** 删除对话响应与上行同名 */
+  sessionDelete: 'session.delete',
   /** 单轮回放响应与上行同名 */
   turnReplay: 'session.turn.replay',
 } as const;

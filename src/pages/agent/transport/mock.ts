@@ -247,6 +247,17 @@ export function createMockTransport(): AgentTransport {
       }, 120);
     },
 
+    deleteSession(query) {
+      // 演示模式没有真实落库数据，走一遍与真实响应相同的语义事件。
+      setTimeout(() => {
+        emit({
+          type: 'session-deleted',
+          conversationId: query.conversationId,
+          threadId: query.threadId,
+        });
+      }, 120);
+    },
+
     abort() {
       cancelled = true;
     },

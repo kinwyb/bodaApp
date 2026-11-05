@@ -7,13 +7,20 @@
 
 import type { AgentConnectionStatus } from '../types';
 import { AGENT_MAX_AUTO_RETRY } from '../constants';
-import type { AgentEnvelope, HistoryMode, SessionHistoryResult, TurnReplayResult } from '../protocol';
+import type {
+  AgentEnvelope,
+  HistoryMode,
+  SessionDeleteResult,
+  SessionHistoryResult,
+  TurnReplayResult,
+} from '../protocol';
 import {
   SYSTEM_TYPE,
   UI_TYPE,
   buildChatCancel,
   buildChatSend,
   buildPing,
+  buildSessionDelete,
   buildSessionHistory,
   buildSessionList,
   buildTurnReplay,
@@ -34,7 +41,7 @@ import type { AgentHello, AgentTransport, AgentUIRequest } from './types';
 import { installFrameTrace, traceIncoming, traceUplink } from './frame-trace';
 
 /** 上行请求的类别：决定响应回来时用哪种方式解析 */
-type PendingKind = 'chat' | 'history' | 'replay' | 'sessions';
+type PendingKind = 'chat' | 'history' | 'replay' | 'sessions' | 'delete';
 
 /**
  * 重连退避：1s → 2s → 4s → 8s → 15s（封顶），最多自动重试 AGENT_MAX_AUTO_RETRY 次。
@@ -72,7 +79,10 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
   const uiListeners = new Set<(request: AgentUIRequest) => void>();
 
   /** 上行信封 id → 请求上下文（ack / error / 历史 / 回放 靠 replyTo 找回） */
-  const pending = new Map<string, { conversationId: string; kind: PendingKind; mode: HistoryMode }>();
+  const pending = new Map<
+    string,
+    { conversationId: string; kind: PendingKind; mode: HistoryMode; threadId?: string }
+  >();
   /** sessionID → 会话 key */
   const sessions = new Map<string, string>();
 
@@ -133,13 +143,14 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
   /** 发送一条上行信封，并登记它属于哪个会话 */
   const postEnvelope = (
     envelope: AgentEnvelope,
-    related?: { conversationId: string; kind?: PendingKind; mode?: HistoryMode },
+    related?: { conversationId: string; kind?: PendingKind; mode?: HistoryMode; threadId?: string },
   ) => {
     if (related) {
       pending.set(envelope.id, {
         conversationId: related.conversationId,
         kind: related.kind ?? 'chat',
         mode: related.mode ?? 'replace',
+        threadId: related.threadId,
       });
     }
     rawPost(JSON.stringify(envelope));
@@ -246,6 +257,28 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
         break;
       }
 
+      case SYSTEM_TYPE.sessionDelete: {
+        const result = (envelope.data ?? {}) as SessionDeleteResult;
+        const request = envelope.replyTo ? pending.get(envelope.replyTo) : undefined;
+        if (envelope.replyTo) pending.delete(envelope.replyTo);
+
+        const conversationId =
+          request?.conversationId ?? conversationIdOf(envelope.sessionID, sessions, identity);
+        const threadId = result.threadID || request?.threadId || '';
+        if (!conversationId || !threadId) break;
+        if (result.deleted === false) {
+          emit({
+            type: 'session-delete-error',
+            conversationId,
+            threadId,
+            message: '服务端未删除该对话',
+          });
+          break;
+        }
+        emit({ type: 'session-deleted', conversationId, threadId });
+        break;
+      }
+
       case SYSTEM_TYPE.turnReplay: {
         const result = (envelope.data ?? {}) as TurnReplayResult;
         const request = envelope.replyTo ? pending.get(envelope.replyTo) : undefined;
@@ -277,6 +310,15 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
         const data = parseError(envelope.data);
         const request = envelope.replyTo ? pending.get(envelope.replyTo) : undefined;
         if (envelope.replyTo) pending.delete(envelope.replyTo);
+        if (request?.kind === 'delete') {
+          emit({
+            type: 'session-delete-error',
+            conversationId: request.conversationId,
+            threadId: request.threadId ?? '',
+            message: data.message,
+          });
+          break;
+        }
         emit({
           type: 'error',
           // 找不到归属会话时作为连接级错误
@@ -574,6 +616,13 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
 
     sessions(query) {
       postEnvelope(buildSessionList(query), { conversationId: '', kind: 'sessions' });
+    },
+
+    deleteSession(query) {
+      postEnvelope(
+        buildSessionDelete({ threadID: query.threadId }),
+        { conversationId: query.conversationId, kind: 'delete', threadId: query.threadId },
+      );
     },
 
     abort(conversationId, sessionId) {

@@ -47,6 +47,7 @@ export type {
   AgentHistoryQuery,
   AgentReplayQuery,
   AgentSendPayload,
+  AgentSessionDeleteQuery,
   AgentTransport,
   AgentUIRequest,
 } from './types';

@@ -72,6 +72,12 @@ export type AgentSessionQuery = {
   beforeThreadID?: string;
 };
 
+/** 删除一个已落库对话线程；threadID 由服务端反查所属会话并校验归属 */
+export type AgentSessionDeleteQuery = {
+  conversationId: string;
+  threadId: string;
+};
+
 /** hello 握手信息 */
 export type AgentHello = HelloInfo;
 
@@ -100,6 +106,8 @@ export type AgentTransport = {
   history(query: AgentHistoryQuery): void;
   /** 拉取对话列表（session.list），结果通过 onSessions 回调 */
   sessions(query?: AgentSessionQuery): void;
+  /** 软删除一个已落库对话线程（session.delete） */
+  deleteSession(query: AgentSessionDeleteQuery): void;
   /** 回放某一轮的完整执行过程（不限帧数、不截断） */
   replay(query: AgentReplayQuery): void;
   /** 中断当前会话；已知 sessionID 时带上，避免用本地 key 去推导 */

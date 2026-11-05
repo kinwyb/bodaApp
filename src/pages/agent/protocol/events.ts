@@ -88,6 +88,10 @@ export type AgentStreamEvent =
    * 草稿没有 threadID，靠 sessionID 才能认领自己在列表里的那一项，避免刷新列表后重复出现。
    */
   | { type: 'session-bound'; conversationId: string; sessionId: string }
+  /** 服务端确认对话已软删除 */
+  | { type: 'session-deleted'; conversationId: string; threadId: string }
+  /** 删除失败，保持列表项不变并把原因交给全局错误提示 */
+  | { type: 'session-delete-error'; conversationId: string; threadId: string; message: string }
   /** conversationId 为空表示连接级错误 */
   | { type: 'error'; conversationId: string; message: string };
 

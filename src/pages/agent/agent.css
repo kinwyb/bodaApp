@@ -37,10 +37,11 @@
 }
 
 .agent-conv-item {
+  position: relative;
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  padding: 6px 8px;
+  padding: 6px 32px 6px 8px;
   border-radius: 6px;
   cursor: pointer;
 }
@@ -53,6 +54,11 @@
 .agent-conv-item-active,
 .agent-conv-item-active:hover {
   background: #e6f4ff;
+}
+
+.agent-conv-item-deleting {
+  cursor: default;
+  opacity: 0.72;
 }
 
 .agent-conv-icon {
@@ -99,6 +105,28 @@
   flex: 0 0 auto;
   font-size: 11px;
   color: rgba(0, 0, 0, 0.35);
+}
+
+.agent-conv-actions {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.agent-conv-item:hover .agent-conv-actions,
+.agent-conv-item:focus-within .agent-conv-actions,
+.agent-conv-item-active .agent-conv-actions,
+.agent-conv-item-deleting .agent-conv-actions {
+  opacity: 1;
+}
+
+.agent-conv-delete.ant-btn {
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  padding: 0;
 }
 
 /* 末轮回答摘要：一行，超出省略 —— 两行会把列表撑得很高 */

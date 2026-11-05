@@ -15,6 +15,8 @@ export type { SessionListInput } from './session-list';
 export { buildSessionList } from './session-list';
 export type { SessionHistoryInput } from './session-history';
 export { buildSessionHistory } from './session-history';
+export type { SessionDeleteInput } from './session-delete';
+export { buildSessionDelete } from './session-delete';
 export type { TurnReplayInput } from './turn-replay';
 export { buildTurnReplay } from './turn-replay';
 export { buildPing } from './ping';

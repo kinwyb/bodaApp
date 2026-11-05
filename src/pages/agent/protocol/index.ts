@@ -71,6 +71,8 @@ export type {
   HistoryThreadData,
   HistoryTurnData,
   PongData,
+  SessionDeleteData,
+  SessionDeleteResult,
   SessionHistoryData,
   SessionListData,
   SessionListItem,

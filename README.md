@@ -417,7 +417,7 @@ src/pages/agent/
 │   ├── envelope.ts   信封（{ v,id,kind,type,sessionID,replyTo,seq,ts,data }）与常量
 │   ├── payloads.ts / events.ts
 │   ├── ui.ts         ★ 界面操作协议（快照/补丁/请求/回执）
-│   ├── uplink/       chat.send / chat.cancel / session.history / session.list / ping
+│   ├── uplink/       chat.send / chat.cancel / session.history / session.list / session.delete / ping
 │   └── downlink/     message / reasoning / tool / approval / usage / attachments …
 ├── transport/     # 连接实现：websocket 与 mock，把协议翻成语义事件
 ├── chat/          # 会话状态机与 hook（reducer、流式缓冲），不 import 任何 antd/x

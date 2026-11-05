@@ -90,6 +90,8 @@ export type AgentChatApi = {
   sessionsLoading: boolean;
   /** 会话列表还有更早的（服务端 hasMore） */
   sessionsHasMore: boolean;
+  /** 正在等待服务端确认删除的会话 key */
+  deletingConversationKeys: string[];
   /** 重新拉会话列表（打开会话浮层时调） */
   refreshSessions: () => void;
   /** 翻页：拉更早的会话 */
@@ -120,6 +122,7 @@ export function useAgentChat(): AgentChatApi {
   const [lastError, setLastError] = useState('');
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [sessionsHasMore, setSessionsHasMore] = useState(false);
+  const [deletingConversationKeys, setDeletingConversationKeys] = useState<string[]>([]);
   // 传输方式是构建期就能确定的（看有没有配 VITE_AGENT_WS_URL），不需要 state
   const mode = agentTransportMode();
 
@@ -140,6 +143,19 @@ export function useAgentChat(): AgentChatApi {
   const uiEventBatchInFlightRef = useRef(false);
   /** 事件 sink 不应依赖 React 渲染闭包 */
   const connectionRef = useRef<AgentConnectionStatus>('idle');
+  const deletingKeysRef = useRef(new Set<string>());
+
+  const beginDeletingConversation = useCallback((key: string): boolean => {
+    if (deletingKeysRef.current.has(key)) return false;
+    deletingKeysRef.current.add(key);
+    setDeletingConversationKeys([...deletingKeysRef.current]);
+    return true;
+  }, []);
+
+  const finishDeletingConversation = useCallback((key: string) => {
+    if (!deletingKeysRef.current.delete(key)) return;
+    setDeletingConversationKeys([...deletingKeysRef.current]);
+  }, []);
 
   useEffect(() => {
     stateRef.current = state;
@@ -313,6 +329,20 @@ export function useAgentChat(): AgentChatApi {
             sessionId: event.sessionId,
           });
           break;
+        case 'session-deleted':
+          finishDeletingConversation(event.conversationId);
+          if (event.conversationId === stateRef.current.activeKey) {
+            setUIEventCaptureEnabled(false);
+            uiEventBufferRef.current = [];
+            uiEventBatchInFlightRef.current = false;
+            clearWaitConfirms();
+          }
+          dispatch({ type: 'remove', key: event.conversationId });
+          break;
+        case 'session-delete-error':
+          finishDeletingConversation(event.conversationId);
+          setLastError(event.message);
+          break;
         case 'error':
           dispatch({ type: 'fail', conversationKey: event.conversationId, message: event.message });
           uiEventBatchInFlightRef.current = false;
@@ -362,6 +392,7 @@ export function useAgentChat(): AgentChatApi {
 
     transport.connect();
 
+    const deletingKeys = deletingKeysRef.current;
     return () => {
       offEvent();
       offStatus();
@@ -372,6 +403,7 @@ export function useAgentChat(): AgentChatApi {
       offUIEvent();
       uiEventBufferRef.current = [];
       uiEventBatchInFlightRef.current = false;
+      deletingKeys.clear();
       clearWaitConfirms();
       setUIEventCaptureEnabled(false);
       streamBuffer.cancel();
@@ -379,7 +411,7 @@ export function useAgentChat(): AgentChatApi {
       transport.disconnect();
       transportRef.current = null;
     };
-  }, []);
+  }, [finishDeletingConversation]);
 
   /** 拉会话列表：refresh = 从第一页重来，append = 用游标续拉 */
   const requestSessions = useCallback((mode: 'replace' | 'append') => {
@@ -602,14 +634,33 @@ export function useAgentChat(): AgentChatApi {
   }, []);
 
   const deleteConversation = useCallback((key: string) => {
-    if (key === stateRef.current.activeKey) {
+    const conversation = stateRef.current.conversations.find((item) => item.key === key);
+    if (!conversation) return;
+
+    const clearActiveInteraction = () => {
+      if (key !== stateRef.current.activeKey) return;
       setUIEventCaptureEnabled(false);
       uiEventBufferRef.current = [];
       uiEventBatchInFlightRef.current = false;
       clearWaitConfirms();
+    };
+
+    // 还没落库的草稿只存在于本地，直接移除即可。
+    if (!conversation.threadId) {
+      clearActiveInteraction();
+      dispatch({ type: 'remove', key });
+      return;
     }
-    dispatch({ type: 'remove', key });
-  }, []);
+
+    if (!beginDeletingConversation(key)) return;
+    const transport = transportRef.current;
+    if (!transport) {
+      finishDeletingConversation(key);
+      setLastError('连接尚未建立，暂时无法删除对话');
+      return;
+    }
+    transport.deleteSession({ conversationId: key, threadId: conversation.threadId });
+  }, [beginDeletingConversation, finishDeletingConversation]);
 
   const clearMessages = useCallback(() => {
     setUIEventCaptureEnabled(false);
@@ -674,6 +725,7 @@ export function useAgentChat(): AgentChatApi {
     clearError,
     sessionsLoading,
     sessionsHasMore,
+    deletingConversationKeys,
     refreshSessions,
     loadMoreSessions,
     reconnect,

@@ -8,8 +8,8 @@
  */
 
 import React, { useCallback, useMemo, useState } from 'react';
-import { Button, Empty, Popover, Tooltip } from 'antd';
-import { LoadingOutlined, MessageOutlined, PlusOutlined } from '@ant-design/icons';
+import { Button, Empty, Popconfirm, Popover, Tooltip } from 'antd';
+import { DeleteOutlined, LoadingOutlined, MessageOutlined, PlusOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import type { AgentConversation } from '../types';
 
@@ -32,19 +32,24 @@ export const AgentConversationPanel: React.FC<{
   loading: boolean;
   /** 服务端还有更早的对话 */
   hasMore: boolean;
+  /** 正在等待服务端确认删除的会话 key */
+  deletingKeys: string[];
   /** 打开 / 关闭浮层（打开时外层去刷新列表） */
   onOpenChange?: (open: boolean) => void;
   onSwitch: (key: string) => void;
   onCreate: () => void;
+  onDelete: (key: string) => void;
   onLoadMore: () => void;
 }> = ({
   conversations,
   activeKey,
   loading,
   hasMore,
+  deletingKeys,
   onOpenChange,
   onSwitch,
   onCreate,
+  onDelete,
   onLoadMore,
 }) => {
   const [open, setOpen] = useState(false);
@@ -87,29 +92,55 @@ export const AgentConversationPanel: React.FC<{
         {items.length === 0 ? (
           <Empty className="agent-conv-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有会话" />
         ) : (
-          items.map(({ conversation, time }) => (
-            <div
-              key={conversation.key}
-              className={`agent-conv-item${
-                conversation.key === activeKey ? ' agent-conv-item-active' : ''
-              }`}
-              onClick={() => handleSwitch(conversation.key)}
-            >
-              <MessageOutlined className="agent-conv-icon" />
-              <div className="agent-conv-body">
-                <div className="agent-conv-line">
-                  <span className="agent-conv-label" title={conversation.label}>
-                    {conversation.label}
-                  </span>
-                  <span className="agent-conv-time">{time}</span>
+          items.map(({ conversation, time }) => {
+            const deleting = deletingKeys.includes(conversation.key);
+            return (
+              <div
+                key={conversation.key}
+                className={`agent-conv-item${
+                  conversation.key === activeKey ? ' agent-conv-item-active' : ''
+                }${deleting ? ' agent-conv-item-deleting' : ''}`}
+                onClick={() => handleSwitch(conversation.key)}
+              >
+                <MessageOutlined className="agent-conv-icon" />
+                <div className="agent-conv-body">
+                  <div className="agent-conv-line">
+                    <span className="agent-conv-label" title={conversation.label}>
+                      {conversation.label}
+                    </span>
+                    <span className="agent-conv-time">{time}</span>
+                  </div>
+                  {/* 服务端给的末轮回答摘要（80 字），一眼能认出是哪次对话 */}
+                  {conversation.preview ? (
+                    <div className="agent-conv-preview">{conversation.preview}</div>
+                  ) : null}
                 </div>
-                {/* 服务端给的末轮回答摘要（80 字），一眼能认出是哪次对话 */}
-                {conversation.preview ? (
-                  <div className="agent-conv-preview">{conversation.preview}</div>
-                ) : null}
+                <div className="agent-conv-actions" onClick={(event) => event.stopPropagation()}>
+                  <Popconfirm
+                    title="删除这个对话？"
+                    description="删除后不再出现在列表，也不能继续加载历史记录。"
+                    okText="删除"
+                    cancelText="取消"
+                    okButtonProps={{ danger: true }}
+                    disabled={deleting}
+                    onConfirm={() => onDelete(conversation.key)}
+                  >
+                    <Tooltip title="删除对话">
+                      <Button
+                        type="text"
+                        size="small"
+                        danger
+                        className="agent-conv-delete"
+                        icon={<DeleteOutlined />}
+                        loading={deleting}
+                        aria-label="删除对话"
+                      />
+                    </Tooltip>
+                  </Popconfirm>
+                </div>
               </div>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
 
