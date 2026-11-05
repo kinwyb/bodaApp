@@ -768,9 +768,10 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
     }, [form]);
 
     /**
-     * 选中项目：**主键与编码是一组**（后端 `ProjectID` / `ProjectCode` 都要）。
+     * 定下一个项目：**编码与主键是一组**（后端 `ProjectID` / `ProjectCode` 都要）。
      *
-     * 编码那一格由 `ProjectSelect` 自己写（受控），这里补的是主键 ——
+     * 两条路都落到这里：界面上选中项目（`ProjectSelect` 的 onSelect）、
+     * agent 写项目号查库命中（桥经 `ctx.applyProject` 调它）——
      * 只留编码不写主键，保存时会被「请选择订单号」挡下（原系统就是这么判的）。
      */
     const applyProject = useCallback((project: NCProject) => {
@@ -1204,6 +1205,7 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
         fieldLock,
         applyMaterial: applyMaterialByGroup,
         applyConvert: applyConvertByGroup,
+        applyProject,
         matrixReadable: detailReady,
         matrix,
         activeKey,
@@ -1217,6 +1219,7 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
         close: onClose,
     }), [
         mode, recordID, hasRecord, form, detailReady, fieldLock, applyMaterialByGroup, applyConvertByGroup,
+        applyProject,
         matrix, activeKey, readMatrixRows, readMatrixGrid, matrixEditLock, readValueOptions,
         formErrors, submit, onClose,
     ]);
@@ -1236,7 +1239,7 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
      *
      * - 物料编码：`MaterialSelect`（输入框 + 弹窗 + 输入编码查库，组件自己管这几个交互）；
      * - 单位：`ConvertSelect`（按**这个物料的**换算单位选，选完带出换算率）；
-     * - 项目：`ProjectSelect`（项目分类树 + 分页列表，选完带出项目主键）；
+     * - 项目：`ProjectSelect`（输入项目号查库 / 分类树里挑，选完带出项目主键）；
      * - 其余：普通输入框，`readOnly` 的禁用（值由物料带出）。
      */
     const renderControl = useCallback((field: BomMatrixFormField) => {

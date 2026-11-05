@@ -84,13 +84,8 @@ export type BomMatrixFormField = {
     material?: BomMatrixFieldGroup;
     /** 单位：界面上是 ConvertSelect（候选来自这个物料的换算单位） */
     convert?: BomMatrixFieldGroup;
-    /**
-     * 项目：界面上是 ProjectSelect（分类树 + 按项目号查一次）。
-     *
-     * 它是唯一「一个字段对应两个值」的：`ProjectCode` 与 `ProjectID`（后端两者都要）——
-     * agent 侧配了对应的查询动作 `project.query`，查到 code + id 再用 form.setMany 一次写。
-     */
-    project?: true;
+    /** 项目号: 界面上是 ProjectSelect (输入项目号查库) */
+    project?: boolean,
 };
 
 /**
@@ -164,7 +159,7 @@ export const PACK_FIELDS: BomMatrixFormField[] = [
     {id: 'Cassmeasure', label: '单位', agentLabel: '包装单位', group: 'pack', type: 'text', convert: 'pack'},
     {id: 'PackMethod', label: '包装方法', agentLabel: '包装方法', group: 'pack', type: 'text'},
     {id: 'PackNum', label: '包装数量', agentLabel: '包装数量', group: 'pack', type: 'text'},
-    {id: 'ProjectCode', label: '项目', agentLabel: '项目编码', group: 'pack', type: 'text', project: true},
+    {id: 'ProjectCode', label: '项目', agentLabel: '项目名称', group: 'pack', type: 'text', project: true},
 ];
 
 /**
@@ -268,8 +263,8 @@ const FORM_GUIDE: UIGuide = {
         '要改多个字段就用 form.setMany 传一整张 {字段id: 新值}；只改一处用 form.set。字段 id 见 form.fields[].id',
         '物料编码与单位可以直接写：写编码会先按编码查库、把名称 / 版本 / 规格 / 型号 / 主单位一起带出；' +
         '写单位会从这个物料的换算单位里取，并带出换算率',
-        '**项目要成对写**：先用 project.query 查（给项目号或名称的一截，回 code + id），' +
-        '再用 form.setMany 一次写 ProjectCode 与 ProjectID —— 两个都要，保存时缺一个都不行',
+        '项目号同样可以直接写：写项目号（或项目名称）会先查库，查到就把项目主键（ProjectID）一起带出；' +
+        '查不到、或同号命中多个项目时会被如实拒绝 —— 那时请用户在界面上用项目选择器选',
         '要核对手上的矩阵数据用 matrix.get（默认读当前标签页）；换一张表先 matrix.tab',
         '改矩阵用 matrix.update 传 rowId + {字段: 新值}；加行用 matrix.add（只加在子项物料里，配色 / 配码会自动补同一行）；' +
         '删行用 matrix.remove（行号 10 那行不能删）',
@@ -286,7 +281,8 @@ const FORM_GUIDE: UIGuide = {
         产成品: '上半第二组：缝制物料（编码 3 开头），决定子项明细能不能编，也决定配色 / 配码有哪些列',
         包装方法: 'PackMethod，包装方式的文字说明',
         包装数量: 'PackNum，一份包装里的数量（接口里是字符串）',
-        订单号: 'ProjectCode + ProjectID，界面上叫「项目」：两者成对、保存时缺一不可；agent 用 project.query 查了再写，界面上用项目选择器选',
+        订单号: 'ProjectCode（项目编码）+ ProjectID（项目主键），界面上叫「项目」：agent 直接写 ProjectCode 即可，' +
+            '查库通过会顺带把 ProjectID 填上；两者保存时缺一不可',
         子项物料: '下半第一张表 items：一行一个物料，行号 10 那一行就是产成品本身',
         配色: '下半第二张表 colors：每列一个缝制颜色，格子里是该颜色下这个物料的色号',
         配码: '下半第三张表 sizes：每个尺码三列（损耗数量 / 尺码系数 / 尺码用量）',
@@ -297,8 +293,8 @@ const FORM_GUIDE: UIGuide = {
         '**不点保存就不入库**；关掉弹窗这些改动就没了 —— 别把它们当成「数据已经改好」',
         '两组的「物料编码 / 单位」短名重复：form.setMany 一律用字段 id（PackMaterialCode / SewMaterialCode / Cassmeasure / SewCassmeasure），不要用中文名',
         '物料编码写的是**编码**，不是名称也不是 VID；编码查不到、或匹配到多个版本时会被如实拒绝，交给用户在界面上选',
-        '项目（ProjectCode / ProjectID）两格都能写，但**必须成对**：只写编码会让保存卡在「请选择订单号」。' +
-        '先 project.query 拿 id，再 form.setMany 一起写；同一条编码返回多个 id 时让用户在界面上选',
+        '项目只写 ProjectCode 那一格就够（项目号或项目名称都行，查库会带出 ProjectID）：但查不到、' +
+        '或同号命中多个项目时会被拒绝，不要改去硬写 ProjectID 绕过查库 —— 那会留下「编码与主键对不上」的数据，保存时才暴露',
         '产成品那一组只认 3 开头的物料，包装成品只认 4 开头的',
         '产成品没设之前下方三张表是禁用的（界面上整块蒙住）：此时 matrix.update / add / remove 一律拒绝',
         '子项物料里「物料名称 / 版本 / 规格 / 主单位」这些列不可写（由物料带出）：要换就换 MaterialCode，整组会一起换',
@@ -347,34 +343,10 @@ const FORM_WRITE_ACTIONS: UIAction[] = [
     },
 ];
 
-/** 弹窗打开时的动作表：改字段 / 查项目 / 切矩阵标签页 / 读矩阵行 / 保存 / 关闭 */
+/** 弹窗打开时的动作表：改字段 / 切矩阵标签页 / 读矩阵行 / 保存 / 关闭 */
 function formActions(): UIAction[] {
     return [
         ...FORM_WRITE_ACTIONS,
-        {
-            /*
-             * 项目查询：项目是唯一「一个字段要两个值」的字段（`ProjectCode` + `ProjectID`），
-             * 而界面上选项目要翻分类树，agent 没有树可点 —— 给它一条按关键字查的直路。
-             */
-            id: 'project.query',
-            label: '查项目（编码 / 名称 → 编码 + 主键）',
-            group: 'form',
-            // 纯读：不回推快照、不等落定
-            returns: 'result',
-            params: [
-                {
-                    name: 'keyword',
-                    type: 'text',
-                    required: true,
-                    hint: '项目号（编码）或项目名称，支持部分匹配；不知道编码就先拿名称里的几个字查',
-                },
-                {
-                    name: 'limit',
-                    type: 'number',
-                    hint: '最多返回几个，默认 10、上限 50',
-                },
-            ],
-        },
         {
             id: 'matrix.tab',
             label: '切换矩阵标签页',
@@ -517,7 +489,7 @@ function currentFields(
         if (field.readOnly) spec.hint = field.readOnlyReason;
         else if (field.material) spec.hint = `界面上的「${field.label}」（${GROUP_LABEL[field.group]}那一组）：填编码会先查库，带出整组物料属性`;
         else if (field.convert) spec.hint = `界面上的「${field.label}」：只能从这个物料的换算单位里选，写进去会带出换算率`;
-        else if (field.project) spec.hint = '界面上的「项目」：先用 project.query 查到 code 与 id，再 form.setMany 一次写 ProjectCode + ProjectID（两个都要，保存时缺一不可）';
+        else if (field.project) spec.hint = `界面上的「${field.label}」：写项目号会先查库，查到就把项目主键（ProjectID）一起带出 —— 只写它就够`;
         else spec.hint = `界面上的「${field.label}」（${GROUP_LABEL[field.group]}那一组）`;
         return spec;
     });
@@ -652,6 +624,77 @@ async function setConvertField(
     };
 }
 
+/**
+ * 项目号：写完**按号查库**，把项目主键一起带出来（等价于用户在界面上输入项目号回车）。
+ *
+ * 为什么非查不可：`ProjectCode` 在表单里只是一个文本框，`setFieldsValue` 塞个字符串进去
+ * **不会报任何错** —— 不查库的话，agent 写一个根本不存在的项目号也会收到「已设置」，
+ * 一直到点保存才被「请选择订单号」挡下，中间那几步全是假的。
+ * 查库之后的行为与物料编码一致：查不到就当场拒绝，并说清查不到。
+ *
+ * 三种结果只有一条能过：
+ * - **项目号或名称正好命中一条** → 写 `ProjectCode`（接口给的 `project_code`）+ `ProjectID`；
+ * - **一条都没命中** → 拒：让 agent 换完整项目号，或请用户在界面上选；
+ * - **命中多条**（不同分类同号）→ 拒：替它挑一条等于赌运气，交给用户。
+ */
+async function setProjectField(
+    ctx: BomMatrixEditBridgeContext,
+    field: BomMatrixFormField,
+    value: unknown,
+): Promise<FieldOutcome> {
+    const keyword = toStringOrEmpty(value).trim();
+    if (!keyword) {
+        return {
+            ok: false,
+            message: `未设置「${field.agentLabel}」：清空项目请让用户在界面上点输入框的 ×（项目主键要一起清）`,
+        };
+    }
+    let list: NCProject[] = [];
+    try {
+        list = (await ncBaseApi.projectByName(keyword)).data ?? [];
+    } catch {
+        return {
+            ok: false,
+            message: `未设置「${field.agentLabel}」= ${keyword}：按项目号查库失败了（网络 / 后端），稍后重试`,
+        };
+    }
+    /*
+     * 接口是模糊查（名称也能命中）：只有**全等**才算数。
+     * 拿「返回的第一条」当答案，输入 2024 这种片段就会指到一个不相干的项目上。
+     */
+    const matched = list.filter(
+        (project) =>
+            toStringOrEmpty(project.project_code).trim() === keyword
+            || toStringOrEmpty(project.project_name).trim() === keyword,
+    );
+    if (matched.length === 0) {
+        return {
+            ok: false,
+            message:
+                `未设置「${field.agentLabel}」= ${keyword}：查不到这个项目号 / 项目名称` +
+                (list.length > 0 ? `（有 ${list.length} 个近似结果，但没有一条与它完全相同）` : '') +
+                '。请换完整项目号，或让用户在界面上用项目选择器选',
+        };
+    }
+    if (matched.length > 1) {
+        return {
+            ok: false,
+            message:
+                `未设置「${field.agentLabel}」= ${keyword}：命中 ${matched.length} 个项目（不同分类同号），` +
+                '请让用户在界面上用项目选择器挑一个',
+        };
+    }
+    const project = matched[0];
+    // 回填交给弹窗的 apply（与界面上选中项目同一条路：编码 + 主键一起写）
+    ctx.applyProject(project);
+    return {
+        ok: true,
+        message:
+            `已设置「${field.agentLabel}」= ${toStringOrEmpty(project.project_name)}` +
+            `（项目号 ${toStringOrEmpty(project.project_code)}），项目主键已一起带出`,
+    };
+}
+
 /** 列定义里可能出现的形状（原生列与项目列定义都覆盖） */
 type ColumnLike = {
     field?: unknown;
@@ -769,6 +812,13 @@ export type BomMatrixEditBridgeContext = {
     applyMaterial: (group: BomMatrixFieldGroup, material: NCMaterial) => void;
     /** 按换算单位把「单位 + 换算率」一起写进去（与界面上选单位同一条路） */
     applyConvert: (group: BomMatrixFieldGroup, convert: NCMaterialConvert) => void;
+    /**
+     * 按项目把「项目编码 + 项目主键」一起写进去（与界面上选中项目同一条路）。
+     *
+     * 项目是**一个字段两个值**：只写编码，保存时会被「请选择订单号」挡下 —— 所以 agent 写项目号
+     * 走的是查库 + 回填这一条路，回填动作本身交给弹窗（它已经有 `applyProject`）。
+     */
+    applyProject: (project: NCProject) => void;
     /** 下方三张矩阵表渲染出来没有（详情没到 / 加载失败时是 false） */
     matrixReadable: () => boolean;
     /** 当前矩阵（弹窗派生后的那份）：配色 / 配码的列跟着它走 */
@@ -1202,7 +1252,7 @@ function requireRow(
     return {rowKey: key, row, rows};
 }
 
-/** 字段 → 顺序字段的处理：物料编码查库带出整组，单位取换算单位带出换算率 */
+/** 字段 → 顺序字段的处理：物料编码查库带出整组，单位取换算单位带出换算率，项目号查库带出主键 */
 async function setManySpecial(
     ctx: BomMatrixEditBridgeContext,
     fieldId: string,
@@ -1210,9 +1260,9 @@ async function setManySpecial(
 ): Promise<FieldOutcome> {
     const field = FIELD_BY_ID.get(fieldId);
     if (!field) return {ok: false, message: `表单没有字段「${fieldId}」`};
-    return field.material
-        ? await setMaterialField(ctx, field, value)
-        : await setConvertField(ctx, field, value);
+    if (field.material) return await setMaterialField(ctx, field, value);
+    if (field.convert) return await setConvertField(ctx, field, value);
+    return await setProjectField(ctx, field, value);
 }
 
 /** 顺序字段里「成功后其余字段才解锁」的那几个：物料编码换掉产成品，下面才可编 */
@@ -1234,10 +1284,11 @@ export function createBomMatrixEditBridge(read: () => BomMatrixEditBridgeContext
         fieldLock: (fieldId) => read().fieldLock(fieldId),
         write: (patch) => read().form.setFieldsValue(patch),
         /*
-         * 顺序字段：物料编码与单位。它们在界面上都不是「随便填一个字符串」——
-         * 编码要查库带出整组属性、单位要取这个物料的换算单位，所以走各自的 run。
+         * 顺序字段：物料编码 / 单位 / 项目号。它们在界面上都不是「随便填一个字符串」——
+         * 编码要查库带出整组属性、单位要取这个物料的换算单位、项目号要查库带出项目主键，
+         * 所以走各自的 run（这条路的判据必须与界面上的控件一致，见 PACK_FIELDS 的字段标记）。
          */
-        sequenced: BOM_MATRIX_FORM_FIELDS.filter((field) => field.material || field.convert).map((field) => ({
+        sequenced: BOM_MATRIX_FORM_FIELDS.filter((field) => field.material || field.convert || field.project).map((field) => ({
             id: field.id,
             // 换掉产成品才解除「下方三张表不可编」，所以它「解锁别人」
             unlocksOthers: UNLOCKS_OTHERS.has(field.id),
@@ -1263,42 +1314,6 @@ export function createBomMatrixEditBridge(read: () => BomMatrixEditBridgeContext
         handlers: {
             // 改字段的两条由桥的通用实现接管：参数解析、锁判断、回执都在那一层
             ...createFormWriteHandlers(writer),
-            /*
-             * 查项目：按项目号 / 名称查一次，回 `id`（项目主键）与 `code`（项目编码）。
-             *
-             * 刻意不给空结果抛错 —— 「没查到」是有效答案（模型据此换关键字），
-             * 只有接口真的失败才抛。拿到结果用 form.setMany 一次写两个字段，
-             * 只写编码不写主键的话保存时会被「请选择订单号」挡下。
-             */
-            'project.query': async (params) => {
-                const keyword = toStringOrEmpty(params.keyword).trim();
-                if (!keyword) {
-                    throw new Error('需要 keyword：项目号（编码）或项目名称的一部分');
-                }
-                const limit = clampInt(params.limit, 10, 1, 50);
-                let list: NCProject[] = [];
-                try {
-                    list = (await ncBaseApi.projectByName(keyword)).data ?? [];
-                } catch (error) {
-                    const reason = error instanceof Error ? error.message : '网络 / 后端异常';
-                    throw new Error(
-                        `查项目「${keyword}」失败：${reason}。稍后重试；要是不通就让用户在界面上用项目选择器选`,
-                    );
-                }
-                const projects = list.slice(0, limit).map((project) => ({
-                    id: toStringOrEmpty(project.pk_project),
-                    code: toStringOrEmpty(project.project_code),
-                    name: toStringOrEmpty(project.project_name),
-                }));
-                return {
-                    count: list.length,
-                    projects,
-                    next:
-                        projects.length === 0
-                            ? '没查到：换项目号或名称里的别的字再试'
-                            : '用 form.setMany 一次写 ProjectCode(这里用name值不是code值) 与 ProjectID（两个都要）；同一条 code 有多个 id 时让用户在界面上选',
-                };
-            },
             'matrix.tab': (params) => {
                 const key = params.key;
                 if (!isBomMatrixSection(key)) {
