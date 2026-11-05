@@ -6,6 +6,7 @@
  */
 
 import type { AgentConnectionStatus } from '../types';
+import { AGENT_MAX_AUTO_RETRY } from '../constants';
 import type { AgentEnvelope, HistoryMode, SessionHistoryResult, TurnReplayResult } from '../protocol';
 import {
   SYSTEM_TYPE,
@@ -36,11 +37,14 @@ import { installFrameTrace, traceIncoming, traceUplink } from './frame-trace';
 type PendingKind = 'chat' | 'history' | 'replay' | 'sessions';
 
 /**
- * 重连退避：1s → 2s → 4s → 8s → 15s（封顶），**一直重试，不设次数上限**。
+ * 重连退避：1s → 2s → 4s → 8s → 15s（封顶），最多自动重试 AGENT_MAX_AUTO_RETRY 次。
  *
- * 不设上限是有意的：后端重启是最常见的断线原因，前端必须能自己连回去。
- * 一味重试的代价只是每 15 秒一条连接日志，而「停止重试」的代价是
- * 用户以为界面坏了、必须手动刷新 —— 后者严重得多。
+ * 早期是「一直重试、永不停止」，理由是后端重启是最常见的断线原因，前端该能自己连回去。
+ * 但实际更常见的失败是**后端压根没起 / 地址配错 / token 彻底失效** ——
+ * 这种重试一万次也不会成功，界面却永远在「连接中 ↔ 连接异常」之间闪，
+ * 用户既不知道已经放弃了，也不知道该自己动手。
+ * 所以划一条线：第 AGENT_MAX_AUTO_RETRY 次重试仍失败就停手、状态亮成 failed，
+ * 恢复路径明确交给横幅与顶栏上的「重连」按钮（connect() 会把次数清零）。
  */
 const MAX_BACKOFF = 15_000;
 /** 连续失败达到这个次数就把状态亮成「连接异常」（重连按钮随之出现），后台仍然继续重试 */
@@ -289,7 +293,7 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
          * 这里**绝对不能**把 manualClose 置真：后端重启是最高频的断线原因，
          * 置真之后 onclose 会直接 return，前端就永久停在「未连接」——
          * 除了刷新页面没有任何恢复路径，重连定时器也不会排。
-         * 断开后照常走退避重连，后端回来就自己接上。
+         * 断开后照常走退避重连；次数用尽才会停在 failed，由用户点「重连」。
          */
         setStatus('idle');
         socket?.close();
@@ -351,12 +355,16 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
   /**
    * 页面长时间不可见时浏览器会把定时器节流到分钟级，退避重连可能迟迟不触发，
    * 用户切回来看到的就是「一直断线」。重新可见时立刻补一次连接尝试。
+   *
+   * failed 状态是例外：自动重连已经放弃，这时候偷偷补连等于把「已停止」又变成
+   * 「在重试」—— 用户切个标签页回来连接就活了，但他看到的仍是「连接失败」，
+   * 两边对不上。要恢复就点「重连」。
    */
   const installVisibilityWatch = () => {
     if (detachVisibility || typeof document === 'undefined') return;
     const onVisible = () => {
       if (document.visibilityState !== 'visible') return;
-      if (manualClose || status === 'connected') return;
+      if (manualClose || status === 'connected' || status === 'failed') return;
       if (reconnectTimer !== undefined) {
         clearTimeout(reconnectTimer);
         reconnectTimer = undefined;
@@ -412,8 +420,7 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
       /*
        * 「刚连上就被关」= 快速失败。这种情况浏览器在 upgrade 阶段不区分
        * 401 和 ECONNREFUSED，两者表现完全一样（onerror + 立即 close）。
-       * 所以它只能影响提示文案，**不能**用来决定是否继续重连 ——
-       * 早期版本正是在这里 manualClose = true，导致后端一停就永久断线。
+       * 所以它只能影响提示文案，**不能**用来决定是否继续重连。
        */
       const quickFail = !handshaked && Date.now() - connectAt < HANDSHAKE_FAIL_WINDOW;
       quickFailCount = quickFail ? quickFailCount + 1 : 0;
@@ -422,18 +429,33 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
         emit({
           type: 'error',
           conversationId: '',
-          message: '无法连接服务：鉴权失败或后端未启动（检查 token 与 VITE_AGENT_WS_URL），正在自动重试',
+          message: `无法连接服务：鉴权失败或后端未启动（检查 token 与 VITE_AGENT_WS_URL），正在自动重试（最多 ${AGENT_MAX_AUTO_RETRY} 次）`,
         });
       }
 
-      // 退避重试，永不停止：连上后 hello 会把 reconnectAttempt 归零
+      // 次数用尽：停手。连上后 hello 会把 reconnectAttempt 归零
       reconnectAttempt += 1;
+      if (reconnectAttempt > AGENT_MAX_AUTO_RETRY) {
+        /*
+         * 不再排 reconnectTimer，状态落到 failed（横幅与顶栏据此把文案换成「已停止自动重连」）。
+         * 这里**不能**置 manualClose：它表达的是「用户主动断开」，混用会让 connect() 的清理逻辑误判；
+         * 而「不再自动连」只由「没有定时器 + failed 状态」保证（页面重新可见时也不会偷偷补连）。
+         */
+        setStatus('failed');
+        emit({
+          type: 'error',
+          conversationId: '',
+          message: `与后端服务的连接已断开，自动重连 ${AGENT_MAX_AUTO_RETRY} 次仍未成功，已停止自动重试。请确认后端服务已启动后点击「重连」`,
+        });
+        return;
+      }
+
       const delay = Math.min(1000 * 2 ** (reconnectAttempt - 1), MAX_BACKOFF);
       /*
        * 什么时候把状态亮成「连接异常」（横幅与重连按钮据此出现）：
        * - 刚用着用着断了：第一次重试失败就亮，用户不该盯着「连接中」干等；
        * - 一进来就没连上：给 2 次机会（约 3 秒），避免服务启动慢一点就报错吓人。
-       * 无论哪种，后台都继续重试 —— 状态只影响「让不让人看见」。
+       * 在用尽 AGENT_MAX_AUTO_RETRY 之前后台继续重试 —— 状态只影响「让不让人看见」。
        */
       const failThreshold = everConnected ? 1 : VISIBLE_FAIL_ATTEMPTS;
       setStatus(reconnectAttempt >= failThreshold ? 'error' : 'connecting');

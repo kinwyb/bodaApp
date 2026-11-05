@@ -214,7 +214,15 @@ export type AgentConversation = {
   usage?: AgentTokenUsage;
 };
 
-export type AgentConnectionStatus = 'idle' | 'connecting' | 'connected' | 'error';
+/**
+ * 连接状态。
+ *
+ * - `error`：本次连接已断，**后台仍在按退避自动重试**（界面上要让用户看见在折腾）；
+ * - `failed`：自动重连次数用尽，**已经停手**，只能由用户点「重连」再试。
+ *   两个态分开是为了让提示文案诚实：还在重试时说「请点击重连」会误导，
+ *   已经放弃时说「正在自动重试」则会让用户一直等一个不会来的连接。
+ */
+export type AgentConnectionStatus = 'idle' | 'connecting' | 'connected' | 'error' | 'failed';
 
 /** 后端 hello 下发的 agent 信息 */
 export type AgentInfo = {

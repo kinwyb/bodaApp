@@ -15,7 +15,7 @@ import {
   SettingOutlined,
 } from '@ant-design/icons';
 import type { AgentConnectionStatus, AgentInfo } from '../types';
-import { CONNECTION_HINT, CONNECTION_META, FALLBACK_AGENT_OPTIONS } from '../constants';
+import { CONNECTION_HINT, CONNECTION_META, FALLBACK_AGENT_OPTIONS, RECONNECTABLE_STATUSES } from '../constants';
 
 const { Text } = Typography;
 
@@ -66,8 +66,18 @@ export const AgentHeader: React.FC<{
 
   const statusTag =
     mode === 'mock' ? { text: '演示模式', color: 'gold' } : CONNECTION_META[connection];
-  /** 断开状态下，状态标签本身也当作重连入口（最不容易被忽略的那个位置） */
-  const tagClickable = mode === 'websocket' && (connection === 'error' || connection === 'idle');
+  /**
+   * 断开状态下，状态标签本身也当作重连入口（最不容易被忽略的那个位置）。
+   * failed 尤其要给：那正是「已经停手、只能人来点」的状态。
+   */
+  const tagClickable = mode === 'websocket' && RECONNECTABLE_STATUSES.includes(connection);
+  /** 按钮与提示语随状态变化：idle 是「连接」，error 还在自动重试，failed 已停手 */
+  const reconnectTip =
+    connection === 'failed'
+      ? '自动重连已停止，点击重新连接'
+      : connection === 'error'
+        ? '连接异常，点击重连'
+        : '未连接，点击连接';
 
   /**
    * 副标题：紧凑形态里省掉 agent 名字 —— 它就在右边的下拉里，
@@ -114,17 +124,17 @@ export const AgentHeader: React.FC<{
         {/* 会话记录入口（新建 / 历史），由 AgentConversationPanel 提供 */}
         {conversationSlot}
         {/*
-          断开入口：idle（未连接）和 error（连接异常）都必须有，而且紧凑形态也要给 ——
-          缩成纯图标（约 32px）就不会把 60px 的顶栏挤换行，
-          「后端重启后停在未连接、页面上没有任何地方可点」就是这么来的。
+          断开入口：idle（未连接）、error（连接异常）、failed（自动重连已停手）都必须有，
+          而且紧凑形态也要给 —— 缩成纯图标（约 32px）就不会把 60px 的顶栏挤换行。
+          failed 状态下这是**唯一**的恢复路径，漏掉它用户就只能刷新页面。
         */}
-        {mode === 'websocket' && (connection === 'error' || connection === 'idle') ? (
+        {mode === 'websocket' && RECONNECTABLE_STATUSES.includes(connection) ? (
           compact ? (
-            <Tooltip title={connection === 'error' ? '连接异常，点击重连' : '未连接，点击连接'}>
+            <Tooltip title={reconnectTip}>
               <Button
                 size="small"
                 type="text"
-                danger={connection === 'error'}
+                danger={connection !== 'idle'}
                 icon={<ReloadOutlined />}
                 onClick={onReconnect}
               />
@@ -132,11 +142,11 @@ export const AgentHeader: React.FC<{
           ) : (
             <Button
               size="small"
-              danger={connection === 'error'}
+              danger={connection !== 'idle'}
               icon={<ReloadOutlined />}
               onClick={onReconnect}
             >
-              {connection === 'error' ? '重连' : '连接'}
+              {connection === 'idle' ? '连接' : '重连'}
             </Button>
           )
         ) : null}

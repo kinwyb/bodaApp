@@ -17,6 +17,7 @@ import { PaperClipOutlined, ReloadOutlined, RobotOutlined, UserOutlined } from '
 import { formatFileSize } from '@/utils';
 import type { AgentAssistantContent, AgentConnectionStatus } from './types';
 import { assistantContentOf, hasRenderableContent } from './types';
+import { AGENT_MAX_AUTO_RETRY } from './constants';
 import { resolveAgentFileUrl } from './files';
 import { useAgentChat } from './chat/use-agent-chat';
 import { AgentAnswer } from './components/AgentAnswer';
@@ -75,7 +76,7 @@ const BUBBLE_ROLES = {
  * 紧凑形态（480px 面板）再加一个按钮就会换行掉出可视区 —— 重连入口因此常年"看不见"。
  * 横幅是正常文档流里的第一条，宽度自适应，断线一定在。
  *
- * 只在 idle / error 出现。connecting 交给顶栏那个常驻状态标签（点重连后它会立刻变
+ * 只在 idle / error / failed 出现。connecting 交给顶栏那个常驻状态标签（点重连后它会立刻变
  * 「连接中」），这样既点得出反馈，也不会在正常首连时闪一下横幅。
  */
 const AgentConnectionBanner: React.FC<{
@@ -86,16 +87,25 @@ const AgentConnectionBanner: React.FC<{
   if (mode !== 'websocket') return null;
   if (connection === 'connected' || connection === 'connecting') return null;
 
-  const failed = connection === 'error';
+  /*
+   * failed（自动重连已用尽）与 error（仍在自动重试）必须说两种话：
+   * 前者只能靠用户点按钮，后者等一会儿会自己接上。
+   * 混成一句「正在自动重试」的话，用户会一直等一个早就不再发生的连接。
+   */
+  const stopped = connection === 'failed';
+  const retrying = connection === 'error';
+  const alert = stopped || retrying;
   return (
-    <div className={`agent-conn-banner${failed ? ' agent-conn-banner-error' : ''}`}>
+    <div className={`agent-conn-banner${alert ? ' agent-conn-banner-error' : ''}`}>
       <span className="agent-conn-banner-text">
-        {failed
-          ? '连接已断开，正在自动重试（最长 15 秒一次），恢复后自动接上'
-          : '尚未连接到后端服务'}
+        {stopped
+          ? `自动重连 ${AGENT_MAX_AUTO_RETRY} 次均未成功，已停止自动重试。确认后端服务已启动后请点击「重新连接」`
+          : retrying
+            ? `连接已断开，正在自动重试（最多 ${AGENT_MAX_AUTO_RETRY} 次，最长每 15 秒一次），恢复后自动接上`
+            : '尚未连接到后端服务'}
       </span>
-      <Button size="small" danger={failed} icon={<ReloadOutlined />} onClick={onReconnect}>
-        立即重连
+      <Button size="small" danger={alert} icon={<ReloadOutlined />} onClick={onReconnect}>
+        {stopped ? '重新连接' : '立即重连'}
       </Button>
     </div>
   );
