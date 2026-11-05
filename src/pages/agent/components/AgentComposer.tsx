@@ -16,6 +16,7 @@ import { Attachments, Sender } from '@ant-design/x';
 import type { AgentAttachment, AgentConnectionStatus, AgentTokenUsage } from '../types';
 import { CONNECTION_META } from '../constants';
 import { deleteAgentFile, fileErrorMessage, uploadAgentFile } from '../files';
+import { useVoiceInput } from '../hooks/use-voice-input';
 import { AgentTokenMeter } from './AgentTokenMeter';
 
 /** 附件项：在 antd 的 UploadFile 上补上传结果（fileID / 可访问地址 / 失败文案） */
@@ -72,6 +73,16 @@ export const AgentComposer: React.FC<{
   const fileInputRef = useRef<HTMLInputElement>(null);
   /** 上传中的请求：移除附件时要能中断，否则删了列表请求还在跑 */
   const uploadsRef = useRef(new Map<string, AbortController>());
+
+  // 语音输入：点一下开始、再点结束，中途停顿不会自己停（详见 hooks/use-voice-input.ts）
+  const handleVoiceTranscript = useCallback((text: string) => {
+    setInputValue((prev) => (prev.trim() ? `${prev.trimEnd()} ${text}` : text));
+  }, []);
+  const handleVoiceError = useCallback((text: string) => message.warning(text), [message]);
+  const voice = useVoiceInput({
+    onTranscript: handleVoiceTranscript,
+    onError: handleVoiceError,
+  });
 
   // 卸载时中断所有在途上传：组件都没了，传完也没人接
   useEffect(() => {
@@ -253,7 +264,7 @@ export const AgentComposer: React.FC<{
         placeholder={
           compact ? '想让助手做什么？Enter 发送' : '描述你想让助手做的事，Enter 发送，Shift + Enter 换行'
         }
-        allowSpeech={true}
+        allowSpeech={voice.allowSpeech}
         autoSize={{ minRows: 2, maxRows: 6 }}
         header={
           fileList.length > 0 ? (
@@ -332,9 +343,11 @@ export const AgentComposer: React.FC<{
                   ? `${uploadingCount} 个附件上传中`
                   : failedCount > 0
                     ? `${failedCount} 个附件上传失败`
-                    : inputValue.length > 0
-                      ? `${inputValue.length} 字`
-                      : 'Shift + Enter 换行'}
+                    : voice.recording
+                      ? '正在听…说完再点麦克风结束'
+                      : inputValue.length > 0
+                        ? `${inputValue.length} 字`
+                        : 'Shift + Enter 换行'}
               </span>
             </span>
           </div>
