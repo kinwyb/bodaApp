@@ -108,5 +108,10 @@ export const packBomMatrixApi = {
             return !isBlank(mid) && mid !== bomMatrixID
         }
         return false;
-    }
+    },
+    /**
+     * 包装 BOM 矩阵删除
+     * @param id
+     */
+    delete: async (id: string): Promise<ApiResponse<string>> => http.delete<string>('/nc/bom/packBomMatrix/del', {packBomMatrixID: id})
 };

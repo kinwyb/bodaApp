@@ -27,7 +27,7 @@ export const PackBomMatrixSchema = z.object({
     PackMaterialName: z.string().nullish(), // 包装物料名称
     PackMaterialVID: z.string().nullish(), // 包装物料版本ID
     PackMethod: z.string().nullish(), // 包装方式
-    PackNum: z.string().nullish(), // 包装数量
+    PackNum: z.string().nullish(), // 包装方法
     ProjectCode: z.string().nullish(), // 项目编码
     ProjectID: z.string().nullish(), // 项目ID
     SewMaterialVID: z.string().nullish(), // 缝制物料ID

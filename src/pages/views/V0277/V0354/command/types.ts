@@ -4,6 +4,15 @@ import type {PackBomMatrix} from "@/api/schemas/nc/bomMatrix.ts";
 export type FormMode = 'add' | 'edit' | 'view' | 'copy';
 
 /**
+ * 包装 BOM 矩阵保存菜单权限编码
+ */
+export const PACK_BOM_MATRIX_SAVE_MENU_CODE = '63C31683-31D1-403F-83EC-C929B48F17E8';
+/**
+ * 包装 BOM 矩阵删除菜单权限编码
+ */
+export const PACK_BOM_MATRIX_DEL_MENU_CODE = 'C669D4CB-914D-43E7-AE23-551810F237D9';
+
+/**
  * 本页命令的业务依赖：通用层不认识这些字段，只在本页的 context 里。
  *
  * 加字段前想一下「是不是本页所有命令都需要」：只有少数几个命令要的（比如打开变更日志弹窗），

@@ -1,5 +1,5 @@
 import {CloudUploadOutlined} from '@ant-design/icons';
-import type {PackBomMatrixCommandFactory} from './types';
+import {PACK_BOM_MATRIX_SAVE_MENU_CODE, type PackBomMatrixCommandFactory} from './types';
 
 /**
  * 发布：打开「包装BOM矩阵明细」弹窗，对选中矩阵的规则做发布 / 取消发布 / 更新。
@@ -14,6 +14,7 @@ export const publishCommand: PackBomMatrixCommandFactory = ({activeRow, hasSelec
     icon: <CloudUploadOutlined/>,
     dividerBefore: true,
     disabled: !hasSelection,
+    menuCode: PACK_BOM_MATRIX_SAVE_MENU_CODE,
     onClick: () => {
         if (!activeRow) return;
         openPush(activeRow);
