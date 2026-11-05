@@ -16,7 +16,9 @@
  * 零丢失字段：active 行数据、sorts、activeRowIndex、selection、filters、
  * readable/visible、grouped、summaryRow、rows/window、query、form、options。
  *
- * 格式规范见 .agents/skills/ui-snapshot-encoding/
+ * 格式规范见 `docs/skills/ui-operation/SKILL.md`（agent 侧就是照它读的）；
+ * 字段口径以 `../protocol/ui.ts` 为准 —— 两边都要改：这里加标记、那边补说明，
+ * 否则模型会看到一个没有解释的字段（`waitConfirm` 就是这么补上的）。
  */
 
 import type {
@@ -159,6 +161,12 @@ function encAction(action: UIAction, refs: Map<string, string>): string {
 
   if (action.group && action.group !== 'toolbar') parts.push(`g=${action.group}`);
   if (action.danger) parts.push('danger');
+  /*
+   * 执行后停在用户确认（回执里的 result 只是「已触发」）。
+   * 写全名而不是 `wait`：这里没有图例字典，孤零零一个词模型得猜，
+   * 而看错的代价是它把「弹了个框」当成「删完了」。
+   */
+  if (action.waitConfirm) parts.push('waitConfirm');
   if (action.disabled) parts.push('dis');
   if (action.disabledReason) parts.push(`disR=${pipeVal(action.disabledReason)}`);
   if (action.returns) parts.push(`ret=${action.returns}`);

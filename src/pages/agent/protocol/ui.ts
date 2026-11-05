@@ -89,6 +89,14 @@ export type UIAction = {
   group?: 'toolbar' | 'filter' | 'form' | 'row';
   danger?: boolean;
   disabled?: boolean;
+  /**
+   * 执行后**停在用户确认**，不会立刻生效。
+   *
+   * 这类命令（删除、发布…）点下去只是弹出确认框：回执里的 result 是「已触发」而不是「已完成」，
+   * 真正结果要用 observe / 表格命令重新读。执行前知道这一点，模型就不会紧接着去核对
+   * 一个还没发生的变化。
+   */
+  waitConfirm?: boolean;
   /** 不可用原因。模型看到 disabled 会猜，给一句话比让它试错便宜得多 */
   disabledReason?: string;
   /** 需要的参数；不填表示这条命令不需要参数 */

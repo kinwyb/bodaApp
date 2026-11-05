@@ -49,6 +49,13 @@ export const deleteCommand: PackBomMatrixCommandFactory = ({modal, message, acti
     label: '删除',
     icon: <DeleteOutlined/>,
     danger: true,
+    /**
+     * 点下去只是弹确认框，删除在 `onOk` 里做。
+     *
+     * agent 没有「点确认」的动作，所以桥的回执会改成「已触发、等用户确认」而不是「已执行」——
+     * 不标这个，模型会以为删完了（见 `../bridged.ts` 里包装命令 handler 的那段）。
+     */
+    waitConfirm: true,
     disabled: !hasSelection,
     menuCode: PACK_BOM_MATRIX_DEL_MENU_CODE,
     onClick: () => {

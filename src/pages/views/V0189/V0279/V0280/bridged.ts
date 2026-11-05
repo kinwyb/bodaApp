@@ -216,6 +216,7 @@ export function createYupaiOrderBridge(read: () => YupaiOrderBridgeContext): UIB
                     label: item.label,
                     group: 'toolbar' as const,
                     danger: item.danger,
+                    waitConfirm: item.waitConfirm,
                     disabled: item.disabled,
                     // 本页命令的 disabled 几乎都来自「没有选中行」，写清原因省得模型反复试错
                     disabledReason: item.disabled ? '需要先选中一行：用 data.select 传 rowIds' : undefined,
@@ -298,6 +299,15 @@ function buildHandlers(read: () => YupaiOrderBridgeContext): Record<string, UIBr
             // 命令项会随选中行重新生成，闭包里存着的那个可能已经过期，执行时按 key 重新取
             const latest = read().commands.find((cmd) => cmd.key === item.key) ?? item;
             latest.onClick?.();
+            /*
+             * 要用户在界面上确认的命令（取消 / 发布 / 已下订单复制）：点下去只是弹了个框，
+             * 接口还没调、数据一个字都没动 —— 回执必须如实说「已触发、未生效」，
+             * 否则模型会当成做完了（agent 没有「点确认」这个动作）。
+             */
+            if (latest.waitConfirm) {
+                return `「${latest.label}」已触发，但**还没有生效**：界面上弹出了确认框，用户点「确认」之后才会执行。` +
+                    '不要重复调用这条命令（会再弹一个框）；确认结果以稍后重新 ui_observe / 读表格为准';
+            }
             return `已执行：${latest.label}`;
         };
     });

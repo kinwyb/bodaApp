@@ -8,6 +8,8 @@ export const deleteCommand: YupaiOrderCommandFactory = ({message, modal, getSele
     key: 'cancel',
     label: '取消',
     icon: <CloseOutlined/>,
+    // 点下去只弹确认框（还要填删除原因），删除在 onOk 里做：agent 调它只会收到「已触发、等用户确认」
+    waitConfirm: true,
     disabled: !hasSelection,
     menuCode:'B956B76C-387B-4898-8B19-D457DDCB51C0',
     onClick: () => {

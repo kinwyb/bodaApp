@@ -396,6 +396,7 @@ export function createBomMatrixBridge(read: () => BomMatrixBridgeContext): UIBri
             label: item.label,
             group: 'toolbar' as const,
             danger: item.danger,
+            waitConfirm: item.waitConfirm,
             disabled: item.disabled,
             disabledReason: item.disabled ? NEED_ROW_REASON : undefined,
         })),
@@ -616,6 +617,17 @@ export function createBomMatrixBridge(read: () => BomMatrixBridgeContext): UIBri
             const latest = read().commands.find((cmd) => cmd.key === item.key) ?? item;
             if (latest.disabled) return `「${latest.label}」现在不可用：${NEED_ROW_REASON}`;
             latest.onClick?.();
+            /*
+             * 要用户在界面上确认的命令：回执**不能**说「已执行」。
+             *
+             * 点下去真正发生的只是「弹出一个确认框」，接口还没调、数据一个字都没动；
+             * 而 agent 没有「点确认」这个动作，它要么等用户点，要么永远等不到。
+             * 所以这里如实说三件事：已触发、还没生效、别重复调用（再调就是第二个框）。
+             */
+            if (latest.waitConfirm) {
+                return `「${latest.label}」已触发，但**还没有生效**：界面上弹出了确认框，用户点「确认」之后才会执行。` +
+                    '不要重复调用这条命令（会再弹一个框）；确认结果以稍后重新 ui_observe / 读表格为准';
+            }
             return `已执行：${latest.label}`;
         };
     });

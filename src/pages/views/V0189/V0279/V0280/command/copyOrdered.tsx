@@ -20,6 +20,8 @@ export const copyOrderedCommand: YupaiOrderCommandFactory = ({message, modal, op
     key: 'copyOrdered',
     label: '已下订单复制',
     icon: <CopyOutlined/>,
+    // 点下去只弹「输入订单号」的确认框，表单在弹窗关闭后才打开：agent 调它只会收到「已触发、等用户确认」
+    waitConfirm: true,
     onClick: () => {
         // confirm 是命令式弹窗，外部拿不到输入框的 state，用闭包变量带出输入值（同 delete 的删除原因）
         let orderCode = '';

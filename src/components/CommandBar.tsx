@@ -18,6 +18,14 @@ export interface CommandItem {
   menuCode?: string;
   danger?: boolean;
   disabled?: boolean;
+  /**
+   * 点下去只是**弹出确认框**，真正生效要等用户在界面上点确认。
+   *
+   * 目前只有界面桥读它（`bridged.ts` 用它把回执从「已执行」换成「已触发，等用户确认」）：
+   * 界面上按钮本来就点了就弹框，不需要额外处理；但 agent 没有「点确认」这个动作，
+   * 不说明白它会把「弹框了」当成「做完了」。
+   */
+  waitConfirm?: boolean;
   /** 是否在该按钮前插入竖分割线 */
   dividerBefore?: boolean;
   onClick?: () => void;

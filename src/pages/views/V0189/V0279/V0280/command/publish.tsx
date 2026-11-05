@@ -21,6 +21,8 @@ export const publishCommand: YupaiOrderCommandFactory = ({message, modal, getSel
     label: '发布',
     icon: <SendOutlined/>,
     permission: '发布',
+    // 点下去只弹二次确认，发布在 onOk 里做：agent 调它只会收到「已触发、等用户确认」
+    waitConfirm: true,
     disabled: !canOpenSubmit(activeRow),
     menuCode: '80382851-5467-4E1D-AE1F-ECB532BC2542',
     onClick: () => {
