@@ -7,7 +7,10 @@ import {
     NCProjectClassSchema,
     type NCProjects,
     NCProjectSchema,
-    NCProjectsSchema
+    NCProjectsSchema,
+    type NCWorkProcess,
+    type NCWorkProcessList,
+    NCWorkProcessListSchema
 } from "@/api/schemas/nc/NCBase.ts";
 
 /**
@@ -48,5 +51,13 @@ export const ncBaseApi = {
      * @param params
      */
     projects: (params: PageQuery & { projectClassID?: string }): Promise<ApiResponse<NCProjects>> =>
-        http.getSchema('/nc/base/project/queryWithPage', NCProjectsSchema, params)
+        http.getSchema('/nc/base/project/queryWithPage', NCProjectsSchema, params),
+
+    /**
+     * 基本工序列表
+     */
+    workProcess: async (): Promise<ApiResponse<NCWorkProcess[]>> => {
+        const result = await http.getSchema<NCWorkProcessList>('/nc/workProcess', NCWorkProcessListSchema);
+        return {...result, data: result.data?.result ?? undefined}
+    }
 };

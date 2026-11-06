@@ -6,6 +6,8 @@ import {
     ProcessRouteMatrixRuleSchema,
     ProcessRouteMatrixSchema,
 } from '../../schemas/nc/processRouteMatrix.ts';
+import {sqlApi} from "@/api";
+import {toStringOrEmpty} from "@/utils";
 
 /**
  * 工艺路线矩阵接口。
@@ -33,6 +35,18 @@ export type processRouteMatrixListReq = {
     MaterialCode?: string;
     MaterialName?: string;
     ProjectCode?: string;
+}
+
+/**
+ * 工艺路线特性
+ */
+export type processRouteFeature = {
+    Feature: string;
+    PackMethod: string,
+    PackNum: string,
+    ProjectCode: string,
+    ProjectID: string,
+    SewMaterialVID: string,
 }
 
 export const processRouteMatrixApi = {
@@ -102,4 +116,31 @@ export const processRouteMatrixApi = {
      */
     delete: async (processRouteMatrixID: string): Promise<ApiResponse<string>> =>
         http.delete<string>('/nc/processRouteMatrix/del', {prMatrixID: processRouteMatrixID}),
+
+    /**
+     * bom 特征码
+     * @param packMaterialCode
+     */
+    features: async (packMaterialCode: string): Promise<ApiResponse<processRouteFeature[]>> => {
+        const sql = "SELECT PackMethod,PackNum,ProjectID,ProjectCode,SewMaterialVID FROM [transitDB].dbo.NC_PackBomMatrix WHERE PackMaterialCode = ? AND IsDel = 0 GROUP BY PackMethod,PackNum,ProjectID,ProjectCode,SewMaterialVID"
+        const result = await sqlApi.query({
+            SQL: sql,
+            Args: [packMaterialCode]
+        })
+        if (result.data && !result.data.IsError && result.data.DataVals && result.data.DataVals.length > 0) {
+            return {
+                code: 0, data: result.data.DataVals.map((row): processRouteFeature => {
+                    return {
+                        PackMethod: toStringOrEmpty(row['PackMethod']),
+                        PackNum: toStringOrEmpty(row['PackNum']),
+                        ProjectCode: toStringOrEmpty(row['ProjectCode']),
+                        ProjectID: toStringOrEmpty(row['ProjectID']),
+                        SewMaterialVID: toStringOrEmpty(row['SewMaterialVID']),
+                        Feature: toStringOrEmpty(row['ProjectCode']) + "_" + toStringOrEmpty(row['PackMethod']) + "_" + toStringOrEmpty(row['PackNum']),
+                    }
+                })
+            }
+        }
+        return {code: 0, data: []}
+    }
 };

@@ -28,9 +28,17 @@ interface registerModalProps<TRecord, TViewProps extends object = object> {
     /** 透传给视图的 props，不要包含 onSelect */
     viewProps?: Omit<TViewProps, 'onSelect'>;
     /**
-     * 根据行数据更新要透传给视图的 props，在open时触发
+     * 根据行数据更新要透传给视图的 props，在open时触发。
+     *
+     * 第三个参数是**打开那一刻输入框里的文字**（点搜索按钮时才有）：
+     * 用它把用户刚敲的关键字带进弹窗（`QuickSelectView` 的 `defaultKeyword`），
+     * 弹窗一打开就只剩相关的几行，不必再敲一遍。
      */
-    updateViewProps?: (viewProps?: Omit<TViewProps, 'onSelect'>, row?: EditorRowAccessor) => Omit<TViewProps, 'onSelect'>;
+    updateViewProps?: (
+        viewProps?: Omit<TViewProps, 'onSelect'>,
+        row?: EditorRowAccessor,
+        keyword?: string,
+    ) => Omit<TViewProps, 'onSelect'>;
 }
 
 export type RegisterModalProps<TRecord, TViewProps extends object = object> = {
@@ -92,14 +100,14 @@ export function RegisterInputModal<TRecord, TViewProps extends object = object>(
         onInputRef.current = onInput;
     }, [onInput]);
 
-    const openModal = useCallback((next: boolean, row?: EditorRowAccessor) => {
+    const openModal = useCallback((next: boolean, row?: EditorRowAccessor, keyword?: string) => {
         if (next) setEditingRow(row ?? null);
         setIsOpen(next);
-        const newViewProps = updateViewProps?.(viewProps, row);
+        const newViewProps = updateViewProps?.(viewProps, row, keyword);
         if (newViewProps) {
             setRealViewProps(newViewProps);
         }
-    }, [viewProps]);
+    }, [viewProps, updateViewProps]);
 
     // 编辑器模式：自动注册，editorKey 不同而已
     useEffect(() => {
@@ -110,7 +118,8 @@ export function RegisterInputModal<TRecord, TViewProps extends object = object>(
                 readOnly: readOnly,
                 disabled: disabled,
                 placeholder: editorPlaceholder ?? '',
-                onSearch: () => openModal(true, activeRowRef.current ?? undefined),
+                // 点搜索按钮时把输入框里的文字带进弹窗（`updateViewProps` 的第三个参数）
+                onSearch: (value: string) => openModal(true, activeRowRef.current ?? undefined, value),
             },
             {
                 onStart: (row) => {

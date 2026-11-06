@@ -18,13 +18,10 @@
  * 与包装 BOM 不同，这里只有一张表，没有配色 / 配码，所以没有跨表同步要照顾。
  */
 
-import React, {useCallback, useEffect, useRef, useState} from 'react';
-import {App, Button, Divider, Form, Input, Modal, Spin} from 'antd';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {App, Button, Divider, Form, Input, Modal, Select, Spin} from 'antd';
 import {CloudUploadOutlined, SaveOutlined} from '@ant-design/icons';
-import {
-    ProcessRouteMatrixView,
-    type ProcessRouteMatrixViewApi,
-} from '@/components/nc/processRouteMatrix';
+import {ProcessRouteMatrixView, type ProcessRouteMatrixViewApi,} from '@/components/nc/processRouteMatrix';
 import {DEFAULT_PROCESS_ROUTE_SECTION} from '@/components/nc/processRouteMatrix/sections.ts';
 import MaterialSelect from '@/components/nc/materialSelect.tsx';
 import ConvertSelect from '@/components/nc/convertSelect.tsx';
@@ -34,7 +31,10 @@ import MatrixPushModal, {type MatrixPushApi} from '@/components/nc/matrixPushMod
 import type {NCMaterial, NCMaterialConvert} from '@/api/schemas/nc/NCMaterial.ts';
 import type {NCProject} from '@/api/schemas/nc/NCBase.ts';
 import type {ProcessRouteMatrix} from '@/api/schemas/nc/processRouteMatrix.ts';
-import {processRouteMatrixApi} from '@/api/modules/nc/processRouteMatrix.ts';
+import {
+    processRouteMatrixApi,
+    type processRouteFeature,
+} from '@/api/modules/nc/processRouteMatrix.ts';
 import {ncMaterialApi} from '@/api/modules/nc/material.ts';
 import {ErrorMessage} from '@/api/request.ts';
 import {isBlank, toStringOrEmpty} from '@/utils';
@@ -99,7 +99,7 @@ type FormField = {
     group: FormGroup;
     /** 只读：值由物料带出，手填会出现自相矛盾的数据 */
     readOnly?: boolean;
-    kind?: 'material' | 'convert' | 'project';
+    kind?: 'material' | 'convert' | 'project' | 'feature';
 };
 
 /**
@@ -120,6 +120,12 @@ const PACK_FIELDS: FormField[] = [
     {id: 'PackMethod', label: '包装方法', group: 'pack'},
     {id: 'PackNum', label: '包装数量', group: 'pack'},
     {id: 'ProjectCode', label: '项目', group: 'pack', kind: 'project'},
+    /*
+     * 特性 = 这个包装物料在**包装 BOM** 里已有的那一组「项目 + 包装方法 + 包装数量 +
+     * 缝制物料」组合（`processRouteMatrixApi.features`）。选它不是选一个值，
+     * 而是把这一组字段一次性填好 —— 手工一项项对，很容易和 BOM 那边对不上。
+     */
+    {id: 'Feature', label: '特性', group: 'pack', kind: 'feature'},
 ];
 
 /**
@@ -148,8 +154,8 @@ function matrixLabelOf(matrix: ProcessRouteMatrix): string {
 }
 
 const ProcessRouteMatrixEdit: React.FC<ProcessRouteMatrixEditProps> = ({
-    open, mode, record, onSaved, onClose,
-}) => {
+                                                                           open, mode, record, onSaved, onClose,
+                                                                       }) => {
 
     const {message, modal} = App.useApp();
     const [form] = Form.useForm<Record<string, unknown>>();
@@ -179,6 +185,10 @@ const ProcessRouteMatrixEdit: React.FC<ProcessRouteMatrixEditProps> = ({
     const [activeKey, setActiveKey] = useState<string>(DEFAULT_PROCESS_ROUTE_SECTION);
     const [pushOpen, setPushOpen] = useState(false);
 
+    /** 「特性」下拉的候选：这个包装物料在包装 BOM 里已有的组合（按物料查，物料变了就重查） */
+    const [features, setFeatures] = useState<processRouteFeature[]>([]);
+    const [featuresLoading, setFeaturesLoading] = useState(false);
+
     /**
      * 两个物料的主键：单位选择器的候选单位按它取。
      *
@@ -187,6 +197,18 @@ const ProcessRouteMatrixEdit: React.FC<ProcessRouteMatrixEditProps> = ({
      */
     const materialVID = toStringOrEmpty(Form.useWatch('MaterialVID', form));
     const sewMaterialVID = toStringOrEmpty(Form.useWatch('SewMaterialVID', form));
+    /** 只拿到编码也算选过：历史数据里可能只有编码、没有 VID */
+    const sewMaterialCode = toStringOrEmpty(Form.useWatch('SewMaterialCode', form));
+    /** 包装物料编码：「特性」的候选按它查（物料一变，选项跟着变） */
+    const materialCode = toStringOrEmpty(Form.useWatch('MaterialCode', form));
+
+    /**
+     * 缝制物料选没选 —— 它决定下面工序明细能不能编。
+     *
+     * 道理与包装 BOM 里「产成品没选 → 子项明细整块禁用」一样：工序明细是**这个缝制物料的**
+     * 工艺路线，没有缝制物料就录明细，等于把行挂到空气上（保存时后端也只能丢掉它们）。
+     */
+    const hasSewMaterial = sewMaterialVID !== '' || sewMaterialCode !== '';
 
     /**
      * 请求序号：关掉弹窗 / 换一份记录时，让在飞的详情请求作废。
@@ -195,9 +217,15 @@ const ProcessRouteMatrixEdit: React.FC<ProcessRouteMatrixEditProps> = ({
     const seqRef = useRef(0);
     /** 物料档案回查的序号：重试 / 换底稿时只认最后一次的结果 */
     const archiveSeqRef = useRef(0);
+    /** 特性候选的序号：换物料时丢掉上一趟的结果（否则会把旧物料的组合填进新物料） */
+    const featureSeqRef = useRef(0);
+    /** 上次查过特性的物料 VID：只在它变化时重查（编码每敲一个字母都会变，不能当触发条件） */
+    const featureVIDRef = useRef<string | null>(null);
 
     const hasRecord = recordID !== '';
     const isEditable = mode !== 'view';
+    /** 明细能不能编：可编辑模式 + 已经选了缝制物料 */
+    const canEditItems = isEditable && hasSewMaterial;
 
     /** 取详情：拿回来的才是完整矩阵（列表行只有摘要，没有 `Detail`） */
     const loadDetail = useCallback(async (id: string) => {
@@ -229,7 +257,7 @@ const ProcessRouteMatrixEdit: React.FC<ProcessRouteMatrixEditProps> = ({
      *   编辑打开时用：库里存的是用户当时选的单位，物料档案里第一个换算单位不一定是它，
      *   无声替换等于替用户改了单据。
      */
-    const applyMaterial = useCallback((material: NCMaterial, options?: {keepUnits?: boolean}) => {
+    const applyMaterial = useCallback((material: NCMaterial, options?: { keepUnits?: boolean }) => {
         const convert = material.materialconvert?.[0];
         // 单位列表当场登记进缓存：点「单位」时弹窗一打开就是满的，不用再回查一次接口
         putConverts(toStringOrEmpty(material.pk_material), material.materialconvert);
@@ -281,7 +309,7 @@ const ProcessRouteMatrixEdit: React.FC<ProcessRouteMatrixEditProps> = ({
      * 接口头里只有 `SewMaterialVID`（关联键），编码 / 名称 / 版本这些是界面占位字段：
      * 保存时一并提交（同包装 BOM 的处理，后端接上就不用回头改这里）。
      */
-    const applySewMaterial = useCallback((material: NCMaterial, options?: {keepUnits?: boolean}) => {
+    const applySewMaterial = useCallback((material: NCMaterial, options?: { keepUnits?: boolean }) => {
         const convert = material.materialconvert?.[0];
         putConverts(toStringOrEmpty(material.pk_material), material.materialconvert);
         const fields: Record<string, unknown> = {
@@ -367,11 +395,127 @@ const ProcessRouteMatrixEdit: React.FC<ProcessRouteMatrixEditProps> = ({
             if (!material) return;
             // 保留库里存的单位：物料档案里第一个换算单位不一定是用户当时选的那个
             if (group === 'pack') applyMaterial(material, {keepUnits: true});
-            else applySewMaterial(material, {keepUnits: true});
+            else applySewMaterial(material, {keepUnits: false});
         } catch {
             // 档案查失败不影响改单：名称 / 单位照旧从详情带出来，保存以编码为准
         }
     }, [applyMaterial, applySewMaterial]);
+
+    /**
+     * 查「特性」候选：**按包装物料编码**（`processRouteMatrixApi.features` 从包装 BOM 里
+     * 按 `PackMethod / PackNum / ProjectID / ProjectCode / SewMaterialVID` 分组拿组合）。
+     *
+     * 触发条件是 `MaterialVID`（**不是编码**）：`MaterialCode` 每敲一个字母都会变，
+     * 拿它当依赖就成了「输一个编码打十几次 SQL」。VID 只在「物料真的定下来」时才写
+     * （选中物料 / 清空物料 / 打开详情），正好是应该重查的时机。
+     *
+     * 重查时**把旧的「特性」清掉**：那是上一个物料的组合，留着它再点一次保存，
+     * 会把包装方法 / 项目 / 缝制物料全填成上一个物料的（比空格更难发现）。
+     */
+    useEffect(() => {
+        if (!open) {
+            // 关掉就把「上次查过谁」忘掉：再打开时即使还是同一份记录也要重查（档案可能变过）
+            featureVIDRef.current = null;
+            return;
+        }
+        if (featureVIDRef.current === materialVID) return;
+        featureVIDRef.current = materialVID;
+        const seq = ++featureSeqRef.current;
+        form.setFieldsValue({Feature: undefined});
+        /*
+         * 查的时候仍然用**编码**（`features` 接口的参数），但触发只看 VID：
+         * 历史数据里可能只有编码没有 VID，所以这里不把 VID 当必要条件 —— 打开时
+         * 编码有值就查一次，够用了。
+         */
+        const code = toStringOrEmpty(form.getFieldValue('MaterialCode')).trim();
+        if (!code) {
+            setFeatures([]);
+            setFeaturesLoading(false);
+            return;
+        }
+        setFeaturesLoading(true);
+        void processRouteMatrixApi.features(code)
+            .then((result) => {
+                if (seq !== featureSeqRef.current) return;
+                setFeatures(result.data ?? []);
+            })
+            .catch(() => {
+                if (seq !== featureSeqRef.current) return;
+                /*
+                 * 查不到不等于出错，只是这个物料在包装 BOM 里还没有组合：
+                 * 清空候选、让用户手填，别把「查不到」弹成错误挡住改单。
+                 */
+                setFeatures([]);
+            })
+            .finally(() => {
+                if (seq === featureSeqRef.current) setFeaturesLoading(false);
+            });
+    }, [open, materialVID, form]);
+
+    /**
+     * 候选回来后，把当前这份矩阵对应的「特性」显示出来。
+     *
+     * 矩阵头上**没有** Feature 字段（它是从包装 BOM 推出来的组合，不是矩阵自己的数据），
+     * 所以编辑打开时那一格是空的。按「项目 + 包装方法 + 包装数量」在候选里对一条填回去 ——
+     * 用户一眼就知道这份矩阵挂的是哪个组合，不用自己逐项比对。
+     */
+    useEffect(() => {
+        if (!open) return;
+        if (features.length === 0) return;
+        if (toStringOrEmpty(form.getFieldValue('Feature')) !== '') return;
+        const pick = features.find((item) =>
+            item.PackMethod === toStringOrEmpty(form.getFieldValue('PackMethod'))
+            && item.PackNum === toStringOrEmpty(form.getFieldValue('PackNum'))
+            && item.ProjectCode === toStringOrEmpty(form.getFieldValue('ProjectCode')),
+        );
+        if (pick) form.setFieldsValue({Feature: pick.Feature});
+    }, [open, features, form]);
+
+    /**
+     * 选中一个特性：把这一组字段**整套复制**到表单（也就是 `matrix` 里对应的那几个字段）。
+     *
+     * 复制的正是 features 查出来的那几列：`PackMethod` / `PackNum` / `ProjectCode` /
+     * `ProjectID` / `SewMaterialVID` —— 它们合起来就是这条工艺路线要挂的 BOM 组合。
+     *
+     * 缝制物料只拿到 VID 不够用（界面上要显示编码 / 名称 / 单位），所以顺手按 VID
+     * 回查一次档案（`loadArchive`，与「手动选缝制物料」走同一条路）。
+     *
+     * 清空下拉时**只清「特性」这一格**：别的字段可能是用户自己填的，不替他一并清掉。
+     */
+    const applyFeature = useCallback((feature: string) => {
+        const pick = features.find((item) => item.Feature === feature);
+        if (!pick) {
+            form.setFieldsValue({Feature: undefined});
+            return;
+        }
+        form.setFieldsValue({
+            Feature: pick.Feature,
+            PackMethod: pick.PackMethod,
+            PackNum: pick.PackNum,
+            ProjectCode: pick.ProjectCode,
+            ProjectID: pick.ProjectID,
+            SewMaterialVID: pick.SewMaterialVID,
+        });
+        void loadArchive('sew', pick.SewMaterialVID, '');
+    }, [features, form, loadArchive]);
+
+    /**
+     * 下拉选项：`value` 与 `label` 都用 `Feature`（`项目_包装方法_包装数量`，本身就是人看的组合）。
+     *
+     * 按 `Feature` 去重、只留第一条：接口是按「包装方法 + 数量 + 项目 + 缝制物料」分组的，
+     * 同一个 `Feature` 理论上可能对上多条（缝制物料不同）。不去重的话下拉里会出现两个
+     * 一模一样的选项 —— 用户选哪个都以为是同一个，实际落的是不同缝制物料。
+     */
+    const featureOptions = useMemo(() => {
+        const seen = new Set<string>();
+        return features
+            .filter((item) => {
+                if (!item.Feature || seen.has(item.Feature)) return false;
+                seen.add(item.Feature);
+                return true;
+            })
+            .map((item) => ({value: item.Feature, label: item.Feature}));
+    }, [features]);
 
     /*
      * 打开时：表单先按底稿填一遍，再去取详情与两份物料档案。
@@ -399,10 +543,11 @@ const ProcessRouteMatrixEdit: React.FC<ProcessRouteMatrixEditProps> = ({
     /**
      * 渲染一个字段的控件。
      *
-     * 四种形态与包装 BOM 的表单一致：
+     * 五种形态（前四种与包装 BOM 的表单一致）：
      * - 物料编码：`MaterialSelect`（输入编码查库 / 弹窗里挑，选完带出整组属性）；
      * - 单位：`ConvertSelect`（候选是这个物料的换算单位，选完带出换算率）；
      * - 项目：`ProjectSelect`（输入项目号查库，选完带出项目主键）；
+     * - 特性：`Select`（候选来自**包装 BOM 里这个物料已有的组合**，选中后整套字段一起填）；
      * - 其余：普通输入框，只读字段禁用（值由物料带出）。
      */
     const renderControl = useCallback((field: FormField) => {
@@ -423,7 +568,7 @@ const ProcessRouteMatrixEdit: React.FC<ProcessRouteMatrixEditProps> = ({
             const isSew = field.group === 'sew';
             return (
                 <ConvertSelect
-                    disabled={!isEditable}
+                    disabled={!isEditable || isSew}
                     materialVID={isSew ? sewMaterialVID : materialVID}
                     onSelect={isSew ? applySewConvert : applyConvert}
                 />
@@ -432,10 +577,31 @@ const ProcessRouteMatrixEdit: React.FC<ProcessRouteMatrixEditProps> = ({
         if (field.kind === 'project') {
             return <ProjectSelect disabled={!isEditable} onSelect={applyProject} onClear={clearProject}/>;
         }
+        if (field.kind === 'feature') {
+            return (
+                <Select
+                    allowClear
+                    showSearch
+                    optionFilterProp={'label'}
+                    loading={featuresLoading}
+                    // 没选包装物料就没有候选：禁用并说清楚，别给一个空下拉让人猜
+                    disabled={!isEditable || materialCode.trim() === ''}
+                    placeholder={materialCode.trim() === '' ? '先选包装物料' : '选择包装 BOM 里的组合'}
+                    options={featureOptions}
+                    /*
+                     * 这里自己写回表单（Form.Item 注入的 onChange 会被覆盖）：
+                     * 选中一个特性不只是改一格，而是把包装方法 / 数量 / 项目 / 缝制物料
+                     * 整套带出来，见 `applyFeature`。清空（allowClear → undefined）同理。
+                     */
+                    onChange={(value) => applyFeature(toStringOrEmpty(value))}
+                />
+            );
+        }
         return <Input disabled={field.readOnly || !isEditable}/>;
     }, [
         isEditable, applyMaterial, applySewMaterial, clearMaterial, clearSewMaterial,
         materialVID, sewMaterialVID, applyConvert, applySewConvert, applyProject, clearProject,
+        featuresLoading, materialCode, featureOptions, applyFeature,
     ]);
 
     /**
@@ -448,7 +614,12 @@ const ProcessRouteMatrixEdit: React.FC<ProcessRouteMatrixEditProps> = ({
         if (saving) return;
         const values = form.getFieldsValue() as Record<string, unknown>;
         const detail = matrixRef.current?.readRows('items') ?? (baseRecord.Detail ?? []);
-        const issues = validateProcessRouteMatrix({materialCode: values.MaterialCode, detail});
+        const issues = validateProcessRouteMatrix({
+            materialCode: values.MaterialCode,
+            // 缝制物料只拿到编码也认（历史数据可能没有 VID）
+            sewMaterial: values.SewMaterialVID || values.SewMaterialCode,
+            detail,
+        });
         if (issues.length > 0) {
             modal.warning({
                 title: '还不能保存',
@@ -552,7 +723,17 @@ const ProcessRouteMatrixEdit: React.FC<ProcessRouteMatrixEditProps> = ({
                             <div className="process-matrix-group-title">{GROUP_TITLE[group]}</div>
                             <div className="process-matrix-fields">
                                 {(group === 'pack' ? PACK_FIELDS : SEW_FIELDS).map((field) => (
-                                    <Form.Item key={field.id} name={field.id} label={field.label}>
+                                    <Form.Item
+                                        key={field.id}
+                                        name={field.id}
+                                        label={field.label}
+                                        /*
+                                         * 特性单独占一行：它的内容是「项目_包装方法_包装数量」
+                                         * 拼出来的长串，挤在 220px 的格子里只能看到前半截。
+                                         * 样式见 `processRouteMatrixEdit.css` 的同名类。
+                                         */
+                                        className={field.kind === 'feature' ? 'process-matrix-field-wide' : undefined}
+                                    >
                                         {renderControl(field)}
                                     </Form.Item>
                                 ))}
@@ -565,6 +746,10 @@ const ProcessRouteMatrixEdit: React.FC<ProcessRouteMatrixEditProps> = ({
                  * 下半部分：编辑态的工序明细。
                  * 详情没到之前**不渲染表格**：拿列表摘要（没有 Detail）铺出来是一张空表，
                  * 详情一到整块重铺 —— 空行、选中、滚动全部闪一遍。占位块与表格同高，弹窗不会跳。
+                 *
+                 * 缝制物料没选时整块禁用（蒙一层说明）：工序明细是**这个缝制物料的**工艺路线，
+                 * 先录明细再选缝制物料，等于把行挂到空气上 —— 与包装 BOM 的「产成品没选 →
+                 * 子项明细禁用」同一个处理。
                  */}
                 <div className="process-matrix-edit-table">
                     {loadingDetail ? (
@@ -573,13 +758,20 @@ const ProcessRouteMatrixEdit: React.FC<ProcessRouteMatrixEditProps> = ({
                             <span>正在加载矩阵详情…</span>
                         </div>
                     ) : (
-                        <ProcessRouteMatrixView
-                            ref={matrixRef}
-                            matrix={baseRecord}
-                            isEditMode={isEditable}
-                            activeKey={activeKey}
-                            onActiveKeyChange={setActiveKey}
-                        />
+                        <>
+                            <ProcessRouteMatrixView
+                                ref={matrixRef}
+                                matrix={baseRecord}
+                                isEditMode={canEditItems}
+                                activeKey={activeKey}
+                                onActiveKeyChange={setActiveKey}
+                            />
+                            {!canEditItems && (
+                                <div className="process-matrix-edit-mask">
+                                    {isEditable ? '请先选择缝制物料，再编辑工序明细' : '只读查看'}
+                                </div>
+                            )}
+                        </>
                     )}
                 </div>
             </Modal>

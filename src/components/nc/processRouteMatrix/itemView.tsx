@@ -21,6 +21,17 @@ import {
 } from './rows.ts';
 import type {ProcessRouteGridApi} from './gridApi.ts';
 import {useEditableRows} from './useEditableRows.ts';
+import {scopedEditorKey, useEditorScope} from './editorScope.ts';
+import NCWorkProcessModal, {WORKPROCESS_EDITOR} from '@/components/nc/workProcessModal.tsx';
+import {
+    emptyWorkProcessFields,
+    matchWorkProcess,
+    workProcessFields,
+} from '@/components/nc/workProcess.ts';
+import {ensureWorkProcesses} from '@/components/nc/workProcessCache.ts';
+import type {NCWorkProcess} from '@/api/schemas/nc/NCBase.ts';
+import type {EditorRowAccessor} from '@/components/grid-table/editors/register.ts';
+import {toStringOrEmpty} from '@/utils';
 
 export type ProcessRouteItemViewProps = {
     /**
@@ -49,10 +60,9 @@ const blankRowNoAfter = (row: ProcessRouteRow | undefined): string =>
  * 行数据自己持有一份（`useEditableRows`），父级保存时通过 `readRows('items')` 取 ——
  * 那里拿到的是**含未保存改动**的行，不是接口那份。
  *
- * 与包装 BOM 的子项物料表相比，这里没有物料 / 单位 / 供应商那套弹窗编辑器：
- * 工艺行填的是工序名与时间，全部能在格子里直接改（`'auto'` 编辑器 + 一个枚举下拉）。
- * 将来接「工序档案」弹窗时，只改 `editableFields` 里的 `CrcCode` 一项，
- * 并把弹窗的 `onSelect` 回填成 `{CrcCode, CrcName, CrcID}` 即可，表格本身不用动。
+ * 与包装 BOM 的子项物料表相比，这里只有一处弹窗编辑器：**工序编码**（`CrcCode`）挂
+ * `NCWorkProcessModal` —— 工序是基础档案，手填编码等于给后端喂脏数据。
+ * 其余列填的是时间与属性，全部能在格子里直接改（`'auto'` 编辑器 + 一个枚举下拉）。
  */
 const ProcessRouteItemView = React.forwardRef<ProcessRouteGridApi, ProcessRouteItemViewProps>(
     ({items, isEditable}, ref) => {
@@ -62,18 +72,33 @@ const ProcessRouteItemView = React.forwardRef<ProcessRouteGridApi, ProcessRouteI
         const tableRef = useRef<GridTableApi | null>(null);
 
         /**
+         * 本实例专属的编辑器名。
+         *
+         * **不能用模块常量**：同一个页面常常同时存在两张工序表（页面上只读一张、编辑弹窗里
+         * 可编辑一张），而 vtable 的编辑器注册是全局同名先到先得 —— 后挂载的那张会静默拿到
+         * 前一张的回调闭包，于是「选了工序却回填到别人家的行上」。详见 `./editorScope.ts`。
+         */
+        const editorScope = useEditorScope();
+        const workProcessEditor = useMemo(
+            () => scopedEditorKey(WORKPROCESS_EDITOR, editorScope),
+            [editorScope],
+        );
+
+        /**
          * 各列用哪个编辑器。
          *
          * - `'auto'`：按列 `dataType` 自动挑（数值 → InputNumber、日期 → DatePicker、文本 → Input）；
          * - `true`：布尔列不挂编辑器，GridTable 直接放开原生勾选框，单击切换并写回 1 / 0；
-         * - 具名实例：枚举列用注册好的下拉（见 `./common.ts`）。
+         * - 具名实例：枚举列用注册好的下拉（见 `./common.ts`），工序编码用基本工序选择器。
          *
-         * 审核三列（`VDef5` / `VDef6` / `VDef7`）刻意不在表里：审核是后端流程的动作。
+         * 审核三列（`VDef5` / `VDef6` / `VDef7`）不挂编辑器：审核是后端流程的动作，
+         * 界面上只读展示（`VDef5` 是勾选框样式，但点不动）。
          */
         const editableFields = useMemo<Record<string, string | true> | undefined>(() => {
             if (!isEditable) return undefined;
             return {
-                CrcCode: 'auto',
+                // 工序编码：双击是输入框，点搜索按钮打开基本工序列表；直接输入回车走本地筛
+                CrcCode: workProcessEditor,
                 CrcName: 'auto',
                 CrcDesc: 'auto',
                 WorkStation: 'auto',
@@ -94,7 +119,7 @@ const ProcessRouteItemView = React.forwardRef<ProcessRouteGridApi, ProcessRouteI
                 EffectDate: 'auto',
                 InvalidDate: 'auto',
             };
-        }, [isEditable]);
+        }, [isEditable, workProcessEditor]);
 
         /**
          * 插入一行：`afterKey` 给了就插到那行后面，否则追加到末尾。
@@ -167,6 +192,64 @@ const ProcessRouteItemView = React.forwardRef<ProcessRouteGridApi, ProcessRouteI
         }, [commit]);
 
         /**
+         * 刚给**末尾那行**填好工序 → 底部再补一行等下一笔。
+         *
+         * 只在末尾发生时才补：在中间行选工序时，底部本来就有空行，再加就多一行。
+         *
+         * 用行对象上的主键判断，不依赖闭包里 `rows` 的位置（与包装 BOM 的 `applyMaterial`
+         * 同一套写法）：`setFields` 会派发变更、`rows` 下一帧才更新，这里读到的是旧闭包，
+         * 但「哪一行是末尾」在选工序前后没变。
+         */
+        const ensureBlankAfter = useCallback((rowKey: string) => {
+            const last = rows[rows.length - 1];
+            if (!last || rowKeyOf(last) !== rowKey) return;
+            addRow(createItemRow(blankRowNoAfter(last)));
+        }, [rows, addRow]);
+
+        /**
+         * 选中一道基本工序：把工序档案里那一组字段一起回填到当前行。
+         *
+         * 不止编码 + 名称：操作要求、检测点 / 报告点 / 交接点都由档案带过来
+         * （`workProcessFields`，与表单控件共用同一份口径）—— 少回填一个，
+         * 保存出来的工艺路线就缺那一条标记。
+         *
+         * 回填完**若填的是底部那行空行，再补一行**：这张表进编辑时就靠「末尾永远有一行空的」
+         * 来连续录入，填满一行不补，用户就得每次右键「新增行」。
+         */
+        const applyWorkProcess = useCallback((process: NCWorkProcess, activeRow: EditorRowAccessor | null) => {
+            activeRow?.setFields(workProcessFields(process));
+            activeRow?.endEdit();
+            const rowKey = rowKeyOf(activeRow?.record);
+            if (rowKey) ensureBlankAfter(rowKey);
+        }, [ensureBlankAfter]);
+
+        /**
+         * 用户没开弹窗、直接在工序格里输入后回车。
+         *
+         * 工序**没有按编码 / 名称查一条的接口**，所以这里不去查库，而是在
+         * `workProcessCache` 的全量列表里本地筛（`matchWorkProcess`）：
+         * 全等优先、其次包含匹配，**唯一命中才回填**；多条 / 零条只提示，
+         * 让用户点格子右侧的搜索按钮去弹窗里挑（替用户选第一条等于赌运气）。
+         */
+        const handleInputWorkProcess = useCallback(async (input: string, activeRow: EditorRowAccessor) => {
+            const list = await ensureWorkProcesses();
+            if (list.length === 0) {
+                void message.warning('基本工序档案没取到，请点格子右侧的搜索按钮选择');
+                return;
+            }
+            const matched = matchWorkProcess(list, input);
+            if (matched.kind === 'single') {
+                applyWorkProcess(matched.process, activeRow);
+                return;
+            }
+            if (matched.kind === 'many') {
+                void message.info(`匹配到 ${matched.candidates} 道工序，请点搜索按钮在弹窗里选`);
+                return;
+            }
+            void message.warning(`没有编码 / 名称匹配「${input}」的工序`);
+        }, [applyWorkProcess]);
+
+        /**
          * 右键「新增行」：在本行**下方**插一行；没有锚点行（右键落在空白 / 表头）就追加到末尾。
          *
          * 入参是**行主键**而不是 rowIndex：GridTable 回传的 rowIndex 是「当前 records 数组里的位置」，
@@ -189,6 +272,19 @@ const ProcessRouteItemView = React.forwardRef<ProcessRouteGridApi, ProcessRouteI
                 // 定位一律用行主键，退回 rowIndex：表格排序后 rowIndex 与数据顺序对不上
                 const rowKey = rowKeyOf(record) || rowKeyOf(rows[rowIndex]);
                 if (!rowKey) return;
+                /*
+                 * 工序编码被清空：档案带出来的那一组字段**一起清**（与 `workProcessFields` 成对）。
+                 *
+                 * 只清编码会留下一行「没有工序、却带着上一道工序的名称 / 操作要求 / 检测点」的
+                 * 假数据 —— 保存下去之后，下次打开就分不清这一行到底是什么。与包装 BOM 里
+                 * 「清空物料 → 名称 / 版本 / 规格一起清」是同一个口径。
+                 *
+                 * 一次 `updateRow` 写全：分两次写会让表格多派发一次变更、多绘一遍。
+                 */
+                if (field === 'CrcCode' && toStringOrEmpty(value).trim() === '') {
+                    updateRow(rowKey, {CrcCode: '', ...emptyWorkProcessFields()});
+                    return;
+                }
                 updateRow(rowKey, {[field]: value});
             },
             [rows, updateRow],
@@ -226,11 +322,25 @@ const ProcessRouteItemView = React.forwardRef<ProcessRouteGridApi, ProcessRouteI
         }), [rows, addRow, removeRow, updateRow]);
 
         return (
-            <GridTable ref={tableRef} columns={PROCESS_ITEM_COLUMNS} editableFields={editableFields}
-                       records={rows} rowKey={'ProcessRouteMatrixDetailID'}
-                       rowNumber={false} menu={menu}
-                       onCellValueChange={handleCellValueChange}
-                       multiSelect={false} widthMode={'autoWidth'}/>
+            <>
+                <GridTable ref={tableRef} columns={PROCESS_ITEM_COLUMNS} editableFields={editableFields}
+                           records={rows} rowKey={'ProcessRouteMatrixDetailID'}
+                           rowNumber={false} menu={menu}
+                           onCellValueChange={handleCellValueChange}
+                           multiSelect={false} widthMode={'autoWidth'}/>
+                {/*
+                 * 工序选择弹窗：`isEditor` 模式下它自己把输入编辑器注册到 `workProcessEditor`
+                 * 这个名字上（`CrcCode` 列指向它），所以不需要额外的 open 状态 ——
+                 * 双击格子出输入框，点搜索按钮/点放大镜就打开它。
+                 */}
+                <NCWorkProcessModal open={false}
+                                    isEditor={true}
+                                    editorKey={workProcessEditor}
+                                    onSelect={applyWorkProcess}
+                                    onInput={(input, activeRow) => {
+                                        void handleInputWorkProcess(input, activeRow);
+                                    }}/>
+            </>
         );
     });
 

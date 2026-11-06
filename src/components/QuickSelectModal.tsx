@@ -34,6 +34,14 @@ export interface QuickSelectViewProps<T extends QuickSelectRow = QuickSelectRow>
     searchLabel?: string;
     /** 输入框占位符 */
     searchPlaceholder?: string;
+    /**
+     * 打开时的初始关键字（只当**初值**用，之后由用户输入接管）。
+     *
+     * 「从表格格子里输了字、再点放大镜」用它把那段文字带进来：
+     * 弹窗一打开就只剩相关的几行，用户不用把刚敲的东西再敲一遍。
+     * 本地过滤模式下它立刻生效（数据仍是打开时拉的全量）。
+     */
+    defaultKeyword?: string;
     /** 选择按钮文案，默认「选择」 */
     selectText?: string;
     /** 空数据提示 */
@@ -71,6 +79,7 @@ export function QuickSelectView<T extends QuickSelectRow = QuickSelectRow>({
                                                                                onSelect,
                                                                                searchLabel,
                                                                                searchPlaceholder = '输入关键字过滤',
+                                                                               defaultKeyword = '',
                                                                                selectText = '选择',
                                                                                emptyTip = '暂无数据',
                                                                                autoFillWidth = true,
@@ -78,7 +87,7 @@ export function QuickSelectView<T extends QuickSelectRow = QuickSelectRow>({
                                                                            }: QuickSelectViewProps<T>): React.ReactElement {
     const {message} = App.useApp();
     const tableRef = useRef<GridTableApi | null>(null);
-    const [keyword, setKeyword] = useState('');
+    const [keyword, setKeyword] = useState(defaultKeyword);
     const [records, setRecords] = useState<T[]>([]);
     const [loading, setLoading] = useState(false);
     /** 当前点选的行：数据刷新后由 effect 清空，避免「选择」拿到旧行 */
