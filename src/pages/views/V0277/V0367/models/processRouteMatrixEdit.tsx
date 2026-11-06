@@ -40,11 +40,27 @@ import {ErrorMessage} from '@/api/request.ts';
 import {isBlank, toStringOrEmpty} from '@/utils';
 import {buildProcessRouteMatrix} from './processRouteMatrixPayload.ts';
 import {validateProcessRouteMatrix} from './processRouteMatrixValidation.ts';
+import {useUIBridgeDialog} from '@/pages/agent/ui-bridge';
 import type {FormMode} from '../command';
+import {
+    createProcessRouteEditBridge,
+    PACK_FIELDS,
+    SEW_FIELDS,
+    type ProcessRouteEditBridgeContext,
+    type ProcessRouteFieldGroup,
+    type ProcessRouteFormField,
+} from './processRouteMatrixEditBridge.ts';
 import './processRouteMatrixEdit.css';
 
 export type ProcessRouteMatrixEditProps = {
     open: boolean;
+    /**
+     * 所属页面的 view（菜单的 View 字段）。
+     *
+     * 界面桥按 view 找「这一页上打开的是哪个弹窗」，所以弹窗必须知道自己站在哪个页面里 ——
+     * 打开期间它顶掉页面的工具栏动作与列表数据，关闭后把视野还给页面。
+     */
+    view: string;
     /** add / edit / copy；view 也支持（只读预览，复用同一份布局） */
     mode: FormMode;
     /** 编辑 / 复制时的底稿；新增为 null */
@@ -57,6 +73,14 @@ export type ProcessRouteMatrixEditProps = {
     onSaved?: (matrixID: string) => void;
     onClose: () => void;
 };
+
+/**
+ * 保存的结果。
+ *
+ * `ok=false` 时 `message` 说清原因；`issues` 只有「校验没通过」才有（那几条要逐条列给用户），
+ * 接口失败只有一句 toast，不重复弹框。
+ */
+type SaveOutcome = { ok: boolean; message: string; issues?: string[] };
 
 /**
  * 发布弹窗要的四个接口。
@@ -83,67 +107,16 @@ const MODE_TITLE: Record<FormMode, string> = {
 const EDIT_TITLE = '编辑工艺路线矩阵';
 
 /** 表单里两组字段：包装成品（4 开头物料）与产成品（3 开头物料） */
-type FormGroup = 'pack' | 'sew';
-
-const GROUP_TITLE: Record<FormGroup, string> = {
+const GROUP_TITLE: Record<ProcessRouteFieldGroup, string> = {
     pack: '包装成品',
     sew: '产成品',
 };
 
-/** 字段的控件形态：物料选择器 / 单位选择器 / 项目选择器 / 普通输入框 */
-type FormField = {
-    /** 字段 id，就是 Form.Item 的 name */
-    id: string;
-    /** 界面上的标签（分组标题已经说明了它属于谁，所以两组都有「物料编码 / 单位」） */
-    label: string;
-    group: FormGroup;
-    /** 只读：值由物料带出，手填会出现自相矛盾的数据 */
-    readOnly?: boolean;
-    kind?: 'material' | 'convert' | 'project' | 'feature';
-};
-
-/**
- * 包装成品那一组（界面上的第一组）。
- *
- * 与包装 BOM 的 `PACK_FIELDS` 一一对应，字段名换成工艺矩阵的 `MaterialXXX`。
- * 少写一个字段，界面上也就少一个 —— 这里就是「上一半」的清单。
+/*
+ * 两组的字段表在 `./processRouteMatrixEditBridge`：那份**同时**被下面的 JSX 与界面桥使用 ——
+ * 界面上少一个字段，agent 那儿也就少一条。字段的控件形态由 `material` / `convert` /
+ * `project` / `feature` 四个标记说明（见 `renderControl`）。
  */
-const PACK_FIELDS: FormField[] = [
-    {id: 'MaterialCode', label: '物料编码', group: 'pack', kind: 'material'},
-    {id: 'MaterialName', label: '物料名称', group: 'pack', readOnly: true},
-    {id: 'MaterialVersion', label: '物料版本', group: 'pack', readOnly: true},
-    {id: 'MaterialSpec', label: '物料规格', group: 'pack', readOnly: true},
-    {id: 'MaterialModel', label: '物料型号', group: 'pack', readOnly: true},
-    {id: 'CMeasure', label: '主单位', group: 'pack', readOnly: true},
-    {id: 'VChangerate', label: '转换率', group: 'pack', readOnly: true},
-    {id: 'Cassmeasure', label: '单位', group: 'pack', kind: 'convert'},
-    {id: 'PackMethod', label: '包装方法', group: 'pack'},
-    {id: 'PackNum', label: '包装数量', group: 'pack'},
-    {id: 'ProjectCode', label: '项目', group: 'pack', kind: 'project'},
-    /*
-     * 特性 = 这个包装物料在**包装 BOM** 里已有的那一组「项目 + 包装方法 + 包装数量 +
-     * 缝制物料」组合（`processRouteMatrixApi.features`）。选它不是选一个值，
-     * 而是把这一组字段一次性填好 —— 手工一项项对，很容易和 BOM 那边对不上。
-     */
-    {id: 'Feature', label: '特性', group: 'pack', kind: 'feature'},
-];
-
-/**
- * 产成品（缝制物料）那一组。
- *
- * 「物料编码」是这一组唯一的编辑入口；`SewMaterialVID` 是隐藏的关联键，不入表 ——
- * 让用户手填 VID 只会填出脏数据。
- */
-const SEW_FIELDS: FormField[] = [
-    {id: 'SewMaterialCode', label: '物料编码', group: 'sew', kind: 'material'},
-    {id: 'SewMaterialName', label: '物料名称', group: 'sew', readOnly: true},
-    {id: 'SewMaterialVersion', label: '物料版本', group: 'sew', readOnly: true},
-    {id: 'SewMaterialSpec', label: '物料规格', group: 'sew', readOnly: true},
-    {id: 'SewMaterialModel', label: '物料型号', group: 'sew', readOnly: true},
-    {id: 'SewCMeasure', label: '主单位', group: 'sew', readOnly: true},
-    {id: 'SewVChangerate', label: '转换率', group: 'sew', readOnly: true},
-    {id: 'SewCassmeasure', label: '单位', group: 'sew', kind: 'convert'},
-];
 
 /** 标题旁那一行「是哪一份矩阵」：物料编码 + 名称 */
 function matrixLabelOf(matrix: ProcessRouteMatrix): string {
@@ -154,7 +127,7 @@ function matrixLabelOf(matrix: ProcessRouteMatrix): string {
 }
 
 const ProcessRouteMatrixEdit: React.FC<ProcessRouteMatrixEditProps> = ({
-                                                                           open, mode, record, onSaved, onClose,
+                                                                           open, view, mode, record, onSaved, onClose,
                                                                        }) => {
 
     const {message, modal} = App.useApp();
@@ -380,7 +353,7 @@ const ProcessRouteMatrixEdit: React.FC<ProcessRouteMatrixEditProps> = ({
      *
      * 查不到不算失败：档案里没有这个物料（历史脏数据）时只说一句，表单照样能看能改。
      */
-    const loadArchive = useCallback(async (group: FormGroup, vid: string, code: string) => {
+    const loadArchive = useCallback(async (group: ProcessRouteFieldGroup, vid: string, code: string) => {
         if (!vid && !code) return;
         const seq = ++archiveSeqRef.current;
         try {
@@ -550,9 +523,9 @@ const ProcessRouteMatrixEdit: React.FC<ProcessRouteMatrixEditProps> = ({
      * - 特性：`Select`（候选来自**包装 BOM 里这个物料已有的组合**，选中后整套字段一起填）；
      * - 其余：普通输入框，只读字段禁用（值由物料带出）。
      */
-    const renderControl = useCallback((field: FormField) => {
-        if (field.kind === 'material') {
-            const isSew = field.group === 'sew';
+    const renderControl = useCallback((field: ProcessRouteFormField) => {
+        if (field.material) {
+            const isSew = field.material === 'sew';
             return (
                 <MaterialSelect
                     disabled={!isEditable}
@@ -564,8 +537,8 @@ const ProcessRouteMatrixEdit: React.FC<ProcessRouteMatrixEditProps> = ({
                 />
             );
         }
-        if (field.kind === 'convert') {
-            const isSew = field.group === 'sew';
+        if (field.convert) {
+            const isSew = field.convert === 'sew';
             return (
                 <ConvertSelect
                     disabled={!isEditable || isSew}
@@ -574,10 +547,10 @@ const ProcessRouteMatrixEdit: React.FC<ProcessRouteMatrixEditProps> = ({
                 />
             );
         }
-        if (field.kind === 'project') {
+        if (field.project) {
             return <ProjectSelect disabled={!isEditable} onSelect={applyProject} onClear={clearProject}/>;
         }
-        if (field.kind === 'feature') {
+        if (field.feature) {
             return (
                 <Select
                     allowClear
@@ -605,13 +578,17 @@ const ProcessRouteMatrixEdit: React.FC<ProcessRouteMatrixEditProps> = ({
     ]);
 
     /**
-     * 保存。
+     * 保存的一次尝试。
      *
      * 明细取**表格里的行**（`readRows('items')`，含未落库的增删改）：
      * 拿 `baseRecord.Detail` 拼等于把用户刚才的改动丢掉。
+     *
+     * 之所以单独一层（而不是全写在按钮的 onClick 里）：界面上的「保存」与 agent 的
+     * `form.submit` 必须走**同一条路**，只是前者把原因弹成框、后者把原因塞进回执。
+     * 两边各写一份迟早对不上（界面改了校验、桥那边还按老规则回「已保存」）。
      */
-    const handleSave = useCallback(async () => {
-        if (saving) return;
+    const performSave = useCallback(async (): Promise<SaveOutcome> => {
+        if (saving) return {ok: false, message: '正在保存中：等这一次回来再操作（重复提交会存两份）'};
         const values = form.getFieldsValue() as Record<string, unknown>;
         const detail = matrixRef.current?.readRows('items') ?? (baseRecord.Detail ?? []);
         const issues = validateProcessRouteMatrix({
@@ -620,19 +597,8 @@ const ProcessRouteMatrixEdit: React.FC<ProcessRouteMatrixEditProps> = ({
             sewMaterial: values.SewMaterialVID || values.SewMaterialCode,
             detail,
         });
-        if (issues.length > 0) {
-            modal.warning({
-                title: '还不能保存',
-                width: 460,
-                content: (
-                    <ul style={{margin: '8px 0 0', paddingLeft: 20}}>
-                        {issues.map((text) => <li key={text}>{text}</li>)}
-                    </ul>
-                ),
-                okText: '知道了',
-            });
-            return;
-        }
+        // 校验不过：把条目原样交出去，弹框与回执各自按自己的方式呈现
+        if (issues.length > 0) return {ok: false, message: issues.join('；'), issues};
 
         const payload = buildProcessRouteMatrix({
             mode, base: baseRecord, values, detail, matrixID: recordID,
@@ -642,17 +608,147 @@ const ProcessRouteMatrixEdit: React.FC<ProcessRouteMatrixEditProps> = ({
         try {
             const saved = await processRouteMatrixApi.save(payload);
             const savedID = toStringOrEmpty(saved.data?.ProcessRouteMatrixID) || recordID;
-            if (savedID) setRecordID(savedID);
+            if (!savedID) {
+                // 存进去了却没回主键：没法重取、没法继续编辑 / 发布，如实说，别当成功
+                return {
+                    ok: false,
+                    message: '保存已提交，但接口没有返回 ProcessRouteMatrixID，无法重新载入这份矩阵（请刷新列表确认）',
+                };
+            }
+            setRecordID(savedID);
             void message.success('已保存');
             // 重取详情：接口补上明细主键与矩阵版本之后，这份记录才能接着改 / 发布
-            if (savedID) await loadDetail(savedID);
+            await loadDetail(savedID);
             onSaved?.(savedID);
+            const rowCount = payload.Detail?.length ?? 0;
+            return {
+                ok: true,
+                message: `已保存（ProcessRouteMatrixID ${savedID}；工序明细 ${rowCount} 行），弹窗已按新主键重新载入，可以接着改`,
+            };
         } catch (err) {
-            void message.error(ErrorMessage(err, '保存失败'));
+            const text = ErrorMessage(err, '保存失败');
+            void message.error(text);
+            return {ok: false, message: text};
         } finally {
             setSaving(false);
         }
-    }, [saving, form, baseRecord, mode, recordID, modal, message, loadDetail, onSaved]);
+    }, [saving, form, baseRecord, mode, recordID, message, loadDetail, onSaved]);
+
+    /** 界面上的「保存」：成功什么都不用做（toast 已经在里面），校验不过逐条列出来 */
+    const handleSave = useCallback(async () => {
+        const outcome = await performSave();
+        if (outcome.ok) return;
+        // 只有「校验不过」才值得弹列表；接口失败已经 toast 过，再弹一个框只是噪音
+        if (!outcome.issues || outcome.issues.length === 0) return;
+        modal.warning({
+            title: '还不能保存',
+            width: 460,
+            content: (
+                <ul style={{margin: '8px 0 0', paddingLeft: 20}}>
+                    {outcome.issues.map((text) => <li key={text}>{text}</li>)}
+                </ul>
+            ),
+            okText: '知道了',
+        });
+    }, [performSave, modal]);
+
+    /**
+     * 某个字段此刻为什么改不了（null = 可以改）。
+     *
+     * **锁的唯一真相在这里**：界面上的 `disabled` 与界面桥的 `fieldLock` 读同一份判断 ——
+     * 桥那边再推一遍「查看模式只读 / 详情没到别改」必然与界面漂移。
+     */
+    const fieldLock = useCallback((fieldId: string): string | null => {
+        if (!isEditable) return '当前是查看模式：整张表单只读';
+        if (loadingDetail) return '矩阵详情还在加载：加载完会整体覆盖一次，改了也留不住';
+        // 特性下拉在没选包装物料时是禁用的（候选来自包装 BOM，没有物料就没有候选）
+        if (fieldId === 'Feature' && materialCode.trim() === '') {
+            return '还没有包装物料编码：特性候选来自包装 BOM，先设 MaterialCode';
+        }
+        return null;
+    }, [isEditable, loadingDetail, materialCode]);
+
+    /**
+     * 按分组把物料属性带出来（界面桥写物料编码时走这里）。
+     *
+     * 就是用户在选择器里选中物料的同一条路 —— 产成品还会重取特性候选，
+     * 桥要是自己回填那几个字段，这一整套副作用就漏了。
+     */
+    const applyMaterialByGroup = useCallback((group: ProcessRouteFieldGroup, material: NCMaterial) => {
+        if (group === 'sew') applySewMaterial(material);
+        else applyMaterial(material);
+    }, [applySewMaterial, applyMaterial]);
+
+    /** 按分组写「单位 + 换算率」（与界面上选单位同一条路） */
+    const applyConvertByGroup = useCallback((group: ProcessRouteFieldGroup, convert: NCMaterialConvert) => {
+        if (group === 'sew') applySewConvert(convert);
+        else applyConvert(convert);
+    }, [applySewConvert, applyConvert]);
+
+    /**
+     * 工序明细此刻为什么不能编（null = 能编）。
+     *
+     * 判据与界面上的「蒙层」同一条（`canEditItems`）：查看模式恒不能；其余模式要求先选产成品。
+     * 桥若自己另算一遍，就会出现「界面上蒙着、agent 却能改」。
+     */
+    const itemsEditLock = useCallback((): string | null => {
+        if (!isEditable) return '当前是查看模式：工序明细只读';
+        if (!hasSewMaterial) return '还没选产成品物料：先 form.set SewMaterialCode（它决定工序明细能不能编）';
+        return null;
+    }, [isEditable, hasSewMaterial]);
+
+    /** 特性候选的**值**（界面上下拉用 {value,label}，桥只认值） */
+    const featureValues = useCallback(() => featureOptions.map((item) => item.value), [featureOptions]);
+
+    /** 工序明细的当前行（含未保存的编辑与末尾那行等输入的空行） */
+    const readItems = useCallback(() => matrixRef.current?.readRows('items') ?? [], []);
+    /** 工序明细的行级写能力（详情没到 / 表格没渲染时是 null） */
+    const readItemsGrid = useCallback(() => matrixRef.current?.readGrid('items') ?? null, []);
+
+    /** 详情落地没有：界面桥的 `ready`、读与写的前置条件都问它 */
+    const detailReady = useCallback(() => !loadingDetail, [loadingDetail]);
+
+    /**
+     * 交给弹窗桥的状态与能力：字段表、动作表、提交语义都在 `./processRouteMatrixEditBridge`。
+     *
+     * 传取值函数而不是对象本身 —— 桥在 snapshot / 命令执行的那一刻才读，
+     * 所以宿主不必跟着每次渲染重建。
+     */
+    const bridgeContext = useMemo<ProcessRouteEditBridgeContext>(() => ({
+        title: hasRecord && (mode === 'add' || mode === 'copy') ? EDIT_TITLE : MODE_TITLE[mode],
+        mode,
+        recordId: recordID || null,
+        form,
+        isReady: detailReady,
+        fieldLock,
+        applyMaterial: applyMaterialByGroup,
+        applyConvert: applyConvertByGroup,
+        applyProject,
+        applyFeature,
+        featureOptions: featureValues,
+        matrix: baseRecord,
+        activeKey,
+        setActiveKey,
+        readRows: readItems,
+        readGrid: readItemsGrid,
+        itemsEditLock,
+        submit: performSave,
+        close: onClose,
+    }), [
+        mode, recordID, hasRecord, form, detailReady, fieldLock, applyMaterialByGroup, applyConvertByGroup,
+        applyProject, applyFeature, featureValues, baseRecord, activeKey, readItems, readItemsGrid,
+        itemsEditLock, performSave, onClose,
+    ]);
+
+    const dialogBridge = useMemo(
+        () => createProcessRouteEditBridge(() => bridgeContext),
+        [bridgeContext],
+    );
+    /*
+     * 弹窗自己注册到界面桥：打开期间顶掉页面的工具栏动作、查询条件与列表数据，guide 也换成表单那份；
+     * 关闭后自动让位 —— 覆盖规则由桥统一实现，见 ui-bridge/handler.ts 的 composeSnapshot。
+     */
+    useUIBridgeDialog(view, dialogBridge, open);
 
     const matrixLabel = matrixLabelOf(baseRecord);
 
@@ -732,7 +828,7 @@ const ProcessRouteMatrixEdit: React.FC<ProcessRouteMatrixEditProps> = ({
                                          * 拼出来的长串，挤在 220px 的格子里只能看到前半截。
                                          * 样式见 `processRouteMatrixEdit.css` 的同名类。
                                          */
-                                        className={field.kind === 'feature' ? 'process-matrix-field-wide' : undefined}
+                                        className={field.feature ? 'process-matrix-field-wide' : undefined}
                                     >
                                         {renderControl(field)}
                                     </Form.Item>

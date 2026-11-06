@@ -488,7 +488,7 @@ const NCProcessRouteMatrixPage: React.FC<ViewPageProps> = ({view, trail, params}
                              onChanged={() => void reloadPushRules()}
                              onClose={handleClosePush}/>
             {/* 新增 / 编辑 / 复制的表单弹窗（保存 / 发布都在它自己的工具栏里） */}
-            <ProcessRouteMatrixEdit key={formKey} open={formOpen} mode={formMode} record={formRecord}
+            <ProcessRouteMatrixEdit key={formKey} open={formOpen} view={view} mode={formMode} record={formRecord}
                                     // 保存成功后刷新主表：不刷的话新存的这份关掉弹窗也看不见
                                     onSaved={() => void loadData()}
                                     onClose={handleCloseForm}/>
