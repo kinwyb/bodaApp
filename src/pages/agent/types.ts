@@ -14,8 +14,14 @@ export type AgentToolStep = {
   key: string;
   /** 工具名，对应 ToolCall.name */
   title: string;
-  /** 页面主动上报的事件批次在 Web 端按工具步骤展示 */
-  origin?: 'ui-event';
+  /**
+   * 步骤来源：
+   * - `ui-event`：页面主动上报的事件批次，在 Web 端按工具步骤展示；
+   * - `mcp`：codex 直连 MCP 服务执行的工具调用（后端 ToolCall.type === 'mcp'）。
+   */
+  origin?: 'ui-event' | 'mcp';
+  /** MCP 服务名，对应 ToolCall.extra.server，仅 origin === 'mcp' 时有值 */
+  server?: string;
   /** 参数摘要，对应 ToolCall.params */
   description?: string;
   status: AgentStepStatus;

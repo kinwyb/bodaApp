@@ -116,10 +116,22 @@ export function createMockTransport(): AgentTransport {
     // 工具：先 tool_start（loading），再 tool_completed（带结果）
     for (const tool of script.tools) {
       if (cancelled) return;
+      // type / extra.server 与后端保持一致，MCP 工具才能在界面上带出来源标记
+      const type = tool.type ?? 'function';
+      const extra = tool.server ? { server: tool.server } : undefined;
       push(AGENT_EVENT.toolStart, {
         event: AGENT_EVENT.toolStart,
         role: 'assistant',
-        toolCalls: [{ id: tool.id, type: 'function', name: tool.name, params: tool.params, result: '' }],
+        toolCalls: [
+          {
+            id: tool.id,
+            type,
+            name: tool.name,
+            params: tool.params,
+            result: '',
+            extra: extra ? { ...extra, status: 'inProgress' } : undefined,
+          },
+        ],
       });
       await sleep(520);
       if (cancelled) return;
@@ -127,7 +139,14 @@ export function createMockTransport(): AgentTransport {
         event: AGENT_EVENT.toolCompleted,
         role: 'tool',
         toolCalls: [
-          { id: tool.id, type: 'function', name: tool.name, params: tool.params, result: tool.result },
+          {
+            id: tool.id,
+            type,
+            name: tool.name,
+            params: tool.params,
+            result: tool.result,
+            extra: extra ? { ...extra, status: 'completed', success: true } : undefined,
+          },
         ],
       });
       await sleep(160);

@@ -8,7 +8,11 @@
 /** 一个演示工具调用，字段对齐后端 types.ToolCall */
 export type MockToolCall = {
   id: string;
+  /** 工具类型，对齐后端 types.ToolType；缺省按本地工具（function）演示 */
+  type?: 'function' | 'mcp';
   name: string;
+  /** MCP 服务名，对齐后端 ToolCall.extra.server */
+  server?: string;
   /** JSON 字符串，和后端 ToolCall.Params 一致 */
   params: string;
   result: string;
@@ -62,15 +66,19 @@ export const CAPACITY_SCRIPT: MockScript = {
   tools: [
     {
       id: 'tool-worktime',
+      type: 'mcp',
+      server: 'boda',
       name: 'bi.worktime',
       params: '{"week":"2026-W44","groupBy":"workshop"}',
       result: '6 个车间：计划 4 820h，可用 4 210h',
     },
     {
       id: 'tool-load-rate',
+      type: 'mcp',
+      server: 'boda',
       name: 'bi.loadRate',
       params: '{"formula":"plan/available","unit":"percent"}',
-      result: '机加工 132%、热处理 121%、焊接 106%、装配 78%',
+      result: '{"机加工":132,"热处理":121,"焊接":106,"装配":78}',
     },
   ],
   text: `整体负荷率 **114%**，已超出可用产能，瓶颈集中在两个车间：

@@ -349,6 +349,29 @@
   margin-bottom: 2px;
 }
 
+/* 工具步骤标题：工具名 + 来源标记（MCP 服务名） */
+.agent-step-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.agent-step-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.agent-step-tag {
+  /* 标记在工具名前面，名字过长时优先省略名字，标记不能被挤扁 */
+  flex: none;
+  margin-inline-end: 0;
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 16px;
+}
+
 /* 工具调用的展开内容：参数 / 输出各一小块，等宽字体、超长可滚 */
 .agent-step-detail {
   display: flex;
