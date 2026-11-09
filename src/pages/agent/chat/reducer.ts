@@ -150,6 +150,7 @@ export function chatReducer(state: AgentChatState, action: AgentChatAction): Age
           key,
           threadId: item.threadId,
           sessionId: item.sessionId || base.sessionId,
+          agent: item.agent || base.agent,
           label: item.title || base.label,
           preview: item.preview || undefined,
           turns: item.turns,

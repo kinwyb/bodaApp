@@ -193,12 +193,14 @@ export type AgentConversation = {
    *
    * - threadId：一个 thread 就是一次完整对话，拉历史时按它过滤；
    * - sessionId：续聊时 chat.send 带它（带了这个就不再传 chatID，避免服务端
-   *   把 threadID 当成一个新的 chatID）。
+   *   把 threadID 当成一个新的 chatID）；
+   * - agent：该 thread 实际使用的 agent，切换历史对话时同步到顶栏选择器。
    *
-   * 两者都为空的是本地草稿（还没发过消息，或刚发出第一轮还没拿到 ack）。
+   * threadId 与 sessionId 都为空的是本地草稿（还没发过消息，或刚发出第一轮还没拿到 ack）。
    */
   threadId?: string;
   sessionId?: string;
+  agent?: string;
   /** 列表副标题：末轮回答摘要 */
   preview?: string;
   /** 轮次数量（服务端给，不必拉详情就能显示「共 N 轮」） */

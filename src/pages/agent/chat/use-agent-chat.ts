@@ -37,6 +37,18 @@ import {
   type BufferedUIEvent,
 } from './ui-event-buffer';
 
+/**
+ * 发送时使用的 agent。
+ *
+ * 已知历史 thread 时以 thread 自己的 agent 为准；如果列表里没带 agent，
+ * 宁可省略让服务端从 thread 反查，也不能用顶栏当前值去覆盖另一个 agent 的上下文。
+ */
+function sendAgentOf(conversation: AgentConversation | undefined, selected: string): string | undefined {
+  if (conversation?.agent) return conversation.agent;
+  if (conversation?.threadId) return undefined;
+  return selected || undefined;
+}
+
 function createInitialState(): AgentChatState {
   // 演示模式给几条带内容的会话；真实模式只留一个空会话，
   // 等 hello 到了再「认领」服务端的当前对话（见下面的 adopted 逻辑），
@@ -194,8 +206,9 @@ export function useAgentChat(): AgentChatApi {
       transport.send({
         conversationId: conversation.key,
         sessionId: conversation.sessionId,
+        threadId: conversation.threadId,
         content: composeUIEventMessage(events),
-        agent: agentRef.current || undefined,
+        agent: sendAgentOf(conversation, agentRef.current),
       });
       return true;
     };
@@ -518,9 +531,10 @@ export function useAgentChat(): AgentChatApi {
     const payload: AgentSendPayload = {
       conversationId: conversationKey,
       sessionId: conversation?.sessionId,
+      threadId: conversation?.threadId,
       // 页面变化与用户正文合成同一条消息，避免为上下文额外启动一轮模型。
       content: composeUIEventMessage(bufferedEvents, question),
-      agent: agentRef.current || undefined,
+      agent: sendAgentOf(conversation, agentRef.current),
       // 只有真正上传成功的附件才有 fileID（演示模式/失败的都是空），服务端按它还原 media
       fileIds: attachments
         ?.map((file) => file.fileId)
@@ -564,8 +578,9 @@ export function useAgentChat(): AgentChatApi {
     transportRef.current?.send({
       conversationId: activeKey,
       sessionId: conversation.sessionId,
+      threadId: conversation.threadId,
       content: question.content,
-      agent: agentRef.current || undefined,
+      agent: sendAgentOf(conversation, agentRef.current),
     });
   }, []);
 
@@ -577,6 +592,10 @@ export function useAgentChat(): AgentChatApi {
     dispatch({ type: 'switch', key });
     // 切到一个还没拉过历史的会话：顺手拉一次（服务端也会因此订阅该会话）
     const conversation = stateRef.current.conversations.find((item) => item.key === key);
+    if (conversation?.agent && conversation.agent !== agentRef.current) {
+      agentRef.current = conversation.agent;
+      setAgentState(conversation.agent);
+    }
     if (conversation && !conversation.historyLoaded) {
       transportRef.current?.history({
         conversationId: key,

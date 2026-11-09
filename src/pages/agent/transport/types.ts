@@ -19,6 +19,8 @@ export type AgentSendPayload = {
    * 服务端会用 chatID 建连接上下文，把 threadID 当 chatID 传会串到另一个对话上。
    */
   sessionId?: string;
+  /** 已选中的历史 thread；服务端直接把消息投到该 thread，而不是会话里最近的 thread */
+  threadId?: string;
   content: string;
   /** 指定 agent，为空用服务端默认 */
   agent?: string;

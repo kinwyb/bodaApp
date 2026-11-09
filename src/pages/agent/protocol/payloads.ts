@@ -98,6 +98,8 @@ export type ErrorBody = {
 export type ChatSendData = {
   sessionID?: string;
   chatID?: string;
+  /** 指定继续某个历史 thread；服务端会校验它属于当前用户与会话 */
+  threadID?: string;
   agent?: string;
   content?: string;
   media?: AgentMedia[];

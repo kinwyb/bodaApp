@@ -574,12 +574,13 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
         buildChatSend({
           chatID: sessionID ? undefined : payload.conversationId,
           sessionID,
+          threadId: payload.threadId,
           content: payload.content,
           agent: payload.agent,
           fileIds: payload.fileIds,
           attachments: payload.attachments,
         }),
-        { conversationId: payload.conversationId },
+        { conversationId: payload.conversationId, threadId: payload.threadId },
       );
     },
 

@@ -29,12 +29,15 @@ export type ChatSendInput = {
   attachments?: { name: string; size: number }[];
   /** 已知 sessionID 时回传，便于服务端续接同一会话 */
   sessionID?: string;
+  /** 已知 threadID 时回传，服务端会直接在该历史对话下开始新轮次 */
+  threadId?: string;
 };
 
 export function buildChatSend(input: ChatSendInput): AgentEnvelope {
   const data: ChatSendData = {
     sessionID: input.sessionID || undefined,
     chatID: input.chatID || undefined,
+    threadID: input.threadId || undefined,
     agent: input.agent || undefined,
     content: input.content,
     fileIDs: input.fileIds?.length ? input.fileIds : undefined,
