@@ -170,8 +170,8 @@ export const yupaiService = {
         if (res.data) {
             return res.data.map((o) => {
                 if (o.IsDel === 0) {
-                    o.DelTime = undefined;
-                    o.DelUser = undefined;
+                    o.DelTime = '';
+                    o.DelUser = '';
                 }
                 return toYupaiOrder(o);
             });
@@ -271,6 +271,29 @@ export const yupaiService = {
              * 取不到部门权限就**不过滤**：这一步失败不该把整张表变成空。
              * 与旧客户端一致 —— 那里接口失败时 `powerDeparmtents` 保持 null，也只走「不过滤」这条路。
              */
+            departments = [];
+        }
+        if (departments.length === 0) return orders;
+        return orders.filter((order) => departments.includes(toStringOrEmpty(order.DepartmentID)));
+    },
+
+    /**
+     * 预排取消列表。
+     *
+     * 与旧客户端 `V0283.refreshData()` 一致：
+     * - 后端返回全部已取消记录；
+     * - 部门权限接口返回非空时，只保留这些部门；
+     * - 取不到部门权限时不额外过滤，避免一次权限接口失败把整张表清空。
+     *
+     * 非超级管理员「只看自己创建的数据」属于页面登录态判断，放在页面层。
+     */
+    async deletedList(): Promise<YupaiOrder[]> {
+        const res = await yupaiApi.deletedList();
+        const orders = (res.data ?? []).map(toYupaiOrder);
+        let departments: string[] = [];
+        try {
+            departments = (await yupaiApi.userDepartment()).data ?? [];
+        } catch {
             departments = [];
         }
         if (departments.length === 0) return orders;

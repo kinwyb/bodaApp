@@ -124,6 +124,14 @@ export interface YupaiOrderDto {
      * 部门ID
      */
     DepartmentID: string;
+    /** 创建人工号（取消列表按当前用户过滤时使用） */
+    CreateUserNo: string;
+    /** 取消时间 */
+    DelTime: string;
+    /** 取消人 */
+    DelUser: string;
+    /** 是否已取消 */
+    IsDel: number;
     CreateTime: string;
     CreateUser: string;
     UpdateTime: string;
@@ -212,6 +220,10 @@ export const YupaiOrderMapping: FieldMapping<YupaiOrderDto> = {
     UpdateTime: S,
     UpdateUser: S,
     DepartmentID: S,
+    CreateUserNo: S,
+    DelTime: S,
+    DelUser: S,
+    IsDel: N,
     DataVersion: N,
     ...YupaiMachineSizeHeader.reduce<Record<string, FieldConfig>>((acc, _, index) => {
         acc[`MCSize${index + 1}`] = {type: "number", field: `MC_SIZE${index + 1}`};
@@ -378,6 +390,8 @@ export type YupaiOrderChangeDetail = {
 export const yupaiApi = {
     /** 列表：返回后端原始形状（不含派生字段）。要业务模型请走 yupaiService.list */
     list: () => http.get<YupaiOrderDto[]>('/plan/yupaiOrder/list', {isDel: 0}),
+    /** 已取消的预订单列表（预排取消列表） */
+    deletedList: () => http.get<YupaiOrderDto[]>('/plan/yupaiOrder/list', {isDel: 1}),
     /** 最近发生变化的明细 */
     changes: () => http.get<YupaiOrderChange[]>('/plan/yupaiOrder/list/change'),
     /** 保存预订单。载荷是**后端形态**（日期给字符串），所以用 DTO 而不是业务模型 */
@@ -386,6 +400,10 @@ export const yupaiApi = {
     log: (yupaiOrderID: string) => http.get<YupaiOrderDto[]>('//plan/yupaiOrder/log', {id: yupaiOrderID}),
     /** 删除预订单 */
     delete: (payload: YupaiOrderDel) => http.delete<string>('/plan/yupaiOrder/del', {Memo: payload.Memo}, {"body": payload.ID}),
+    /** 恢复已取消的预订单（支持批量） */
+    reset: (ids: string[]) => http.put<string>('/plan/yupaiOrder/reset', ids),
+    /** 彻底删除已取消的预订单 */
+    remove: (id: string) => http.delete<string>('/plan/yupaiOrder/remove', {id}),
     /** 发布预订单 */
     submit: (ids: string[]) => http.post<string>("/plan/yupaiOrder/submit", ids),
     /** 用户预订单权限部门 */
