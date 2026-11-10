@@ -1,6 +1,9 @@
 import type {
     ApiResponse,
     YupaiOrder,
+    YupaiOrderCompleteGroup,
+    YupaiOrderCompleteGroupDto,
+    YupaiOrderCompleteGroupQuery,
     YupaiOrderCompleteListQuery,
     YupaiOrderDto,
 } from "@/api";
@@ -108,6 +111,37 @@ export function toYupaiOrderChangeDetail(dto: YupaiOrderChangeDetailDto): YupaiO
             break;
     }
     return result
+}
+
+/** 已下单汇总：日期转换 + 旧客户端 `YupaiOrderCompleteGroup` 的派生字段 */
+export function toYupaiOrderCompleteGroup(dto: YupaiOrderCompleteGroupDto): YupaiOrderCompleteGroup {
+    const completeDate = toDayjs(dto.CompleteDate);
+    const billTotalMoney = toNumberOrZero(dto.BillTotalMoney);
+    const billTotalNum = toNumberOrZero(dto.BillTotalNum);
+    const sendNum = toNumberOrZero(dto.SendNum);
+    return {
+        ...dto,
+        CompleteDate: completeDate ?? null,
+        BillDate: toDayjs(dto.BillDate) ?? null,
+        DSendDate: toDayjs(dto.DSendDate) ?? null,
+        JHTotalNum: toNumberOrZero(dto.JHTotalNum),
+        BillTotalNum: billTotalNum,
+        BillTotalMoney: billTotalMoney,
+        OutNum: toNumberOrZero(dto.OutNum),
+        SendNum: sendNum,
+        Detail: (dto.Detail ?? []).map((row) => ({
+            ...row,
+            JHNumber: toNumberOrZero(row.JHNumber),
+            Number: toNumberOrZero(row.Number),
+            Money: toNumberOrZero(row.Money),
+            OutNum: toNumberOrZero(row.OutNum),
+            SendNum: toNumberOrZero(row.SendNum),
+        })),
+        CNYMoney: dto.Currency === '人民币' ? billTotalMoney : 0,
+        USDMoney: dto.Currency !== '人民币' ? billTotalMoney : 0,
+        NoSendNum: billTotalNum - sendNum,
+        CompleteMonth: completeDate?.format('YYYY-MM') ?? '未知',
+    };
 }
 
 /**
@@ -292,6 +326,12 @@ export const yupaiService = {
     async completeList(query: YupaiOrderCompleteListQuery): Promise<YupaiOrder[]> {
         const res = await yupaiApi.completeList(query);
         return (res.data ?? []).map(toYupaiOrder);
+    },
+
+    /** 已下单汇总 */
+    async completeGroup(query: YupaiOrderCompleteGroupQuery): Promise<YupaiOrderCompleteGroup[]> {
+        const res = await yupaiApi.completeGroup(query);
+        return (res.data ?? []).map(toYupaiOrderCompleteGroup);
     },
 
     /**

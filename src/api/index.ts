@@ -22,6 +22,11 @@ export {yupaiApi, YupaiMachineSizeHeader} from './modules/yupai.ts';
 export type {
     YupaiOrder,
     YupaiOrderCompleteDateType,
+    YupaiOrderCompleteGroup,
+    YupaiOrderCompleteGroupDetail,
+    YupaiOrderCompleteGroupDto,
+    YupaiOrderCompleteGroupDetailDto,
+    YupaiOrderCompleteGroupQuery,
     YupaiOrderCompleteListQuery,
     YupaiOrderDto,
     YupaiOrderGroupDateType,

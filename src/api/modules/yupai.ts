@@ -281,6 +281,61 @@ export type YupaiOrderCompleteListQuery = {
     OrderCode?: string;
 };
 
+/** 已下单汇总查询 */
+export type YupaiOrderCompleteGroupQuery = {
+    StartDate: string;
+    EndDate: string;
+    OrderCode?: string;
+};
+
+/** 已下单汇总里的款式明细（后端原样返回） */
+export type YupaiOrderCompleteGroupDetailDto = {
+    StyleCode: string;
+    MaterialName: string;
+    JHNumber: number;
+    Number: number;
+    Money: number;
+    OutNum: number;
+    SendNum: number;
+};
+
+/** 已下单汇总主行（后端原样返回，日期仍是字符串） */
+export type YupaiOrderCompleteGroupDto = {
+    OrderCode: string;
+    CompleteDate?: string;
+    BillNo: string;
+    BillDate?: string;
+    JHTotalNum: number;
+    BillTotalNum: number;
+    Currency: string;
+    BillTotalMoney: number;
+    OutNum: number;
+    SendNum: number;
+    DSendDate?: string;
+    OrgID: string;
+    SubCompany: boolean;
+    Detail: YupaiOrderCompleteGroupDetailDto[] | null;
+};
+
+/** 已下单汇总款式明细 */
+export type YupaiOrderCompleteGroupDetail = {
+    [K in keyof YupaiOrderCompleteGroupDetailDto]-?: YupaiOrderCompleteGroupDetailDto[K];
+};
+
+/** 已下单汇总业务行：日期已转 Dayjs，并补齐旧模型里的派生字段 */
+export type YupaiOrderCompleteGroup = {
+    [K in keyof YupaiOrderCompleteGroupDto]-?: K extends 'CompleteDate' | 'BillDate' | 'DSendDate' | 'Detail'
+        ? K extends 'Detail'
+            ? YupaiOrderCompleteGroupDetail[]
+            : Dayjs | null
+        : YupaiOrderCompleteGroupDto[K];
+} & {
+    CNYMoney: number;
+    USDMoney: number;
+    NoSendNum: number;
+    CompleteMonth: string;
+};
+
 /** 预排汇总查询（对应旧接口 `/plan/yupaiOrder/groupList` 的请求体） */
 export interface YupaiOrderGroupQuery {
     /** 开始日期，`YYYY-MM-DD` */
@@ -446,6 +501,9 @@ export const yupaiApi = {
     /** 已下单列表 */
     completeList: (query: YupaiOrderCompleteListQuery) =>
         http.post<YupaiOrderDto[]>('/plan/yupaiOrder/completeList', query),
+    /** 已下单汇总（主行内含款式明细） */
+    completeGroup: (query: YupaiOrderCompleteGroupQuery) =>
+        http.post<YupaiOrderCompleteGroupDto[]>('/plan/yupaiOrder/completeGroup', query),
     /**
      * 按订单前缀获取默认业务员
      * @param orderPrefix 订单前缀
