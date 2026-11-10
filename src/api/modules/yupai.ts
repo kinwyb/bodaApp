@@ -120,6 +120,12 @@ export interface YupaiOrderDto {
     OtherStep: string;
     /** 状态 */
     Status: number;
+    /** 下单日期 */
+    CompleteDate: string;
+    /** NC下单总数量 */
+    TotalNum: number;
+    /** NC下单款式数量 */
+    Num: number;
     /**
      * 部门ID
      */
@@ -172,6 +178,13 @@ export type YupaiOrder = {
      * 走货月份
      */
     ZHMonth: string;
+    /**
+     * 出货月份。
+     *
+     * 旧客户端 `YupaiOrder.YPMonth` 的算法是取 `ZHDate` 的 `yyyy-MM`。
+     * 这里由 `toYupaiOrder` 统一派生，避免依赖后端序列化顺序。
+     */
+    YPMonth: string;
 };
 
 /**
@@ -215,6 +228,9 @@ export const YupaiOrderMapping: FieldMapping<YupaiOrderDto> = {
     WaitOrderStep: N,
     OtherStep: S,
     Status: N,
+    CompleteDate: S,
+    TotalNum: N,
+    Num: N,
     CreateTime: S,
     CreateUser: S,
     UpdateTime: S,
@@ -253,6 +269,17 @@ export interface YupaiOrderDel {
  * （前端只管透传，别在这里换算成具体字段）。
  */
 export type YupaiOrderGroupDateType = 0 | 1 | 2;
+
+/** 已下单列表的日期口径：1 = 下单日期，2 = 走货日期 */
+export type YupaiOrderCompleteDateType = 1 | 2;
+
+/** 已下单列表查询（对应旧接口 `/plan/yupaiOrder/completeList` 的请求体） */
+export type YupaiOrderCompleteListQuery = {
+    StartDate: string;
+    EndDate: string;
+    DateType: YupaiOrderCompleteDateType;
+    OrderCode?: string;
+};
 
 /** 预排汇总查询（对应旧接口 `/plan/yupaiOrder/groupList` 的请求体） */
 export interface YupaiOrderGroupQuery {
@@ -416,6 +443,9 @@ export const yupaiApi = {
      */
     groupList: (query: YupaiOrderGroupQuery) =>
         http.post<YupaiOrderDto[]>('/plan/yupaiOrder/groupList', query),
+    /** 已下单列表 */
+    completeList: (query: YupaiOrderCompleteListQuery) =>
+        http.post<YupaiOrderDto[]>('/plan/yupaiOrder/completeList', query),
     /**
      * 按订单前缀获取默认业务员
      * @param orderPrefix 订单前缀

@@ -1,4 +1,9 @@
-import type {ApiResponse, YupaiOrder, YupaiOrderDto} from "@/api";
+import type {
+    ApiResponse,
+    YupaiOrder,
+    YupaiOrderCompleteListQuery,
+    YupaiOrderDto,
+} from "@/api";
 import {sqlApi, yupaiApi, YupaiMachineSizeHeader} from "@/api";
 import {formatDate, isBlank, isBlankExcept, now, toDayjs, toNumberOrZero, toStringOrEmpty} from "@/utils";
 import {
@@ -72,6 +77,7 @@ export function toYupaiOrder(dto: YupaiOrderDto): YupaiOrder {
         UpdateTime: toDayjs(dto.UpdateTime) ?? null,
         OrderZQ: calcOrderZQ(dto),
         ZHMonth: toDayjs(dto.ZHDate)?.format("YYYY-MM") ?? '',
+        YPMonth: toDayjs(dto.ZHDate)?.format("YYYY-MM") ?? '',
     };
 }
 
@@ -275,6 +281,17 @@ export const yupaiService = {
         }
         if (departments.length === 0) return orders;
         return orders.filter((order) => departments.includes(toStringOrEmpty(order.DepartmentID)));
+    },
+
+    /**
+     * 已下单列表。
+     *
+     * 查询口径由后端按 `DateType` 解释：
+     * 1 = 下单日期，2 = 走货日期。
+     */
+    async completeList(query: YupaiOrderCompleteListQuery): Promise<YupaiOrder[]> {
+        const res = await yupaiApi.completeList(query);
+        return (res.data ?? []).map(toYupaiOrder);
     },
 
     /**

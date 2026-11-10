@@ -19,7 +19,14 @@ export type {DesktopMenu, UserMenu} from './modules/power.ts';
 export {viewApi} from './modules/view';
 export type {ViewRow, ViewRowQuery, ViewRowStatus} from './modules/view';
 export {yupaiApi, YupaiMachineSizeHeader} from './modules/yupai.ts';
-export type {YupaiOrder, YupaiOrderDto, YupaiOrderGroupDateType, YupaiOrderGroupQuery} from './modules/yupai.ts';
+export type {
+    YupaiOrder,
+    YupaiOrderCompleteDateType,
+    YupaiOrderCompleteListQuery,
+    YupaiOrderDto,
+    YupaiOrderGroupDateType,
+    YupaiOrderGroupQuery,
+} from './modules/yupai.ts';
 export {employeeApi} from './modules/employee';
 export type {EmployeeQuery, EmployeeRecord} from './modules/employee';
 export {loginApi} from './modules/login';
