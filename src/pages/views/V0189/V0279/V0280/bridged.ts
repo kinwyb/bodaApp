@@ -22,6 +22,7 @@ import {createTableBridge} from '@/pages/agent/ui-bridge';
 import type {UIBridgeHandler, UIBridgeHost} from '@/pages/agent/ui-bridge';
 import {toStringOrEmpty} from '@/utils';
 import {COLUMNS} from './columns';
+import {MACHINE_SIZE_FIELD_HINTS, MACHINE_SIZE_GUIDE_TERM} from './machineSize';
 
 export interface YupaiOrderFilter {
     WorkPlace?: string,
@@ -42,6 +43,8 @@ const PREORDER_GUIDE: UIGuide = {
     steps: [
         '数据行不在快照里：用 data.page 传 offset / limit 取，offset 0 = 用户屏幕第 1 行（「第 5 条」就传 offset=4）',
         'data.page 默认只回关键列（结果里的 fields 会写明给了哪些）：要别的列就传 fields，要全部列传 fields="*"',
+        '问「12寸960针机器有多少量」这类尺码分布时，把对应列加进 data.page 的 fields：' +
+            '12/960 = MCSize1、13/1152 = MCSize3（完整对应见术语「尺码分布(寸/针机型)」）',
         '要看表格上没显示的字段（主键、分批明细、状态位等）或核对整单：用 data.row 传 rowId 取完整一行',
         '改查询条件用 query.set（参数名见该 action 的 params），它会重新查库，等列表变成你要的范围再动单据',
         '只想在已查回的列表里临时只看某几类（不重新查库）用 data.filter；两种条件都会体现在 tables[0].filters 与 total 上',
@@ -52,6 +55,7 @@ const PREORDER_GUIDE: UIGuide = {
         生产产地: 'WorkPlace，只可选「越南工厂,义乌工厂」',
         rowId: '单据的业务主键（字段名见 data.rowKey，一般是 ID；不用行号：排序一变行号就全错）',
         第几条: '用户说的「第 N 条」= data.page 的 offset N-1，与屏幕行号一致（排序后）',
+        '尺码分布(寸/针机型)': MACHINE_SIZE_GUIDE_TERM,
     },
     cautions: [
         '命令被禁用时先看 disabledReason，不要反复重试',
@@ -191,6 +195,7 @@ export function createYupaiOrderBridge(read: () => YupaiOrderBridgeContext): UIB
         columnHints: {
             WorkPlace: '可选值：越南工厂 / 义乌工厂',
             YPDate: '预排日期，格式 YYYY-MM-DD',
+            ...MACHINE_SIZE_FIELD_HINTS,
         },
         // 页面工具栏的 disabled 读 activeRow（React state），选中后要等它落地再回执
         waitSelected: (rowId) => waitForActiveRow(() => read().readActiveRow(), rowId),

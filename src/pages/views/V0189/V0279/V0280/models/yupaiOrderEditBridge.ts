@@ -35,6 +35,7 @@ import {
 } from '@/pages/agent/ui-bridge';
 import {toStringOrEmpty} from '@/utils';
 import type {FormMode} from '../command';
+import {MACHINE_SIZE_FIELD_HINTS, MACHINE_SIZE_GUIDE_TERM} from '../machineSize';
 import {DETAIL_COLUMNS, HD_WORK_OPTIONS, type yupaiOrderDetailRow} from './yupaiOrderEditColumns';
 import type {yupaiOrderFormValues} from './yupaiOrderEdit';
 
@@ -74,7 +75,13 @@ const formFields = (workPlaces: string[]): FormFieldSpec[] => [
  *
  * 数值列（dataType int/double）在数据源里「未填 = null」；后道主工序是枚举。
  */
-const DETAIL_FIELDS: Array<{field: string; label: string; type: UIFieldType; options?: string[]}> =
+const DETAIL_FIELDS: Array<{
+    field: string;
+    label: string;
+    type: UIFieldType;
+    options?: string[];
+    hint?: string;
+}> =
     DETAIL_COLUMNS.map((column) => ({
         field: column.field,
         label: String(column.title ?? column.field),
@@ -85,6 +92,7 @@ const DETAIL_FIELDS: Array<{field: string; label: string; type: UIFieldType; opt
                     ? 'select'
                     : 'text',
         options: column.field === 'HDWorkName' ? HD_WORK_OPTIONS.map((item) => item.value) : undefined,
+        hint: MACHINE_SIZE_FIELD_HINTS[column.field],
     }));
 
 /** 明细里不归用户填的内部字段：写回时原样带回来，别让 agent 改 */
@@ -113,6 +121,7 @@ const FORM_GUIDE: UIGuide = {
     terms: {
         明细: '详情表格里的款式行，一个款式一行（款号 / 数量 / 颜色 / 尺码分布）',
         总数量: 'Qty，由明细各行的款式数量自动汇总，不能直接设',
+        '尺码分布(寸/针机型)': MACHINE_SIZE_GUIDE_TERM,
     },
     cautions: [
         '日期一律用 YYYY-MM-DD',
