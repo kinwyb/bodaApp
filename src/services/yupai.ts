@@ -5,6 +5,7 @@ import {
     type YupaiOrderChangeDetail,
     type YupaiOrderChangeDetailDto,
     YupaiOrderChangeMapping,
+    type YupaiOrderGroupDateType,
     YupaiOrderMapping
 } from "@/api/modules/yupai.ts";
 import type {Dayjs} from "dayjs";
@@ -70,6 +71,7 @@ export function toYupaiOrder(dto: YupaiOrderDto): YupaiOrder {
         CreateTime: toDayjs(dto.CreateTime) ?? null,
         UpdateTime: toDayjs(dto.UpdateTime) ?? null,
         OrderZQ: calcOrderZQ(dto),
+        ZHMonth: toDayjs(dto.ZHDate)?.format("YYYY-MM") ?? '',
     };
 }
 
@@ -244,6 +246,35 @@ export const yupaiService = {
             code: result.code,
             data: changes?.map(toYupaiOrderChangeDetail) ?? [],
         }
+    },
+
+    /**
+     * 预排汇总：一段日期内的预订单（`dateType` 决定按「全部 / 新增 / 更新」哪种口径筛）。
+     *
+     * 两件事在这里做完，页面不碰：
+     * 1. DTO → 业务模型（日期转 `Dayjs`，与其它入口共用 `toYupaiOrder`）；
+     * 2. **部门数据权限**：接口给出当前用户能看的部门，返回空数组表示不限
+     *    （旧客户端 `powerDeparmtents` 为 null 时同样不过滤）。
+     */
+    async groupQuery(
+        startDate: string,
+        endDate: string,
+        dateType: YupaiOrderGroupDateType,
+    ): Promise<YupaiOrder[]> {
+        const res = await yupaiApi.groupList({StartDate: startDate, EndDate: endDate, DateType: dateType});
+        const orders = (res.data ?? []).map(toYupaiOrder);
+        let departments: string[] = [];
+        try {
+            departments = (await yupaiApi.userDepartment()).data ?? [];
+        } catch {
+            /*
+             * 取不到部门权限就**不过滤**：这一步失败不该把整张表变成空。
+             * 与旧客户端一致 —— 那里接口失败时 `powerDeparmtents` 保持 null，也只走「不过滤」这条路。
+             */
+            departments = [];
+        }
+        if (departments.length === 0) return orders;
+        return orders.filter((order) => departments.includes(toStringOrEmpty(order.DepartmentID)));
     },
 
     /**

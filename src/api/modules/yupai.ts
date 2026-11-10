@@ -160,6 +160,10 @@ export type YupaiOrder = {
      * 基准 QRDate 无效时是 null —— 「几天」无从谈起，别拿 0 跟「同一天」混淆。
      */
     OrderZQ: number | null;
+    /**
+     * 走货月份
+     */
+    ZHMonth: string;
 };
 
 /**
@@ -228,6 +232,24 @@ export interface YupaiOrderChange {
 export interface YupaiOrderDel {
     ID: string[];
     Memo: string;
+}
+
+/**
+ * 预排汇总的日期口径：按哪种日期筛订单。
+ *
+ * 与旧客户端 `YupaiOrderGroupDateType` 一一对应，**0/1/2 的语义由后端解释**
+ * （前端只管透传，别在这里换算成具体字段）。
+ */
+export type YupaiOrderGroupDateType = 0 | 1 | 2;
+
+/** 预排汇总查询（对应旧接口 `/plan/yupaiOrder/groupList` 的请求体） */
+export interface YupaiOrderGroupQuery {
+    /** 开始日期，`YYYY-MM-DD` */
+    StartDate: string;
+    /** 结束日期，`YYYY-MM-DD` */
+    EndDate: string;
+    /** 0 全部 / 1 新增 / 2 更新 */
+    DateType: YupaiOrderGroupDateType;
 }
 
 /**
@@ -368,6 +390,14 @@ export const yupaiApi = {
     submit: (ids: string[]) => http.post<string>("/plan/yupaiOrder/submit", ids),
     /** 用户预订单权限部门 */
     userDepartment: () => http.get<string[]>('/plan/yupaiOrder/department'),
+    /**
+     * 预排汇总：按「日期口径」取一段日期内的预订单整行。
+     *
+     * `DateType` 决定按哪种日期筛（全部 / 新增 / 更新），语义在后端；
+     * 返回的是完整预订单（含 18 个机型尺码 `MCSize1..18`）。
+     */
+    groupList: (query: YupaiOrderGroupQuery) =>
+        http.post<YupaiOrderDto[]>('/plan/yupaiOrder/groupList', query),
     /**
      * 按订单前缀获取默认业务员
      * @param orderPrefix 订单前缀
