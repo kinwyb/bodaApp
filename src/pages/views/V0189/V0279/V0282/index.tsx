@@ -1,15 +1,17 @@
-import React, {useCallback, useEffect, useMemo, useState} from "react";
+import React, {useCallback, useEffect, useMemo, useRef, useState} from "react";
 import {App, Button, DatePicker, Form, Select, Space} from "antd";
 import {SearchOutlined} from "@ant-design/icons";
 import {type Dayjs} from "dayjs";
 import type {ViewPageProps} from "@/pages/types.ts";
 import {PageBreadcrumb} from "@/components/PageBreadcrumb.tsx";
-import {FilterTable} from "@/components/grid-table";
+import {FilterTable, type FilterTableApi} from "@/components/grid-table";
 import type {YupaiOrder, YupaiOrderGroupDateType} from "@/api";
 import {yupaiService} from "@/services/yupai.ts";
 import {ErrorMessage} from "@/api/request.ts";
 import {formatDate, now} from "@/utils";
+import {useUIBridgeHost} from "@/pages/agent/ui-bridge";
 import {PRESCHEDULE_COLUMNS} from "./columns.ts";
+import {createPrescheduleBridge, type PrescheduleBridgeContext, type PrescheduleQuery} from "./bridged";
 
 /**
  * V0189_V0279_V0282 计划管理 > 预排汇总
@@ -24,6 +26,9 @@ import {PRESCHEDULE_COLUMNS} from "./columns.ts";
  * 2. 「导出」交给 `FilterTable`，它自带导出按钮（文件名 = 前缀 + 当天日期）；
  * 3. 「查询」在页面的查询表单里。
  * 于是这一页**不需要 `command/`，也不渲染 `CommandBar`**。
+ *
+ * 界面桥声明在 `./bridged.ts`：**那个文件存在就是「本页接入了界面桥」的标记**，
+ * 工作台的导航清单靠它判定。本文件只把当前状态与「怎么重查」交出去。
  *
  * 另外两处**有意不照搬**：
  * - 旧客户端限制 `OrgID == BJ` 才能用（`CheckPower`）—— 新系统由菜单权限决定可见性；
@@ -48,21 +53,16 @@ interface SearchValues {
     dateRange?: [Dayjs, Dayjs];
 }
 
-interface Query {
-    startDate: string;
-    endDate: string;
-    dateType: YupaiOrderGroupDateType;
-}
-
-const PrescheduleSummaryPage: React.FC<ViewPageProps> = ({trail}) => {
+const PrescheduleSummaryPage: React.FC<ViewPageProps> = ({view, trail}) => {
     const {message} = App.useApp();
     const [form] = Form.useForm<SearchValues>();
+    const tableRef = useRef<FilterTableApi | null>(null);
 
     const [orders, setOrders] = useState<YupaiOrder[]>([]);
     const [loading, setLoading] = useState(false);
 
     const [range] = useState<[Dayjs, Dayjs]>(defaultDateRange);
-    const [query, setQuery] = useState<Query>(() => ({
+    const [query, setQuery] = useState<PrescheduleQuery>(() => ({
         startDate: formatDate(range[0]),
         endDate: formatDate(range[1]),
         dateType: 0,
@@ -70,6 +70,19 @@ const PrescheduleSummaryPage: React.FC<ViewPageProps> = ({trail}) => {
 
     /** 选「全部」时日期不参与筛选（旧客户端把两个 DateEdit 置灰），控件跟着禁用 */
     const dateType = Form.useWatch('dateType', form) ?? 0;
+
+    /**
+     * 一次查询的等待者（界面桥的 `query.set` 在等它）。
+     *
+     * 请求只留 `loadData` 一条路径（由 query 驱动），桥的「改条件」只落 state，再在这里等
+     * 请求真的回来 —— 否则回执补丁里的行数还是旧值，模型会以为查询没生效。
+     */
+    const pendingQueryRef = useRef<(() => void) | null>(null);
+    const settleQuery = useCallback(() => {
+        const settle = pendingQueryRef.current;
+        pendingQueryRef.current = null;
+        settle?.();
+    }, []);
 
     const loadData = useCallback(async () => {
         setLoading(true);
@@ -79,17 +92,32 @@ const PrescheduleSummaryPage: React.FC<ViewPageProps> = ({trail}) => {
             void message.error(ErrorMessage(error, '数据加载失败'));
         } finally {
             setLoading(false);
+            // 失败也要放行，否则等它的那条 ui_act 会一直挂着
+            settleQuery();
         }
-    }, [message, query]);
+    }, [message, query, settleQuery]);
 
     useEffect(() => {
         void loadData();
     }, [loadData]);
 
-    /** 表单初值只在挂载时给一次（与数据加载分开，否则每次查询都把用户选的条件冲掉） */
-    useEffect(() => {
-        form.setFieldsValue({dateType: 0, dateRange: range});
-    }, [form, range]);
+    /**
+     * 按新条件重查（界面桥的 `query.set` 用它）。
+     *
+     * `{...next}` 换一个新引用是必须的：内容相同时 React 认为没变就不重渲染，
+     * `loadData` 不重建、effect 不跑，promise 永远等不到。
+     */
+    const applyQuery = useCallback((next: PrescheduleQuery): Promise<void> =>
+        new Promise<void>((resolve) => {
+            pendingQueryRef.current = resolve;
+            setQuery({...next});
+            // 兜底：请求卡死时别让 agent 的 ui_act 一直挂着
+            window.setTimeout(() => {
+                if (pendingQueryRef.current !== resolve) return;
+                pendingQueryRef.current = null;
+                resolve();
+            }, 12000);
+        }), []);
 
     /**
      * 「下单月份」是**界面派生列**：旧客户端用 `UnboundExpression`
@@ -104,6 +132,31 @@ const PrescheduleSummaryPage: React.FC<ViewPageProps> = ({trail}) => {
         [orders],
     );
 
+    /**
+     * 查询表单的初值，交给 `Form` 的 `initialValues`（只在挂载时生效一次），
+     * **别用 effect 里 `setFieldsValue` 后补**：`dateType` 缺省就是 0，`RangePicker` 首帧就已经是
+     * `disabled`，而 effect 要等到首帧之后才把日期写进 store —— 那一瞬间「禁用了、值却是空的」，
+     * rc-picker 会报 `disabled should not set with empty value`。
+     */
+    const initialValues: SearchValues = {dateType: 0, dateRange: range};
+
+    /** 交给界面桥的状态与能力：桥通过取值函数读，不直接持有 */
+    const bridgeContext = useMemo<PrescheduleBridgeContext>(() => ({
+        view,
+        query,
+        applyQuery,
+        readTable: () => tableRef.current,
+    }), [view, query, applyQuery]);
+
+    /**
+     * 界面桥：表格的列目录 / 取数 / 筛选全在 `createTableBridge`，本页只补「查询条件」。
+     *
+     * 依赖里的 `query` 是必须的 —— 快照的 query 段要跟着用户改条件变；
+     * 装配细节全在 `./bridged.ts`，**那个文件存在即「本页接入了界面桥」**（工作台导航靠它判定）。
+     */
+    const bridge = useMemo(() => createPrescheduleBridge(() => bridgeContext), [bridgeContext]);
+    useUIBridgeHost(view, bridge);
+
     return (
         <div className="page-container page-fill">
             <PageBreadcrumb trail={trail}/>
@@ -111,6 +164,7 @@ const PrescheduleSummaryPage: React.FC<ViewPageProps> = ({trail}) => {
                 className="page-search"
                 form={form}
                 layout="inline"
+                initialValues={initialValues}
                 onFinish={(values: SearchValues) => {
                     const [start, end] = values.dateRange ?? range;
                     setQuery({
@@ -143,6 +197,7 @@ const PrescheduleSummaryPage: React.FC<ViewPageProps> = ({trail}) => {
               文件名 = 前缀 + 当天日期，不需要再写一条导出命令。
             */}
             <FilterTable
+                ref={tableRef}
                 columns={PRESCHEDULE_COLUMNS}
                 records={records as unknown as Array<Record<string, unknown>>}
                 rowKey="ID"
