@@ -35,7 +35,10 @@ npm run gen:api    # 从后端 schema 生成 src/api/schemas
 ```
 
 > 桌面壳以 `app/` 为工程根，`app:build` 会先执行 `npm run build`，再把 `dist/` 内嵌进可执行文件；版本号与安装包标识来自
-> `package.json` 与 `app/mygo.config.ts`。
+> `package.json` 与 `app/mygo.config.ts`。**环境要求、产物路径、生产地址、签名与发布前检查见 `docs/桌面应用打包.md`。**
+>
+> 打包后的应用里，后端接口 / Agent / 语音识别三个地址可以从菜单 **`bodaWay → 设置服务器地址…`（`⌘,`）** 改，
+> 存到用户数据目录的 `settings.json`，优先级高于 `.env.production`，改完重启生效。
 
 ### 环境变量
 
@@ -495,6 +498,7 @@ flex 高度链），宽度存 localStorage 并收敛（左 ≥360、右 ≥720�
 | 页面跳转与传参（多标签、自定义标题）                    | `docs/页面跳转与传参.md`                                                                                                                          |
 | 权限模块代码路径                                        | `docs/权限模块代码路径.md`                                                                                                                        |
 | 接口 Schema 生成                                        | `docs/API-Schema生成.md`                                                                                                                          |
+| **生成 app / 桌面打包**（环境、产物、生产地址、签名）   | `docs/桌面应用打包.md`                                                                                                                            |
 | **界面桥的契约，看代码注释**                            | `src/pages/agent/protocol/ui.ts`（协议）、`src/pages/agent/ui-bridge/`（实现）                                                                    |
 | **接入示例，看这三个文件**                              | `src/pages/views/V0189/V0279/V0280/bridged.ts`（页面层）、`.../models/yupaiOrderEditBridge.ts`（弹窗层）、`.../models/yupaiOrderEdit.tsx`（注册） |
 | **一页多表（标签页）示例**                              | `src/pages/views/V0277/V0354/bridged.ts`（三张表的拼法 + `tab.switch`）、`src/components/nc/bomMatrix/`（控件只交列定义与 ref）                  |
