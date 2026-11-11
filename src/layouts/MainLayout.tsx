@@ -38,6 +38,7 @@ import {isBridgedView, useWorkbenchBridge} from '../pages/agent/ui-bridge';
 import type {UINavItem} from '../pages/agent/protocol';
 import type {ViewTrailItem} from '../pages/types';
 import {isDebugEnv} from "@/utils";
+import MenuLabel from './MenuLabel';
 
 const {Header, Sider, Content} = Layout;
 const {Text} = Typography;
@@ -111,10 +112,21 @@ function filterMenuTree(nodes: DesktopMenu[], keyword: string): DesktopMenu[] {
     return result;
 }
 
-function buildMenuItems(nodes: DesktopMenu[], depth: number): AntdMenuItems {
+/**
+ * 菜单项的文字：展开态交给 MenuLabel（溢出才提示），折叠态用纯文本。
+ *
+ * 折叠态必须给字符串：antd 折叠成图标时用它做 tooltip 内容
+ * （`MenuItem` 内部 `tooltipTitle = firstLevel ? children : ''`），
+ * 换成组件后那个提示就哑了；而折叠态下文字本来就被压成 0 宽，不需要我们的溢出判断。
+ */
+function menuLabelOf(node: DesktopMenu, collapsed: boolean): React.ReactNode {
+    return collapsed ? node.MenuName : <MenuLabel text={node.MenuName}/>;
+}
+
+function buildMenuItems(nodes: DesktopMenu[], depth: number, collapsed: boolean): AntdMenuItems {
     return nodes
         .map((node) => {
-            const childItems = node.Children ? buildMenuItems(node.Children, depth + 1) : [];
+            const childItems = node.Children ? buildMenuItems(node.Children, depth + 1, collapsed) : [];
             const hasChildren = childItems.length > 0;
             const icon =
                 depth === 0
@@ -125,7 +137,8 @@ function buildMenuItems(nodes: DesktopMenu[], depth: number): AntdMenuItems {
             return {
                 key: node.View,
                 icon,
-                label: node.MenuName,
+                // 侧栏宽度固定，深层菜单名会被截断，交给 MenuLabel 做「溢出才提示」
+                label: menuLabelOf(node, collapsed),
                 children: hasChildren ? childItems : undefined,
             };
         });
@@ -188,7 +201,7 @@ const MainLayout: React.FC = () => {
         () => filterMenuTree(visibleMenuTree, menuKeyword),
         [visibleMenuTree, menuKeyword],
     );
-    const menuItems = useMemo(() => buildMenuItems(displayTree, 0), [displayTree]);
+    const menuItems = useMemo(() => buildMenuItems(displayTree, 0, collapsed), [displayTree, collapsed]);
 
     /**
      * 界面桥用的导航清单：权限过滤后的菜单，**只留已接入界面桥的页面**，平铺成 {view, title, trail}。

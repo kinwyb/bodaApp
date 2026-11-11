@@ -51,6 +51,23 @@ body {
   overflow: auto;
 }
 
+/*
+ * 侧栏菜单文字：宽度固定 + 逐级缩进，深层菜单名放不下。
+ * 截断交给这里（外层 title-content 是 flex 项，必须 min-width:0 才肯让出空间），
+ * 溢出的内容由 MenuLabel 用 Tooltip 补一个全名提示。
+ */
+.main-sider .ant-menu-title-content {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.main-menu-label {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .main-sider-footer {
   flex: 0 0 auto;
   padding: 8px;
