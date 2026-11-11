@@ -19,14 +19,9 @@ import {
   StopOutlined,
 } from '@ant-design/icons';
 import { Attachments, Sender, Suggestion } from '@ant-design/x';
-import type { AgentAttachment, AgentConnectionStatus, AgentTokenUsage } from '../types';
+import type { AgentAttachment, AgentConnectionStatus, AgentSkill, AgentTokenUsage } from '../types';
 import { CONNECTION_META } from '../constants';
-import {
-  AGENT_SKILL_OPTIONS,
-  AGENT_STEER_COMMAND,
-  AGENT_UI_SKILL,
-  steerGuidanceOf,
-} from '../commands';
+import { AGENT_STEER_COMMAND, steerGuidanceOf } from '../commands';
 import { deleteAgentFile, fileErrorMessage, uploadAgentFile } from '../files';
 import { useVoiceInput } from '../hooks/use-voice-input';
 import { AgentTokenMeter } from './AgentTokenMeter';
@@ -64,6 +59,10 @@ export const AgentComposer: React.FC<{
    * 没有用量记录（新对话、老数据）时不传，底部就不显示这一项。
    */
   usage?: AgentTokenUsage;
+  /** 当前 agent 实际加载的技能 */
+  skills: AgentSkill[];
+  /** 技能列表正在从 agent 读取 */
+  skillsLoading: boolean;
   /** 是否已手动开启当前会话的界面联动 */
   uiFollow: boolean;
   /** 当前会话已有真实用户消息后，才允许开启 */
@@ -80,6 +79,8 @@ export const AgentComposer: React.FC<{
   latency,
   compact = false,
   usage,
+  skills,
+  skillsLoading,
   uiFollow,
   canFollow,
   onUIFollowChange,
@@ -96,6 +97,16 @@ export const AgentComposer: React.FC<{
   const fileInputRef = useRef<HTMLInputElement>(null);
   /** 上传中的请求：移除附件时要能中断，否则删了列表请求还在跑 */
   const uploadsRef = useRef(new Map<string, AbortController>());
+  const skillOptions = useMemo(
+    () =>
+      skills.map((skill) => ({
+        key: skill.name,
+        token: `$${skill.name}`,
+        label: skill.displayName || skill.name,
+        description: skill.shortDescription || skill.description || skill.name,
+      })),
+    [skills],
+  );
 
   // 语音输入：点一下开始、再点结束，中途停顿不会自己停（详见 hooks/use-voice-input.ts）
   const handleVoiceTranscript = useCallback((text: string) => {
@@ -146,7 +157,7 @@ export const AgentComposer: React.FC<{
   const suggestionItems = useMemo(
     () =>
       suggestionKind === 'skill'
-        ? AGENT_SKILL_OPTIONS.map((option) => ({
+        ? skillOptions.map((option) => ({
             value: option.token,
             label: option.token,
             description: option.description,
@@ -162,24 +173,35 @@ export const AgentComposer: React.FC<{
               extra: '生成中',
             },
           ],
-    [suggestionKind],
+    [skillOptions, suggestionKind],
   );
 
   const skillMenu = useMemo(
     () => ({
-      items: AGENT_SKILL_OPTIONS.map((option) => ({
-        key: option.token,
-        icon: <AppstoreOutlined />,
-        label: (
-          <div className="agent-skill-option">
-            <code>{option.token}</code>
-            <span>{option.label}</span>
-          </div>
-        ),
-      })),
-      onClick: ({ key }: { key: string }) => applySkill(key),
+      items:
+        skillOptions.length > 0
+          ? skillOptions.map((option) => ({
+              key: option.token,
+              icon: <AppstoreOutlined />,
+              label: (
+                <div className="agent-skill-option">
+                  <code>{option.token}</code>
+                  <span>{option.label}</span>
+                </div>
+              ),
+            }))
+          : [
+              {
+                key: '__skills-empty',
+                disabled: true,
+                label: skillsLoading ? '正在从 agent 读取技能…' : '当前 agent 没有可用技能',
+              },
+            ],
+      onClick: ({ key }: { key: string }) => {
+        if (key.startsWith('$')) applySkill(key);
+      },
     }),
-    [applySkill],
+    [applySkill, skillOptions, skillsLoading],
   );
 
   // 卸载时中断所有在途上传：组件都没了，传完也没人接
@@ -379,7 +401,7 @@ export const AgentComposer: React.FC<{
             onChange={(value) => {
               setInputValue(value);
               const candidate = value.trimStart();
-              if (/^\$[^\s]*$/.test(candidate)) {
+              if (/^\$[^\s]*$/.test(candidate) && skillOptions.length > 0) {
                 setSuggestionKind('skill');
                 onTrigger({});
                 return;
@@ -449,7 +471,7 @@ export const AgentComposer: React.FC<{
                     onClick={() => fileInputRef.current?.click()}
                   />
                 </Tooltip>
-                <Tooltip title={`${AGENT_UI_SKILL} UI 操作技能`}>
+                <Tooltip title="选择技能">
                   <span>
                     <Dropdown menu={skillMenu} trigger={['click']}>
                       <Button type="text" icon={<AppstoreOutlined />} aria-label="选择技能" />

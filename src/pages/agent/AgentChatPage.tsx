@@ -307,6 +307,8 @@ const AgentChatPage: React.FC<AgentChatPageProps> = ({ embedded = false }) => {
           connection={chat.connection}
           latency={chat.latency}
           usage={chat.usage}
+          skills={chat.skills}
+          skillsLoading={chat.skillsLoading}
           uiFollow={chat.uiFollow}
           canFollow={hasHumanMessage}
           onUIFollowChange={chat.setUIFollow}

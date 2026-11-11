@@ -3,27 +3,10 @@
  *
  * 命令只是消息正文的一部分，服务端按前缀识别：
  * - `/steer`：当前回答还在生成时补充引导；
- * - `$ui-operation`：直接启用界面观察与操作技能。
+ * - `$<skill-name>`：指定本轮使用的技能，候选来自 agent.skills。
  */
 
 export const AGENT_STEER_COMMAND = '/steer';
-export const AGENT_UI_SKILL = '$ui-operation';
-
-export type AgentSkillOption = {
-  key: string;
-  token: string;
-  label: string;
-  description: string;
-};
-
-export const AGENT_SKILL_OPTIONS: AgentSkillOption[] = [
-  {
-    key: 'ui-operation',
-    token: AGENT_UI_SKILL,
-    label: 'UI 操作',
-    description: '观察页面、取数据并执行界面命令',
-  },
-];
 
 /** 从可能已经带 `/steer` 的正文里取出真正的引导内容 */
 export function steerGuidanceOf(text: string): string {

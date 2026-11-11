@@ -53,3 +53,5 @@ export type { HistoryMode } from './history';
 export { toToolStep } from './tool';
 export { parseAck, parseError, parseHello, parsePong } from './system';
 export type { HelloInfo } from './system';
+export { parseAgentSkills } from './skills';
+export type { AgentSkillList } from './skills';

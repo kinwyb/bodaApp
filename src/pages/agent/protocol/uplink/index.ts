@@ -20,3 +20,5 @@ export { buildSessionDelete } from './session-delete';
 export type { TurnReplayInput } from './turn-replay';
 export { buildTurnReplay } from './turn-replay';
 export { buildPing } from './ping';
+export type { AgentSkillsInput } from './agent-skills';
+export { buildAgentSkills } from './agent-skills';

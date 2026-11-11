@@ -92,6 +92,8 @@ export type AgentStreamEvent =
   | { type: 'session-deleted'; conversationId: string; threadId: string }
   /** 删除失败，保持列表项不变并把原因交给全局错误提示 */
   | { type: 'session-delete-error'; conversationId: string; threadId: string; message: string }
+  /** 当前 agent 的技能列表读取失败；不影响聊天连接本身 */
+  | { type: 'skills-error'; agent?: string; message: string }
   /** conversationId 为空表示连接级错误 */
   | { type: 'error'; conversationId: string; message: string };
 

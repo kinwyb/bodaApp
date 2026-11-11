@@ -13,6 +13,7 @@ import type {
   AgentConversation,
   AgentInfo,
   AgentMessage,
+  AgentSkill,
   AgentTokenUsage,
 } from '../types';
 import type { AgentSendPayload } from '../transport';
@@ -84,6 +85,10 @@ export type AgentChatApi = {
   historyLoading: boolean;
   /** 后端 hello 下发的 agent 列表 */
   agents: AgentInfo[];
+  /** 当前 agent 实际加载、且已启用的技能 */
+  skills: AgentSkill[];
+  /** 当前 agent 的技能列表加载中 */
+  skillsLoading: boolean;
   /** 当前连接的用户身份（token 解析而来），mock 下为 mock-user */
   userId: string;
   /** 当前标签页标识 */
@@ -135,6 +140,8 @@ export function useAgentChat(): AgentChatApi {
   const [connection, setConnection] = useState<AgentConnectionStatus>('idle');
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [agent, setAgentState] = useState('');
+  const [skills, setSkills] = useState<AgentSkill[]>([]);
+  const [skillsLoading, setSkillsLoading] = useState(false);
   const [userId, setUserId] = useState('');
   const [viewerId, setViewerId] = useState('');
   const [serverChatId, setServerChatId] = useState('');
@@ -265,6 +272,12 @@ export function useAgentChat(): AgentChatApi {
     });
 
     const offEvent = transport.onEvent((event) => {
+      if (event.type === 'skills-error') {
+        if (event.agent && event.agent !== agentRef.current) return;
+        setSkillsLoading(false);
+        setLastError(event.message);
+        return;
+      }
       // conversationId 为空的是连接级错误
       if (!event.conversationId) {
         if (event.type === 'error') setLastError(event.message);
@@ -419,6 +432,12 @@ export function useAgentChat(): AgentChatApi {
       dispatch({ type: 'sessions', items: page.items, mode: sessionsModeRef.current });
     });
 
+    const offSkills = transport.onSkills((result) => {
+      if (result.agent && result.agent !== agentRef.current) return;
+      setSkills(result.skills);
+      setSkillsLoading(false);
+    });
+
     /*
      * 界面操作请求（服务端 → 浏览器）：交给界面桥作答。
      * 页面没接入桥时也会回一条带原因的失败，不会让服务端空等到超时。
@@ -434,6 +453,7 @@ export function useAgentChat(): AgentChatApi {
       offLatency();
       offHello();
       offSessions();
+      offSkills();
       offUI();
       offUIEvent();
       uiEventBufferRef.current = [];
@@ -447,6 +467,18 @@ export function useAgentChat(): AgentChatApi {
       transportRef.current = null;
     };
   }, [finishDeletingConversation]);
+
+  useEffect(() => {
+    const transport = transportRef.current;
+    if (connection !== 'connected' || !agent || !transport) {
+      setSkills([]);
+      setSkillsLoading(false);
+      return;
+    }
+    setSkills([]);
+    setSkillsLoading(true);
+    transport.skills(agent);
+  }, [agent, connection]);
 
   /** 拉会话列表：refresh = 从第一页重来，append = 用游标续拉 */
   const requestSessions = useCallback((mode: 'replace' | 'append') => {
@@ -787,6 +819,7 @@ export function useAgentChat(): AgentChatApi {
   }, []);
 
   const setAgent = useCallback((name: string) => {
+    setSkills([]);
     setAgentState(name);
   }, []);
 
@@ -815,6 +848,8 @@ export function useAgentChat(): AgentChatApi {
     usage: activeConversation.usage,
     historyLoading: Boolean(activeConversation.historyLoading),
     agents,
+    skills,
+    skillsLoading,
     userId,
     viewerId,
     serverChatId,

@@ -247,6 +247,16 @@ export type AgentInfo = {
   description?: string;
 };
 
+/** 后端 agent.skills 下发的、当前 agent 已启用的技能 */
+export type AgentSkill = {
+  name: string;
+  displayName?: string;
+  description?: string;
+  shortDescription?: string;
+  path: string;
+  scope?: string;
+};
+
 /* ------------------------------------------------------------------ */
 /* token 用量（types.TokenUsage）                                       */
 /* ------------------------------------------------------------------ */

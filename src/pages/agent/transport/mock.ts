@@ -5,8 +5,8 @@
  * 不会出现「mock 能跑、真机不行」的假象。
  */
 
-import type { AgentInfo } from '../types';
-import type { AgentEventData, AgentEnvelope, AgentStreamEvent } from '../protocol';
+import type { AgentInfo, AgentSkill } from '../types';
+import type { AgentEventData, AgentEnvelope, AgentSkillList, AgentStreamEvent } from '../protocol';
 import {
   AGENT_EVENT,
   KIND,
@@ -27,6 +27,36 @@ const MOCK_AGENTS: AgentInfo[] = [
   { name: 'boda-agent', description: '通用助手：查询、分析、生成' },
   { name: 'boda-sql', description: '只做数据查询与表格操作' },
 ];
+
+const MOCK_SKILLS: Record<string, AgentSkill[]> = {
+  'boda-agent': [
+    {
+      name: 'ui-operation',
+      displayName: 'UI 操作',
+      description: '观察页面、取数据并执行界面命令',
+      shortDescription: '观察页面并执行界面命令',
+      path: '/root/.codex/skills/ui-operation/SKILL.md',
+      scope: 'user',
+    },
+    {
+      name: 'order-progress-analysis',
+      displayName: '订单进度分析',
+      description: '查询并分析生产系统中的订单进度信息，识别生产隐患和异常',
+      shortDescription: '查询订单进度与交期风险',
+      path: '/root/.codex/skills/order-progress-analysis/SKILL.md',
+      scope: 'user',
+    },
+  ],
+  'boda-sql': [
+    {
+      name: 'ui-operation',
+      displayName: 'UI 操作',
+      description: '观察页面、取数据并执行界面命令',
+      path: '/root/.codex/skills/ui-operation/SKILL.md',
+      scope: 'user',
+    },
+  ],
+};
 
 /** 演示用的身份 */
 const MOCK_USER_ID = 'mock-user';
@@ -52,6 +82,7 @@ export function createMockTransport(): AgentTransport {
   const statusListeners = new Set<(status: import('../types').AgentConnectionStatus) => void>();
   const helloListeners = new Set<(hello: AgentHello) => void>();
   const sessionListeners = new Set<(page: import('../protocol').AgentSessionPage) => void>();
+  const skillListeners = new Set<(result: AgentSkillList) => void>();
   const latencyListeners = new Set<(ms: number) => void>();
   const uiListeners = new Set<(request: AgentUIRequest) => void>();
 
@@ -269,6 +300,15 @@ export function createMockTransport(): AgentTransport {
       }, 120);
     },
 
+    skills(agent) {
+      const target = agent || MOCK_AGENTS[0].name;
+      setTimeout(() => {
+        skillListeners.forEach((listener) =>
+          listener({ agent: target, skills: MOCK_SKILLS[target] ?? [] }),
+        );
+      }, 120);
+    },
+
     deleteSession(query) {
       // 演示模式没有真实落库数据，走一遍与真实响应相同的语义事件。
       setTimeout(() => {
@@ -310,6 +350,13 @@ export function createMockTransport(): AgentTransport {
       sessionListeners.add(listener);
       return () => {
         sessionListeners.delete(listener);
+      };
+    },
+
+    onSkills(listener) {
+      skillListeners.add(listener);
+      return () => {
+        skillListeners.delete(listener);
       };
     },
 

@@ -5,6 +5,7 @@
 import type { AgentConnectionStatus } from '../types';
 import type {
   AgentSessionPage,
+  AgentSkillList,
   AgentStreamEvent,
   HelloInfo,
   UIRequestPayload,
@@ -108,6 +109,8 @@ export type AgentTransport = {
   history(query: AgentHistoryQuery): void;
   /** 拉取对话列表（session.list），结果通过 onSessions 回调 */
   sessions(query?: AgentSessionQuery): void;
+  /** 拉取指定 agent 实际加载的技能，结果通过 onSkills 回调 */
+  skills(agent?: string): void;
   /** 软删除一个已落库对话线程（session.delete） */
   deleteSession(query: AgentSessionDeleteQuery): void;
   /** 回放某一轮的完整执行过程（不限帧数、不截断） */
@@ -118,6 +121,7 @@ export type AgentTransport = {
   onStatusChange(listener: (status: AgentConnectionStatus) => void): () => void;
   onHello(listener: (hello: AgentHello) => void): () => void;
   onSessions(listener: (page: AgentSessionPage) => void): () => void;
+  onSkills(listener: (result: AgentSkillList) => void): () => void;
   onLatency(listener: (ms: number) => void): () => void;
   /** 订阅界面操作请求（见 AgentUIRequest） */
   onUIRequest(listener: (request: AgentUIRequest) => void): () => void;

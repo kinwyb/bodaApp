@@ -425,7 +425,7 @@ src/pages/agent/
 │   ├── envelope.ts   信封（{ v,id,kind,type,sessionID,replyTo,seq,ts,data }）与常量
 │   ├── payloads.ts / events.ts
 │   ├── ui.ts         ★ 界面操作协议（快照/补丁/请求/回执）
-│   ├── uplink/       chat.send / chat.cancel / session.history / session.list / session.delete / ping
+│   ├── uplink/       chat.send / chat.cancel / session.history / session.list / session.delete / agent.skills / ping
 │   └── downlink/     message / reasoning / tool / approval / usage / attachments …
 ├── transport/     # 连接实现：websocket 与 mock，把协议翻成语义事件
 ├── chat/          # 会话状态机与 hook（reducer、流式缓冲），不 import 任何 antd/x
@@ -444,6 +444,8 @@ src/pages/agent/
 - 假死判定只在"这条连接曾回过 pong"时启用。服务端没实现 pong 的话，宁可测不准也不要每两个周期断一次、无限重连。
 - 收到 `shutdown` **不能**把手动关闭标记置真，否则前端会永久停在"未连接"。
 - 文件上传走 HTTP（`files/client.ts`），ws 帧里只传 fileID。
+- 连接成功或切换 agent 后自动请求 `agent.skills`；输入框的技能菜单只展示该 agent
+  实际加载且已启用的技能，选择后插入 `$<skill-name>` 前缀。
 - 开发期有帧打点（`transport/frame-trace.ts`），用来定位"帧到了但界面不动"。
 
 ## 工作台布局

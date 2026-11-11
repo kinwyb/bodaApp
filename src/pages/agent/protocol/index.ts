@@ -60,6 +60,8 @@ export type {
 export type {
   AckData,
   AgentEventData,
+  AgentSkillData,
+  AgentSkillsData,
   AgentToolCall,
   ChatCancelData,
   ChatSendData,
@@ -91,6 +93,7 @@ export {
   mapAgentEnvelope,
   mapEnvelopeAttachments,
   parseAck,
+  parseAgentSkills,
   parseError,
   parseHello,
   parsePong,
@@ -100,4 +103,4 @@ export {
   toReplayEvent,
   toToolStep,
 } from './downlink';
-export type { AgentSessionPage, HelloInfo, HistoryMode } from './downlink';
+export type { AgentSessionPage, AgentSkillList, HelloInfo, HistoryMode } from './downlink';

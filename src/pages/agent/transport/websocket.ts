@@ -17,6 +17,7 @@ import type {
 import {
   SYSTEM_TYPE,
   UI_TYPE,
+  buildAgentSkills,
   buildChatCancel,
   buildChatSend,
   buildPing,
@@ -29,6 +30,7 @@ import {
   mapAgentEnvelope,
   mapEnvelopeAttachments,
   parseAck,
+  parseAgentSkills,
   parseError,
   parseHello,
   parseSessionList,
@@ -37,12 +39,12 @@ import {
   toReplayEvent,
   uid,
 } from '../protocol';
-import type { AgentSessionPage, UIResponsePayload } from '../protocol';
+import type { AgentSessionPage, AgentSkillList, UIResponsePayload } from '../protocol';
 import type { AgentHello, AgentTransport, AgentUIRequest } from './types';
 import { installFrameTrace, traceIncoming, traceUplink } from './frame-trace';
 
 /** 上行请求的类别：决定响应回来时用哪种方式解析 */
-type PendingKind = 'chat' | 'history' | 'replay' | 'sessions' | 'delete';
+type PendingKind = 'chat' | 'history' | 'replay' | 'sessions' | 'skills' | 'delete';
 
 /**
  * 重连退避：1s → 2s → 4s → 8s → 15s（封顶），最多自动重试 AGENT_MAX_AUTO_RETRY 次。
@@ -106,13 +108,20 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
   const statusListeners = new Set<(status: AgentConnectionStatus) => void>();
   const helloListeners = new Set<(hello: AgentHello) => void>();
   const sessionListeners = new Set<(page: AgentSessionPage) => void>();
+  const skillListeners = new Set<(result: AgentSkillList) => void>();
   const latencyListeners = new Set<(ms: number) => void>();
   const uiListeners = new Set<(request: AgentUIRequest) => void>();
 
   /** 上行信封 id → 请求上下文（ack / error / 历史 / 回放 靠 replyTo 找回） */
   const pending = new Map<
     string,
-    { conversationId: string; kind: PendingKind; mode: HistoryMode; threadId?: string }
+    {
+      conversationId: string;
+      kind: PendingKind;
+      mode: HistoryMode;
+      threadId?: string;
+      agent?: string;
+    }
   >();
   /** sessionID → 会话 key */
   const sessions = new Map<string, string>();
@@ -174,7 +183,13 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
   /** 发送一条上行信封，并登记它属于哪个会话 */
   const postEnvelope = (
     envelope: AgentEnvelope,
-    related?: { conversationId: string; kind?: PendingKind; mode?: HistoryMode; threadId?: string },
+    related?: {
+      conversationId: string;
+      kind?: PendingKind;
+      mode?: HistoryMode;
+      threadId?: string;
+      agent?: string;
+    },
   ) => {
     if (related) {
       pending.set(envelope.id, {
@@ -182,6 +197,7 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
         kind: related.kind ?? 'chat',
         mode: related.mode ?? 'replace',
         threadId: related.threadId,
+        agent: related.agent,
       });
     }
     rawPost(JSON.stringify(envelope));
@@ -278,6 +294,13 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
         break;
       }
 
+      case SYSTEM_TYPE.agentSkills: {
+        if (envelope.replyTo) pending.delete(envelope.replyTo);
+        const result = parseAgentSkills(envelope.data);
+        skillListeners.forEach((listener) => listener(result));
+        break;
+      }
+
       case SYSTEM_TYPE.sessionHistory: {
         const result = (envelope.data ?? {}) as SessionHistoryResult;
         const request = envelope.replyTo ? pending.get(envelope.replyTo) : undefined;
@@ -350,6 +373,10 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
         const data = parseError(envelope.data);
         const request = envelope.replyTo ? pending.get(envelope.replyTo) : undefined;
         if (envelope.replyTo) pending.delete(envelope.replyTo);
+        if (request?.kind === 'skills') {
+          emit({ type: 'skills-error', agent: request.agent, message: data.message });
+          break;
+        }
         if (request?.kind === 'delete') {
           emit({
             type: 'session-delete-error',
@@ -663,6 +690,10 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
       postEnvelope(buildSessionList(query), { conversationId: '', kind: 'sessions' });
     },
 
+    skills(agent) {
+      postEnvelope(buildAgentSkills({ agent }), { conversationId: '', kind: 'skills', agent });
+    },
+
     deleteSession(query) {
       postEnvelope(
         buildSessionDelete({ threadID: query.threadId }),
@@ -706,6 +737,13 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
       sessionListeners.add(listener);
       return () => {
         sessionListeners.delete(listener);
+      };
+    },
+
+    onSkills(listener) {
+      skillListeners.add(listener);
+      return () => {
+        skillListeners.delete(listener);
       };
     },
 

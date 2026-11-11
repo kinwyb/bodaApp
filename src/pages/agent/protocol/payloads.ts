@@ -77,6 +77,23 @@ export type HelloData = {
   heartbeat?: number;
 };
 
+/** protocol.AgentSkillInfo */
+export type AgentSkillData = {
+  name?: string;
+  displayName?: string;
+  description?: string;
+  shortDescription?: string;
+  path?: string;
+  scope?: string;
+  enabled?: boolean;
+};
+
+/** protocol.AgentSkillsData */
+export type AgentSkillsData = {
+  agent?: string;
+  skills?: AgentSkillData[];
+};
+
 /** protocol.AckData */
 export type AckData = {
   ok?: boolean;

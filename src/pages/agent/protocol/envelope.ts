@@ -52,6 +52,7 @@ export const CLIENT_TYPE = {
   turnReplay: 'session.turn.replay',
   ping: 'ping',
   agentList: 'agent.list',
+  agentSkills: 'agent.skills',
 } as const;
 
 /** 下行控制消息（kind=system） */
@@ -69,6 +70,8 @@ export const SYSTEM_TYPE = {
   sessionDelete: 'session.delete',
   /** 单轮回放响应与上行同名 */
   turnReplay: 'session.turn.replay',
+  /** agent 技能列表响应与上行同名 */
+  agentSkills: 'agent.skills',
 } as const;
 
 /**
@@ -115,6 +118,7 @@ export const ERROR_CODE = {
   forbidden: 'forbidden',
   unsupported: 'unsupported',
   agentNotFound: 'agent_not_found',
+  skillNotFound: 'skill_not_found',
   busy: 'busy',
   tooManyClients: 'too_many_clients',
   internal: 'internal',
