@@ -31,6 +31,7 @@ import type {
   UIForm,
   UIFormPatch,
   UIGuide,
+  UINavItem,
   UISelection,
   UISnapshot,
   UISnapshotPatch,
@@ -189,6 +190,24 @@ function encAction(action: UIAction, refs: Map<string, string>): string {
 function encHintDef(id: string, params: UIActionParam[]): string {
   const hints = params.map((p) => `${p.name}(${encHintBody(p.hint ?? '')})`).join(',');
   return `P|${id}|${hints}`;
+}
+
+// ── 导航编码 ─────────────────────────────────────────────
+
+/**
+ * 一条可导航菜单。
+ *
+ * 描述单独成列，模型可以据此判断用户问题属于哪个菜单；没有描述时保持空列，
+ * 不让字段位置整体左移。trail 用 ` > ` 拼成一行，避免为层级再引入一套嵌套语法。
+ */
+function encNavItem(item: UINavItem): string {
+  return [
+    'nav',
+    item.view,
+    pipeVal(item.title),
+    pipeVal(item.description ?? ''),
+    pipeVal((item.trail ?? []).join(' > ')),
+  ].join('|');
 }
 
 // ── Query 编码（页面级查询条件） ─────────────────────────
@@ -385,7 +404,7 @@ function encFormPatch(form: UIFormPatch): string[] {
 /**
  * 编码完整快照为紧凑文本（ui-snap-c 格式）。
  *
- * 零丢失：active 行数据、sorts、activeRowIndex、selection、filters、
+ * 零丢失：navigation、active 行数据、sorts、activeRowIndex、selection、filters、
  * readable/visible、grouped、summaryRow、rows/window、query、form、options 全部编码。
  *
  * @returns 行式文本字符串，约比原始 JSON 小 40%
@@ -417,6 +436,14 @@ export function encodeSnapshot(snapshot: UISnapshot): string {
     lines.push('## param-hints');
     for (const [id, params] of defs) {
       lines.push(encHintDef(id, params));
+    }
+    lines.push('');
+  }
+
+  if (snapshot.navigation?.length) {
+    lines.push('## navigation');
+    for (const item of snapshot.navigation) {
+      lines.push(encNavItem(item));
     }
     lines.push('');
   }

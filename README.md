@@ -319,10 +319,18 @@ const writer = createFormWriter({
 
 ### 怎么给一个页面接桥
 
+生成或审查界面桥时优先使用仓库内的 `docs/skills/ui-bridge-generation/` Skill；
+它包含页面桥、弹窗桥、事件/回执、检查清单、模板和 `audit_bridge.mjs` 审计脚本。
+
 **第 0 步：确认 View 能解析到它。** 页面目录按层级拼成 View（`V0189/V0279/V0280` → `V0189_V0279_V0280`，`registry.ts`
 自动注册）；页面从 props 拿到 `view` 后原样传给桥即可， **不要自己拼字符串**。
 
 **第 1 步：在页面目录下建 `bridged.ts`，导出纯函数工厂。** 下面是骨架示意，完整实现见 `V0189/V0279/V0280/bridged.ts`：
+
+`guide.summary` 同时是 agent 打开页面后看到的摘要，也是菜单导航描述的唯一来源。
+`npm run dev` / `npm run build` 会自动运行 `scripts/sync-menu-descriptions.mjs`，
+把 summary 同步到同目录的 `description.md`；**不要手改 description.md**。
+CI 可用 `npm run menu:descriptions:check` 检查生成物是否最新。
 
 ```ts
 // V0189/V0279/V0280/bridged.ts
@@ -457,6 +465,10 @@ flex 高度链），宽度存 localStorage 并收敛（左 ≥360、右 ≥720�
 - **命令体系**（`src/components/commands/`）：页面命令由 `CommandItem` 描述（key / label / disabled / onClick），`CommandBar`
   负责渲染与分组排序。命令工厂必须是 **纯函数**，它在 `useMemo` 回调里求值。
 - **权限**：菜单树按 Debug/Release 过滤， **匹配用 `ViewID` 不能用 `MenuID`**（283 个菜单节点里 201 个 `MenuID` 是 0）。
+  发布环境还要求叶子菜单有**精确匹配**的 `src/pages/views/**/index.tsx`；只有可见子项的父节点仍作为分组保留。
+- **Agent 菜单描述**：唯一来源是页面 `bridged.ts` 的 `guide.summary`。开发/构建前由
+  `scripts/sync-menu-descriptions.mjs` 生成同目录 `description.md`，工作台导航再把它作为
+  `navigation[].description` 下发，`ui_navigate` 搜索也会匹配它；页面打开后的操作细节仍以完整 guide 为准。
 - **页签**：key = `view + '::' + 实例标识`；菜单进来无后缀（同一菜单只有一个标签），`openView(view, params)`
   用参数稳定指纹做后缀（参数不同各开一个）。
 - **API 层**：`@/api` 纯封装（含 mock 与统一错误归一 `ApiError`），`@/services` 放依赖业务模型的逻辑，`@/utils` 放可移植纯函数。

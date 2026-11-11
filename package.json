@@ -4,9 +4,13 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "predev": "npm run menu:descriptions",
     "dev": "vite",
+    "prebuild": "npm run menu:descriptions",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
+    "menu:descriptions": "node scripts/sync-menu-descriptions.mjs",
+    "menu:descriptions:check": "node scripts/sync-menu-descriptions.mjs --check",
     "preview": "vite preview",
     "app:dev": "mygo dev app",
     "app:build": "mygo build app",

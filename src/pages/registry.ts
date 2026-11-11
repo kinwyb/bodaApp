@@ -20,6 +20,19 @@ function viewFromPath(path: string): string {
     .join('_');
 }
 
+/** 菜单导航描述由 scripts/sync-menu-descriptions.mjs 从 bridged.ts 的 guide.summary 生成 */
+const descriptions = import.meta.glob<string>('./views/**/description.md', {
+  eager: true,
+  query: '?raw',
+  import: 'default',
+});
+const descriptionByView = new Map<string, string>(
+  Object.entries(descriptions).map(([path, content]) => [
+    path.replace(/^\.\/views\//, '').replace(/\/description\.md$/, '').split('/').join('_'),
+    content.trim(),
+  ]),
+);
+
 /** View 路径 -> 页面组件（懒加载，按需分包） */
 const viewRegistry = new Map<string, ViewComponent>();
 Object.entries(loaders).forEach(([path, loader]) => {
@@ -34,6 +47,21 @@ export function registerView(view: string, component: ViewComponent): void {
 /** 已登记的 View 列表 */
 export function registeredViews(): string[] {
   return [...viewRegistry.keys()].sort();
+}
+
+/**
+ * 这个 View 是否有**精确匹配**的页面目录（`views/**\/index.tsx`）。
+ *
+ * 菜单发布判断必须用它，不能走 `resolveViewPath` —— 后者会向上找祖先页面，
+ * 子菜单自己没有实现时会错误命中父目录，最终把没做完的页面放进发布菜单。
+ */
+export function hasRegisteredView(view: string): boolean {
+  return viewRegistry.has(view);
+}
+
+/** 菜单导航用的功能描述；只认页面目录自己的 description.md，不向父目录回退 */
+export function pageDescription(view: string): string | undefined {
+  return descriptionByView.get(view) || undefined;
 }
 
 /**

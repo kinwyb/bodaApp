@@ -31,9 +31,9 @@ import {type TabsApi, TabsContext} from '../store/tabs';
 import {buildTabKey, instanceOfParams, sameParams} from '../store/tab-key';
 import {TabTitleContext, type TabTitleScope} from '../store/tab-title-context';
 import type {DesktopMenu} from '../api';
-import {isNavigableMenu} from '../services';
+import {filterAvailableMenuTree} from '../services';
 import Dashboard from '../pages/Dashboard';
-import {resolveView} from '../pages/registry';
+import {hasRegisteredView, pageDescription, resolveView} from '../pages/registry';
 import {isBridgedView, useWorkbenchBridge} from '../pages/agent/ui-bridge';
 import type {UINavItem} from '../pages/agent/protocol';
 import type {ViewTrailItem} from '../pages/types';
@@ -99,7 +99,6 @@ function filterMenuTree(nodes: DesktopMenu[], keyword: string): DesktopMenu[] {
     if (!kw) return nodes;
     const result: DesktopMenu[] = [];
     nodes.forEach((node) => {
-        if (!isNavigableMenu(node)) return;
         if (node.MenuName.toLowerCase().includes(kw)) {
             result.push(node);
             return;
@@ -114,7 +113,6 @@ function filterMenuTree(nodes: DesktopMenu[], keyword: string): DesktopMenu[] {
 
 function buildMenuItems(nodes: DesktopMenu[], depth: number): AntdMenuItems {
     return nodes
-        .filter(isNavigableMenu)
         .map((node) => {
             const childItems = node.Children ? buildMenuItems(node.Children, depth + 1) : [];
             const hasChildren = childItems.length > 0;
@@ -135,7 +133,6 @@ function buildMenuItems(nodes: DesktopMenu[], depth: number): AntdMenuItems {
 
 function collectSubmenuKeys(nodes: DesktopMenu[], keys: string[] = []): string[] {
     nodes
-        .filter(isNavigableMenu)
         .forEach((node) => {
             if (node.Children && node.Children.length) {
                 keys.push(node.View);
@@ -160,6 +157,15 @@ const MainLayout: React.FC = () => {
 
     const tabInstances = useRef<Map<string, React.ReactNode>>(new Map());
 
+    /**
+     * 发布菜单只留下已经有页面目录的叶子；调试环境保持后端菜单原样。
+     * 父级节点只负责分组，是否存在 index 不影响它保留可见子项。
+     */
+    const visibleMenuTree = useMemo(
+        () => filterAvailableMenuTree(menuTree, hasRegisteredView),
+        [menuTree],
+    );
+
     /** View -> 菜单元数据（标签名 + 从根到当前的层级，用于面包屑） */
     const menuMetaMap = useMemo(() => {
         const map = new Map<string, MenuMeta>();
@@ -174,11 +180,14 @@ const MainLayout: React.FC = () => {
                 if (node.Children) walk(node.Children, nextTrail);
             });
         };
-        walk(menuTree, []);
+        walk(visibleMenuTree, []);
         return map;
-    }, [menuTree]);
+    }, [visibleMenuTree]);
 
-    const displayTree = useMemo(() => filterMenuTree(menuTree, menuKeyword), [menuTree, menuKeyword]);
+    const displayTree = useMemo(
+        () => filterMenuTree(visibleMenuTree, menuKeyword),
+        [visibleMenuTree, menuKeyword],
+    );
     const menuItems = useMemo(() => buildMenuItems(displayTree, 0), [displayTree]);
 
     /**
@@ -194,11 +203,21 @@ const MainLayout: React.FC = () => {
         () =>
             [...menuMetaMap.entries()]
                 .filter(([view]) => isBridgedView(view))
-                .map(([view, meta]) => ({
-                    view,
-                    title: meta.label,
-                    trail: meta.trail.map((item) => item.name),
-                })),
+                .map(([view, meta]) => {
+                    const description = pageDescription(view);
+                    if (isDebugEnv && !description) {
+                        console.warn(
+                            `[menu-description] ${view} 已接入界面桥，但目录下缺少 description.md；` +
+                            '请运行 npm run menu:descriptions',
+                        );
+                    }
+                    return {
+                        view,
+                        title: meta.label,
+                        description,
+                        trail: meta.trail.map((item) => item.name),
+                    };
+                }),
         [menuMetaMap],
     );
 
@@ -359,10 +378,10 @@ const MainLayout: React.FC = () => {
         (value: string) => {
             setMenuKeyword(value);
             if (value.trim()) {
-                setOpenKeys(collectSubmenuKeys(filterMenuTree(menuTree, value)));
+                setOpenKeys(collectSubmenuKeys(filterMenuTree(visibleMenuTree, value)));
             }
         },
-        [menuTree],
+        [visibleMenuTree],
     );
 
     const handleLogout = useCallback(() => {

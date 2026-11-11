@@ -1,5 +1,5 @@
 import type {DesktopMenu, UserMenu} from '@/api';
-import {pickByEnv} from '@/utils';
+import {isDebugEnv, pickByEnv} from '@/utils';
 
 /**
  * 菜单权限的业务逻辑层：接口调用在 @/api（powerApi），
@@ -19,6 +19,36 @@ import {pickByEnv} from '@/utils';
 export function isNavigableMenu(node: DesktopMenu): boolean {
   if (node.IsAction) return false;
   return pickByEnv({ debug: true, release: node.Release });
+}
+
+/**
+ * 生成实际可见的菜单树。
+ *
+ * 调试环境保留后端返回的全部导航节点；发布环境只保留满足下面任一条件的节点：
+ * - 叶子菜单：`Release=true`，且页面目录里有精确匹配的 `index.tsx`；
+ * - 父菜单：下面还有可见子菜单。父级本身通常没有页面，不能拿它去要求 index。
+ *
+ * 发布判断放在**树**上而不是 `isNavigableMenu` 里，是因为一个节点能不能自己做导航，
+ * 与它能不能作为分组留下，是两个问题。先递归算子项，再决定父项，才不会因为父目录
+ * 没有 index 把整棵已完成子树一起删掉。
+ */
+export function filterAvailableMenuTree(
+  nodes: DesktopMenu[],
+  hasPage: (view: string) => boolean,
+): DesktopMenu[] {
+  const filterNodes = (list: DesktopMenu[]): DesktopMenu[] => {
+    const result: DesktopMenu[] = [];
+    list.forEach((node) => {
+      if (node.IsAction) return;
+      const children = node.Children ? filterNodes(node.Children) : [];
+      const hasVisibleChildren = children.length > 0;
+      const canOpenPage = isNavigableMenu(node) && (isDebugEnv || hasPage(node.View));
+      if (!canOpenPage && !hasVisibleChildren) return;
+      result.push({...node, Children: hasVisibleChildren ? children : null});
+    });
+    return result;
+  };
+  return filterNodes(nodes);
 }
 
 /** 将 View 路径按下划线拆分成层级，例如 V0005_V0010 -> ["V0005", "V0010"] */

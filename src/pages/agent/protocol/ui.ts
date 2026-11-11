@@ -335,6 +335,13 @@ export type UINavItem = {
   view: string;
   /** 菜单名，模型按业务名称选，不要按 URL 猜 */
   title: string;
+  /**
+   * 菜单功能描述，来自页面目录下的 `description.md`。
+   *
+   * 菜单名常常不足以说明业务范围，模型先用它判断用户问题是否属于这个页面；
+   * 更细的操作顺序与业务术语仍由页面 `bridged.ts` 的 guide 在打开后提供。
+   */
+  description?: string;
   /** 从根到当前的层级，例如 ["计划管理", "预订单"] */
   trail?: string[];
 };

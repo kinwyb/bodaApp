@@ -1,0 +1,4 @@
+interface:
+  display_name: "UI Bridge 生成"
+  short_description: "生成并校验 bodaWay 页面与弹窗的完整界面桥"
+  default_prompt: "使用 $ui-bridge-generation 为这个页面生成完整的 bridged.ts 并完成自检。"

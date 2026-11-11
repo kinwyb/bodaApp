@@ -1,6 +1,46 @@
 import { fileURLToPath, URL } from 'node:url'
+import { basename } from 'node:path'
 import react from '@vitejs/plugin-react'
 import { defineConfig, loadEnv } from 'vite'
+import { syncMenuDescriptions } from './scripts/sync-menu-descriptions.mjs'
+
+/** bridged.ts 是菜单描述的唯一来源；开发中增删改它也立即同步 description.md */
+function menuDescriptionsPlugin() {
+  let root = process.cwd()
+  const sync = (logger?: { info(message: string): void; error(message: string): void }) => {
+    try {
+      const result = syncMenuDescriptions({ root })
+      if (result.written || result.removed) {
+        logger?.info(
+          `[menu-descriptions] written=${result.written} removed=${result.removed}`,
+        )
+      }
+    } catch (error) {
+      logger?.error(
+        `[menu-descriptions] ${error instanceof Error ? error.message : String(error)}`,
+      )
+    }
+  }
+
+  return {
+    name: 'boda-menu-descriptions',
+    configResolved(config: { root: string }) {
+      root = config.root
+      sync()
+    },
+    configureServer(server: {
+      watcher: { on(event: 'add' | 'change' | 'unlink', listener: (file: string) => void): void }
+      config: { logger: { info(message: string): void; error(message: string): void } }
+    }) {
+      const onChange = (file: string) => {
+        if (basename(file) === 'bridged.ts') sync(server.config.logger)
+      }
+      server.watcher.on('add', onChange)
+      server.watcher.on('change', onChange)
+      server.watcher.on('unlink', onChange)
+    },
+  }
+}
 
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
@@ -38,7 +78,7 @@ export default defineConfig(({ mode }) => {
   const asrTarget = env.VITE_ASR_TARGET || 'http://127.0.0.1:9383'
 
   return {
-    plugins: [react()],
+    plugins: [react(), menuDescriptionsPlugin()],
     resolve: {
       alias: {
         '@': fileURLToPath(new URL('./src', import.meta.url)),

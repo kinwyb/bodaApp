@@ -48,6 +48,9 @@ a|{id}|{label}[|g={group}][|danger][|waitConfirm][|dis][|disR={原因}][|ret={re
 ## param-hints
 P|{hintRef}|{name}({hint})[,...]
 
+## navigation
+nav|{view}|{title}|{description}|{trail}
+
 ## query
 q|{id}|{label}|{type}[|val={value}][|rq][|ro][|h={hint}]
 
@@ -92,6 +95,7 @@ en={cmd1},{cmd2},...                                 ← 可执行命令全集
 | `waitConfirm` | 执行后**停在用户确认**：只是弹出确认框，回执里的 result 是「已触发」而不是「已完成」 |
 | `ret=result` | 纯读命令，回执只有 result |
 | `en=...` | 当前可执行命令 ID 全集 |
+| `nav\|{view}\|{title}\|{description}\|{trail}` | 可导航菜单；`description` 说明该页能做什么，`trail` 是从根到当前的层级 |
 
 ### 转义
 
@@ -174,7 +178,11 @@ en={cmd1},{cmd2},...                                 ← 可执行命令全集
 
 ## 导航
 
-- 可打开的页面在 `ui_observe` 的 navigation 里（可能被截断）。名字不确定时用 `ui_navigate {query:"预订单"}` 搜，从返回项里取 view 再打开。
+- 可打开的页面在 `ui_observe` 的 `## navigation` 里（可能被截断）。每一行依次是 view、菜单名、功能描述、层级。
+- `description` 来自页面 `bridged.ts` 的 `guide.summary`，由项目脚本自动生成到同目录 `description.md`，不是另一份人工维护的说明。
+- 不要只看菜单名：名称不足以表达业务范围时，以 `description` 判断用户问题属于哪个页面。
+- 名字或功能不确定时用 `ui_navigate {query:"预订单"}` 搜；搜索会同时匹配菜单名、层级与功能描述，从返回项里取 view 再打开。
+- 页面打开后的 `## guide` 会给出更细的操作顺序与业务术语；菜单描述只在选择页面时使用，不要把它当成操作说明。
 - **不要用 params 传筛选条件**：参数不同会被当成不同页签，同一个页面会开出多个标签。params 只用于「查看某条单据」这类页面入参。
 - 一次对话最多打开一两个页面，不要为了「看看」批量开页签。
 

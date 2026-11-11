@@ -843,6 +843,7 @@ function searchNavigation(workbench: UIWorkbenchHost, query: string): UINavItem[
       (item) =>
         item.title.toLowerCase().includes(keyword) ||
         item.view.toLowerCase().includes(keyword) ||
+        (item.description ?? '').toLowerCase().includes(keyword) ||
         (item.trail ?? []).some((name) => name.toLowerCase().includes(keyword)),
     )
     .slice(0, NAVIGATION_MATCH_LIMIT);

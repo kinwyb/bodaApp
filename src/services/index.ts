@@ -6,6 +6,7 @@ export {
   applyMenuPermission,
   buildPermissionIndex,
   collectAllViewIds,
+  filterAvailableMenuTree,
   isNavigableMenu,
   splitViewPath,
   SUPER_ADMIN_USER_ID,
