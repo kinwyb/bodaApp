@@ -6,9 +6,11 @@ import type {
     YupaiOrderCompleteGroupDto,
     YupaiOrderCompleteGroupQuery,
     YupaiOrderCompleteListQuery,
+    YupaiOrderDeliverGroup,
+    YupaiOrderDeliverGroupDepartment,
     YupaiOrderDto,
 } from "@/api";
-import {sqlApi, yupaiApi, YupaiMachineSizeHeader} from "@/api";
+import {S, sqlApi, yupaiApi, YupaiMachineSizeHeader, N} from "@/api";
 import {formatDate, isBlank, isBlankExcept, now, toDayjs, toNumberOrZero, toStringOrEmpty} from "@/utils";
 import {
     type YupaiOrderChangeDetail,
@@ -17,6 +19,7 @@ import {
     type YupaiOrderGroupDateType,
     YupaiOrderMapping
 } from "@/api/modules/yupai.ts";
+import type {FieldMapping} from "@/api/modules/sql.ts";
 import type {Dayjs} from "dayjs";
 
 /**
@@ -187,6 +190,33 @@ export type YupaiAllGroup = {
 };
 
 /**
+ * 月份汇总的字段映射。
+ *
+ * **必须过一层映射**：存储过程走 SQL 适配层，`DataVals` 里每个值都是字符串
+ * （`"12"` 而不是 `12`），直接当数字用会在 `+` 上变成字符串拼接、在图表里变成
+ * 「高度按字符串算」。`N` 会转成 number，转不动给 0 —— 与旧客户端 `int.Parse` 的取值一致
+ * （那里转不动会抛，但存储过程这两列一定是数字）。
+ */
+const YupaiOrderDeliverGroupMapping: FieldMapping<YupaiOrderDeliverGroup> = {
+    ZHMonth: S,
+    AllYPQty: N,
+    AllXDQty: N,
+    YwYPQty: N,
+    YwXDQty: N,
+    VnYPQty: N,
+    VnXDQty: N,
+    SxYPQty: N,
+    SxXDQty: N,
+};
+
+/** 部门汇总 = 月份汇总 + 部门两列（映射同样多两列） */
+const YupaiOrderDeliverGroupDepartmentMapping: FieldMapping<YupaiOrderDeliverGroupDepartment> = {
+    ...YupaiOrderDeliverGroupMapping,
+    DepartmentID: S,
+    Department: S,
+};
+
+/**
  * 预订单服务
  */
 export const yupaiService = {
@@ -316,6 +346,32 @@ export const yupaiService = {
         }
         if (departments.length === 0) return orders;
         return orders.filter((order) => departments.includes(toStringOrEmpty(order.DepartmentID)));
+    },
+
+    /**
+     * 按月汇总（存储过程 `YupaiOrderDeliverGroup`）。
+     *
+     * 与其它方法不同的两点：
+     * 1. **不是 HTTP 业务接口**，走 SQL 适配层的存储过程 —— 旧客户端也是直连存储过程；
+     * 2. 存储过程返回的 `DataVals` 里所有值都是字符串，必须过 `YupaiOrderDeliverGroupMapping`
+     *    才有数字（`parseToList` 按 `N` 转换，转不动就是 0）。
+     *
+     * `year` 传 `YYYY-MM-DD`（旧客户端 `dateInput` 的真实形态），不是 `YYYY`。
+     * 存储过程只取年份，但别在这里改成 `YYYY` —— 后端按类型取参，形态变了行为不可控。
+     */
+    async deliverGroup(year: string, employeeNo: string): Promise<YupaiOrderDeliverGroup[]> {
+        const res = await yupaiApi.deliverGroup(year, employeeNo);
+        return res.data?.parseToList(YupaiOrderDeliverGroupMapping) ?? [];
+    },
+
+    /**
+     * 按部门汇总（存储过程 `YupaiOrderDeliverGroupDepartment`）。
+     *
+     * 同一月份会返回**多行**（每部门一行），这是分组维度的差别，不是重复数据。
+     */
+    async deliverGroupDepartment(year: string, employeeNo: string): Promise<YupaiOrderDeliverGroupDepartment[]> {
+        const res = await yupaiApi.deliverGroupDepartment(year, employeeNo);
+        return res.data?.parseToList(YupaiOrderDeliverGroupDepartmentMapping) ?? [];
     },
 
     /**

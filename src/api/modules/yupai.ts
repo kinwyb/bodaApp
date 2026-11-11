@@ -7,7 +7,7 @@ import type {ApiResponse} from '../types';
 // SSR 下则是静默拿到 undefined（mapping 变成 {type: undefined}，转换全错）。
 import type {Dayjs} from 'dayjs';
 import {type FieldConfig, type FieldMapping, N, OpS, S, sqlApi} from './sql';
-import {toStringOrEmpty} from "@/utils";
+import {pickByEnv, toStringOrEmpty} from "@/utils";
 import {
     YupaiOrderCompleteDeliverPlanSchema,
     type YupaiOrderCompleteDeliverPlan as YupaiOrderCompleteDeliverPlanDto,
@@ -350,6 +350,64 @@ export type YupaiOrderCompleteDeliverPlanRow = YupaiOrderCompleteDeliverPlanDto 
     _rowKey: string;
 };
 
+/**
+ * 按月汇总的一行（存储过程 `[transitDB].dbo.YupaiOrderDeliverGroup` 的输出）。
+ *
+ * 与旧客户端 `Boda.Models.YupaiOrderDeliverGroup` 字段一一对应：
+ * 4 个产地（全部 / 义乌 / 越南 / 山西）× 2 个口径（预排数 / 下单数）。
+ * 这些数字**由存储过程算好**，前端不做加减 —— 页面只负责展示与画图。
+ */
+export type YupaiOrderDeliverGroup = {
+    /** 走货月份，形如 `2026-11`（后端给的是字符串，已格式化） */
+    ZHMonth: string;
+    /** 全部产地：预排数 */
+    AllYPQty: number;
+    /** 全部产地：下单数 */
+    AllXDQty: number;
+    /** 义乌：预排数 */
+    YwYPQty: number;
+    /** 义乌：下单数 */
+    YwXDQty: number;
+    /** 越南：预排数 */
+    VnYPQty: number;
+    /** 越南：下单数 */
+    VnXDQty: number;
+    /** 山西：预排数 */
+    SxYPQty: number;
+    /** 山西：下单数 */
+    SxXDQty: number;
+};
+
+/**
+ * 按部门汇总的一行（存储过程 `[transitDB].dbo.YupaiOrderDeliverGroupDepartment`）。
+ *
+ * 在月份汇总的基础上多部门两列；`ZHMonth` 仍然是走货月份，
+ * 所以「同一月份会出现多行（每部门一行）」—— 表格里不要按月份去重。
+ */
+export type YupaiOrderDeliverGroupDepartment = YupaiOrderDeliverGroup & {
+    /** 部门 ID */
+    DepartmentID: string;
+    /** 部门名称 */
+    Department: string;
+};
+
+/**
+ * 月份汇总 / 部门汇总的存储过程参数。
+ *
+ * `year` 旧客户端传的是 `dateInput.EditValue.ToString("yyyy-MM-dd")`（带日月的完整日期），
+ * 存储过程只取年份；这里**原样保留这个形态**，别自作聪明改成 `yyyy`。
+ * `env` 决定存储过程取生产还是测试库的数据，走 `pickByEnv` 而不是 `import.meta.env.DEV`
+ * （见 `src/utils/env.ts` 的说明）。
+ */
+function deliverGroupArgs(year: string, employeeNo: string): Record<string, string> {
+    return {
+        year,
+        employeeNo,
+        env: pickByEnv({debug: 'DEV', release: 'PRO'}),
+    };
+}
+
+
 /** 预排汇总查询（对应旧接口 `/plan/yupaiOrder/groupList` 的请求体） */
 export interface YupaiOrderGroupQuery {
     /** 开始日期，`YYYY-MM-DD` */
@@ -525,6 +583,31 @@ export const yupaiApi = {
             YupaiOrderCompleteDeliverPlanSchema.array(),
             {},
         ),
+    /**
+     * 按月汇总（存储过程 `[transitDB].dbo.YupaiOrderDeliverGroup`）。
+     *
+     * 与其它接口不同，这条走 **SQL 适配层**而不是 HTTP 业务接口：旧客户端也是直接调存储过程。
+     * 返回的是 `SQLResult`，转成 `YupaiOrderDeliverGroup[]` 由 `yupaiService.deliverGroup` 负责
+     * （`DataVals` 里所有值都是字符串，必须过 mapping 才有数字）。
+     *
+     * `employeeNo` 由页面从登录态传入 —— api 层不依赖 React context。
+     */
+    deliverGroup: (year: string, employeeNo: string) =>
+        sqlApi.procedure({
+            ProcedureName: '[transitDB].dbo.YupaiOrderDeliverGroup',
+            Args: deliverGroupArgs(year, employeeNo),
+        }),
+
+    /**
+     * 按部门汇总（存储过程 `[transitDB].dbo.YupaiOrderDeliverGroupDepartment`）。
+     *
+     * 与 `deliverGroup` 同一套参数，多返回 `DepartmentID` / `Department`。
+     */
+    deliverGroupDepartment: (year: string, employeeNo: string) =>
+        sqlApi.procedure({
+            ProcedureName: '[transitDB].dbo.YupaiOrderDeliverGroupDepartment',
+            Args: deliverGroupArgs(year, employeeNo),
+        }),
     /**
      * 按订单前缀获取默认业务员
      * @param orderPrefix 订单前缀
