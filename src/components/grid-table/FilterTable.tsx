@@ -125,6 +125,17 @@ export interface FilterTableProps {
      * 会变成第二个组。要跨页合并得由后端按分组维度分页。
      */
     groupable?: boolean;
+    /**
+     * 分组默认展开层级，默认 **1**（只显示组行，点箭头才看明细）。
+     *
+     * 传 2 或更大的值就是「一进来明细就摊开」—— 对应旧客户端
+     * `GridControl` 里 `GroupCount = 1` + `GroupFooterShowMode.VisibleAlways` 那种
+     * 「组标题 + 明细 + 组脚注」全展开的观感。
+     *
+     * 单层分组（只有一列 `group: true`）想要明细可见就得给 `2`：
+     * 1 层组行是第 1 层，明细行是第 2 层。
+     */
+    groupExpandLevel?: number;
     /** 选择高亮模式，默认整行高亮 */
     highlightMode?: 'row' | 'column' | 'cell' | 'cross';
     /** 框选、Shift 扩展这类「一个范围覆盖多格」的选中，是否把高亮铺满整行；默认 true */
@@ -267,6 +278,7 @@ export const FilterTable = React.forwardRef<FilterTableApi, FilterTableProps>(
             summary,
             mergeGroups,
             groupable = false,
+            groupExpandLevel,
             highlightMode,
             highlightInRange,
             multiSelect,
@@ -447,10 +459,13 @@ export const FilterTable = React.forwardRef<FilterTableApi, FilterTableProps>(
             if (groupFields.length === 0) return undefined;
             return {
                 fields: groupFields,
-                // 默认只展开到第一层，点箭头再看下一层 —— 组多时不会一屏全是明细
-                expandLevel: 1,
+                /*
+                 * 默认只展开到第一层，点箭头再看下一层 —— 组多时不会一屏全是明细。
+                 * 页面要「组标题 + 明细全展开」时传 `groupExpandLevel: 2`（单层分组时明细就是第 2 层）。
+                 */
+                expandLevel: groupExpandLevel ?? 1,
             };
-        }, [groupFields]);
+        }, [groupFields, groupExpandLevel]);
 
         // 懒初始化 SearchComponent：首次搜索时才创建，确保 table 已就绪
         const ensureSearchComponent = useCallback(() => {
