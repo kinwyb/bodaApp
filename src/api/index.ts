@@ -28,6 +28,7 @@ export type {
     YupaiOrderCompleteGroupDetailDto,
     YupaiOrderCompleteGroupQuery,
     YupaiOrderCompleteListQuery,
+    YupaiOrderCompleteDeliverPlanRow,
     YupaiOrderDto,
     YupaiOrderGroupDateType,
     YupaiOrderGroupQuery,

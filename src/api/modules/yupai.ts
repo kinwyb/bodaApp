@@ -8,6 +8,10 @@ import type {ApiResponse} from '../types';
 import type {Dayjs} from 'dayjs';
 import {type FieldConfig, type FieldMapping, N, OpS, S, sqlApi} from './sql';
 import {toStringOrEmpty} from "@/utils";
+import {
+    YupaiOrderCompleteDeliverPlanSchema,
+    type YupaiOrderCompleteDeliverPlan as YupaiOrderCompleteDeliverPlanDto,
+} from '../schemas/plan/yupaiOrderCompleteDeliverPlan';
 
 /** 尺码列标题，按界面原样展示 */
 export const YupaiMachineSizeHeader = [
@@ -336,6 +340,16 @@ export type YupaiOrderCompleteGroup = {
     CompleteMonth: string;
 };
 
+/** 已下单分期：接口原始行（`Batch` / `ZHMonth` 是旧客户端运行时派生字段） */
+export type YupaiOrderCompleteDeliverPlanRow = YupaiOrderCompleteDeliverPlanDto & {
+    /** 批次号,总批次 */
+    Batch: string;
+    /** 走货月份 yyyy-MM */
+    ZHMonth: string;
+    /** 表格行主键；接口本身没有主键 */
+    _rowKey: string;
+};
+
 /** 预排汇总查询（对应旧接口 `/plan/yupaiOrder/groupList` 的请求体） */
 export interface YupaiOrderGroupQuery {
     /** 开始日期，`YYYY-MM-DD` */
@@ -504,6 +518,13 @@ export const yupaiApi = {
     /** 已下单汇总（主行内含款式明细） */
     completeGroup: (query: YupaiOrderCompleteGroupQuery) =>
         http.post<YupaiOrderCompleteGroupDto[]>('/plan/yupaiOrder/completeGroup', query),
+    /** 预订单已下单分批汇总 */
+    completeDeliverPlan: () =>
+        http.postSchema(
+            '/plan/yupaiOrder/completeDeliverPlan',
+            YupaiOrderCompleteDeliverPlanSchema.array(),
+            {},
+        ),
     /**
      * 按订单前缀获取默认业务员
      * @param orderPrefix 订单前缀

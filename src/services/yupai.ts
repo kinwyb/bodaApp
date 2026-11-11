@@ -1,6 +1,7 @@
 import type {
     ApiResponse,
     YupaiOrder,
+    YupaiOrderCompleteDeliverPlanRow,
     YupaiOrderCompleteGroup,
     YupaiOrderCompleteGroupDto,
     YupaiOrderCompleteGroupQuery,
@@ -332,6 +333,35 @@ export const yupaiService = {
     async completeGroup(query: YupaiOrderCompleteGroupQuery): Promise<YupaiOrderCompleteGroup[]> {
         const res = await yupaiApi.completeGroup(query);
         return (res.data ?? []).map(toYupaiOrderCompleteGroup);
+    },
+
+    /**
+     * 已下单分期。
+     *
+     * 后端不返回 `Batch` / `ZHMonth`，旧客户端用 `BatchNum,BatchCount` 与
+     * `ZHDate.ToString("yyyy-MM")` 在界面上派生；这里按同一口径补齐。
+     * 接口没有业务主键，表格行键由订单号、批次和本次返回序号组成。
+     */
+    async completeDeliverPlan(): Promise<YupaiOrderCompleteDeliverPlanRow[]> {
+        const res = await yupaiApi.completeDeliverPlan();
+        return (res.data ?? [])
+            .map((row, index) => {
+                const batchNum = toNumberOrZero(row.BatchNum);
+                const batchCount = toNumberOrZero(row.BatchCount);
+                const orderCode = toStringOrEmpty(row.OrderCode);
+                const batch = `${batchNum},${batchCount}`;
+                return {
+                    ...row,
+                    Batch: batch,
+                    ZHMonth: toDayjs(row.ZHDate)?.format('YYYY-MM') ?? '',
+                    _rowKey: `${orderCode}|${batch}|${index}`,
+                };
+            })
+            .sort((left, right) => {
+                const month = left.ZHMonth.localeCompare(right.ZHMonth);
+                if (month !== 0) return month;
+                return toStringOrEmpty(left.OrderCode).localeCompare(toStringOrEmpty(right.OrderCode));
+            });
     },
 
     /**
