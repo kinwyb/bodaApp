@@ -12,7 +12,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { App as AntdApp, Button, Dropdown, Switch, Tooltip } from 'antd';
 import type { UploadFile } from 'antd';
 import {
-  AimOutlined,
   AppstoreOutlined,
   PaperClipOutlined,
   ReloadOutlined,
@@ -44,7 +43,7 @@ function descriptionOf(file: ComposerFile): string | undefined {
 
 /** 切换技能时先去掉正文开头已有的 `$xxx`，避免叠成 `$ui $other` */
 function stripSkillToken(text: string): string {
-  return text.replace(/^\$[^\s]+\s*/, '').trimStart();
+  return text.replace(/^\$[^\s]*\s*/, '').trimStart();
 }
 
 export const AgentComposer: React.FC<{
@@ -98,13 +97,23 @@ export const AgentComposer: React.FC<{
   /** 上传中的请求：移除附件时要能中断，否则删了列表请求还在跑 */
   const uploadsRef = useRef(new Map<string, AbortController>());
   const skillOptions = useMemo(
-    () =>
-      skills.map((skill) => ({
-        key: skill.name,
-        token: `$${skill.name}`,
-        label: skill.displayName || skill.name,
-        description: skill.shortDescription || skill.description || skill.name,
-      })),
+    () => {
+      const unique = new Map<
+        string,
+        { key: string; token: string; label: string; description: string }
+      >();
+      skills.forEach((skill) => {
+        const name = skill.name.trim();
+        if (!name || unique.has(name)) return;
+        unique.set(name, {
+          key: name,
+          token: `$${name}`,
+          label: skill.displayName || name,
+          description: skill.shortDescription || skill.description || name,
+        });
+      });
+      return [...unique.values()];
+    },
     [skills],
   );
 
@@ -155,25 +164,35 @@ export const AgentComposer: React.FC<{
   );
 
   const suggestionItems = useMemo(
-    () =>
-      suggestionKind === 'skill'
-        ? skillOptions.map((option) => ({
+    () => {
+      if (suggestionKind === 'skill') {
+        const query = inputValue.trimStart().replace(/^\$/, '').toLowerCase();
+        const matched = query
+          ? skillOptions.filter((option) =>
+              [option.key, option.label, option.description].some((value) =>
+                value.toLowerCase().includes(query),
+              ),
+            )
+          : skillOptions;
+
+        return matched.map((option) => ({
             value: option.token,
-            label: option.token,
+            label: <span className="agent-suggestion-label">{option.label}</span>,
             description: option.description,
-            icon: <AppstoreOutlined />,
-            extra: option.label,
-          }))
-        : [
-            {
-              value: AGENT_STEER_COMMAND,
-              label: AGENT_STEER_COMMAND,
-              description: '回答生成中补充一条引导',
-              icon: <AimOutlined />,
-              extra: '生成中',
-            },
-          ],
-    [skillOptions, suggestionKind],
+            extra: <code className="agent-suggestion-token">{option.token}</code>,
+          }));
+      }
+
+      return [
+        {
+          value: AGENT_STEER_COMMAND,
+          label: <span className="agent-suggestion-label">引导</span>,
+          description: '回答生成中补充一条引导',
+          extra: <code className="agent-suggestion-token">{AGENT_STEER_COMMAND}</code>,
+        },
+      ];
+    },
+    [inputValue, skillOptions, suggestionKind],
   );
 
   const skillMenu = useMemo(
@@ -182,11 +201,10 @@ export const AgentComposer: React.FC<{
         skillOptions.length > 0
           ? skillOptions.map((option) => ({
               key: option.token,
-              icon: <AppstoreOutlined />,
               label: (
                 <div className="agent-skill-option">
-                  <code>{option.token}</code>
                   <span>{option.label}</span>
+                  <code>{option.token}</code>
                 </div>
               ),
             }))
@@ -385,9 +403,14 @@ export const AgentComposer: React.FC<{
     <div className="agent-composer" ref={composerRef}>
       <Suggestion
         className="agent-suggestion"
-        block
         items={suggestionItems}
         open={suggestionOpen}
+        styles={{
+          popup: {
+            width: 360,
+            maxWidth: 'calc(100vw - 32px)',
+          },
+        }}
         onOpenChange={(open) => {
           setSuggestionOpen(open);
           if (!open) setSuggestionKind(null);
@@ -401,18 +424,26 @@ export const AgentComposer: React.FC<{
             onChange={(value) => {
               setInputValue(value);
               const candidate = value.trimStart();
+              let nextKind: 'command' | 'skill' | null = null;
               if (/^\$[^\s]*$/.test(candidate) && skillOptions.length > 0) {
-                setSuggestionKind('skill');
-                onTrigger({});
+                nextKind = 'skill';
+              } else if (
+                /^\/[^\s]*$/.test(candidate) &&
+                AGENT_STEER_COMMAND.startsWith(candidate.toLowerCase())
+              ) {
+                nextKind = 'command';
+              }
+
+              if (nextKind) {
+                if (!suggestionOpen || suggestionKind !== nextKind) {
+                  setSuggestionKind(nextKind);
+                  onTrigger({ kind: nextKind });
+                }
                 return;
               }
-              if (streaming && /^\/[^\s]*$/.test(candidate)) {
-                setSuggestionKind('command');
-                onTrigger({});
-                return;
-              }
+
+              if (suggestionOpen) onTrigger(false);
               setSuggestionKind(null);
-              onTrigger(false);
             }}
             onKeyDown={onKeyDown}
             onSubmit={handleSubmit}

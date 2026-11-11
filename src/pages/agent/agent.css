@@ -762,7 +762,24 @@
   gap: 8px;
 }
 
+.agent-skill-option span {
+  flex: 1;
+}
+
 .agent-skill-option code {
+  color: #0958d9;
+}
+
+.agent-suggestion-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-suggestion-token {
+  flex: 0 0 auto;
   color: #0958d9;
 }
 
