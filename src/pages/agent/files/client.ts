@@ -18,6 +18,7 @@
  */
 
 import { resolveAgentToken } from '../transport';
+import { AGENT_WS_URL, isAgentWsFromApp } from '@/utils/runtime-config';
 import type { FileErrorData, FileInfoData, FileListData } from '../protocol';
 
 /**
@@ -52,19 +53,21 @@ function trimEndSlash(value: string): string {
  * 2. 开发环境固定 `/ws/files` —— 走 dev server 代理（同源，绕开 CORS 与预检）。
  *    **不能只依赖 .env.development**：那个文件是 gitignore 的，别人拉下来没有这一行，
  *    就会退化成第 3 步的绝对地址、直接撞跨域。没配 ws 地址（演示模式）返回空串；
- * 3. 由 `VITE_AGENT_WS_URL` 推导 —— `ws://host:8765/ws` → `http://host:8765/ws/files`
+ *    例外是 ws 地址来自桌面端设置窗口（`isAgentWsFromApp`）：那台机器不是 dev server
+ *    的代理目标，同源代理转不过去，只能走绝对地址；
+ * 3. 由 ws 地址推导 —— `ws://host:8765/ws` → `http://host:8765/ws/files`
  *    （生产没有 dev server，只能拿绝对地址，跨域由网关放行）。
  */
 export function agentFilesBaseUrl(): string {
   const explicit = import.meta.env.VITE_AGENT_FILES_URL?.trim();
   if (explicit) return trimEndSlash(explicit);
 
-  const wsUrl = import.meta.env.VITE_AGENT_WS_URL?.trim();
-  if (import.meta.env.DEV) {
-    // 代理规则在 vite.config.ts，target 也跟着 VITE_AGENT_WS_URL 走
-    return wsUrl ? '/ws/files' : '';
-  }
+  const wsUrl = AGENT_WS_URL;
   if (!wsUrl) return '';
+  if (import.meta.env.DEV && !isAgentWsFromApp) {
+    // 代理规则在 vite.config.ts，target 也跟着 VITE_AGENT_WS_URL 走
+    return '/ws/files';
+  }
   try {
     const url = new URL(wsUrl);
     url.protocol = url.protocol === 'wss:' ? 'https:' : 'http:';

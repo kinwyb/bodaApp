@@ -9,6 +9,11 @@
 //
 // 也就是说,原先 Electron 版 main.ts 里手写的 node:http 静态服务器
 // 已经不需要了,由 MyGo 的前端内嵌机制取代。
+//
+// 另外两件只有桌面端才需要的事:
+//   - 服务器地址改由应用内配置(见 settings.go):内嵌页面没有反代可依赖,
+//     接口/ws/语音都得拿绝对地址,所以启动时把配置注入页面;
+//   - 应用菜单里加「设置服务器地址…」(见 menu.go),入口不依赖页面能否加载。
 package main
 
 import (
@@ -19,6 +24,10 @@ import (
 )
 
 func main() {
+	// 启动时读一次配置,之后不再变 —— 保存走的是「重启后生效」,
+	// 所以这里读到什么,这整个进程就用什么。
+	appSettings = loadSettings()
+
 	// 与 Electron 版行为保持一致:macOS 关闭最后一个窗口后应用留在 Dock,
 	// 其它平台直接退出。
 	mygo.App.OnWindowAllClosed(func() {
@@ -34,7 +43,10 @@ func main() {
 		}
 	})
 
-	mygo.App.WhenReady(openWindow)
+	mygo.App.WhenReady(func() {
+		installMenu()
+		openWindow()
+	})
 
 	if err := mygo.App.Run(); err != nil {
 		log.Fatal(err)
@@ -54,5 +66,11 @@ func openWindow() {
 		// "/" 是不带 scheme 的页面地址:开发时指向 devUrl,
 		// 打包后指向内嵌的 frontendDist。
 		URL: "/",
+		// 把应用内配置的服务器地址在页面脚本之前注入 window.__BODA_SETTINGS__;
+		// 没配就注入空脚本,前端照旧用构建期的默认值。
+		Page: mygo.PageOptions{
+			PreloadScript: appSettings.preloadScript(),
+		},
 	})
 }
+

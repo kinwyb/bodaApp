@@ -1,9 +1,15 @@
 import type {ZodType} from 'zod';
 import type {ApiResponse, RequestOptions} from './types';
 import {fetchParsed} from './parse';
+import {API_BASE_URL} from '@/utils/runtime-config';
 
-/** 接口基础路径。后端接口统一带 /v1/boda 前缀，兜底值与 .env 保持一致。 */
-const BASE_URL: string = import.meta.env.VITE_API_BASE_URL ?? '/v1/boda';
+/**
+ * 接口基础路径。后端接口统一带 /v1/boda 前缀。
+ *
+ * 取值优先级在 `@/utils/runtime-config` 里：桌面端设置窗口配过就用那条绝对地址
+ * （内嵌页面没有服务器反代可用），否则用构建期值（web 部署时就是相对路径 /v1/boda）。
+ */
+const BASE_URL: string = API_BASE_URL;
 const TOKEN_KEY = 'boda_token';
 const MOCK_ENABLED = import.meta.env.DEV && import.meta.env.VITE_USE_MOCK !== 'false';
 

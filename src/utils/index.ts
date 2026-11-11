@@ -13,4 +13,5 @@ export * from './date';
 export * from './env';
 export * from './keyedCache';
 export * from './number';
+export * from './runtime-config';
 export * from './string';

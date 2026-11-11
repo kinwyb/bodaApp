@@ -6,15 +6,17 @@
  * 识别服务又是独立进程、不需要登录态。
  *
  * 地址策略与附件上传一致：开发环境用同源的 `/asr`（vite.config.ts 里代理到 9383，
- * 绕开 CORS 预检）；生产用 `VITE_ASR_URL` 指向实际服务地址。
+ * 绕开 CORS 预检）；生产用绝对地址 —— 桌面端用户在设置窗口里填的优先，
+ * 其次是构建期的 `VITE_ASR_URL`（见 `@/utils/runtime-config`）。
  */
+
+import { ASR_BASE_URL } from '@/utils/runtime-config';
 
 const FALLBACK_PATH = '/asr';
 
 function resolveEndpoint(): string {
-  const explicit = import.meta.env.VITE_ASR_URL?.trim();
-  if (!explicit) return FALLBACK_PATH;
-  return `${explicit.replace(/\/+$/, '')}/asr`;
+  if (!ASR_BASE_URL) return FALLBACK_PATH;
+  return `${ASR_BASE_URL}/asr`;
 }
 
 const ENDPOINT = resolveEndpoint();

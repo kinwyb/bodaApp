@@ -1,8 +1,11 @@
 /**
  * 传输层出口。
  *
- * 配了 `VITE_AGENT_WS_URL` 就走 WebSocket，否则用本地演示实现 ——
+ * 有 ws 地址就走 WebSocket，否则用本地演示实现 ——
  * 上层（chat/、页面）完全无感。
+ *
+ * 地址来自 `@/utils/runtime-config`：桌面端用户在设置窗口里填的优先，
+ * 其次是构建期的 `VITE_AGENT_WS_URL`。
  *
  * 鉴权：服务端在 upgrade 前用 `Authenticator(token)` 解析出 userID / chatID，
  * 浏览器设不了请求头，所以 token 只能走 `?token=`。
@@ -10,6 +13,7 @@
  */
 
 import { getToken } from '@/api/request';
+import { AGENT_WS_URL } from '@/utils/runtime-config';
 import type { AgentTransport } from './types';
 import { createMockTransport } from './mock';
 import { createWebSocketTransport } from './websocket';
@@ -27,14 +31,14 @@ export function resolveAgentToken(): string | undefined {
   return loginToken ?? import.meta.env.VITE_AGENT_WS_TOKEN ?? undefined;
 }
 
-/** 有 VITE_AGENT_WS_URL 就是真实连接，否则演示 */
+/** 有 ws 地址就是真实连接，否则演示 */
 export function agentTransportMode(url?: string): AgentTransport['kind'] {
-  const target = url ?? import.meta.env.VITE_AGENT_WS_URL;
+  const target = url ?? AGENT_WS_URL;
   return target ? 'websocket' : 'mock';
 }
 
 export function createAgentTransport(url?: string, token?: TokenSource): AgentTransport {
-  const target = url ?? import.meta.env.VITE_AGENT_WS_URL;
+  const target = url ?? AGENT_WS_URL;
   if (target) {
     // 默认传函数：每次（重）连都取最新 token，登录态刷新后不用重建 transport
     return createWebSocketTransport(target, token ?? (() => resolveAgentToken()));
