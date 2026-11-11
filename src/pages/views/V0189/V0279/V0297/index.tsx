@@ -339,12 +339,18 @@ const MonthSummaryPage: React.FC<ViewPageProps> = ({view, trail}) => {
                         <Splitter.Panel
                             className="splitter-pane-body"
                             style={{overflow: 'hidden'}}
-                            size={280}
+                            /*
+                             * 用 `defaultSize` 而不是 `size`：`size` 是**受控**尺寸，
+                             * antd 会警告「要么配 onResize，要么改 defaultSize」。
+                             * 这里只是给图表一个初始高度（用户仍可拖动分隔条），
+                             * 不需要把拖拽结果回写到 state，所以用非受控的初始值。
+                             */
+                            defaultSize={280}
                         >
                             {/*
                               图表要**确定高度**：StackedBarChart 根节点是 height:100%，
                               ResponsiveContainer 在高度为 auto 的父级里会塌成 0（与 GridTable 同类坑）。
-                              这里靠 Splitter.Panel 的固定 size 给出高度。
+                              这里靠 Splitter.Panel 的初始高度给出高度。
                             */}
                             <StackedBarChart
                                 data={chartData}
