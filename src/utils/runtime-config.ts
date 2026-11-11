@@ -24,6 +24,8 @@ export type AppRuntimeSettings = {
   apiBaseUrl?: string;
   agentWsUrl?: string;
   asrUrl?: string;
+  /** 附件端点：桌面端由 Go 注入代理地址，浏览器里没有 */
+  agentFilesUrl?: string;
 };
 
 declare global {
@@ -48,9 +50,11 @@ function readInjected(): AppRuntimeSettings {
   const apiBaseUrl = normalize(raw.apiBaseUrl);
   const agentWsUrl = normalize(raw.agentWsUrl);
   const asrUrl = normalize(raw.asrUrl);
+  const agentFilesUrl = normalize(raw.agentFilesUrl);
   if (apiBaseUrl) settings.apiBaseUrl = apiBaseUrl;
   if (agentWsUrl) settings.agentWsUrl = agentWsUrl;
   if (asrUrl) settings.asrUrl = asrUrl;
+  if (agentFilesUrl) settings.agentFilesUrl = agentFilesUrl;
   return settings;
 }
 
@@ -85,3 +89,9 @@ export const isAgentWsFromApp: boolean = Boolean(appRuntimeSettings.agentWsUrl);
 /** 语音识别根地址（前端自己补 `/asr`）；空串表示按原策略走同源 `/asr` 代理 */
 export const ASR_BASE_URL: string =
   appRuntimeSettings.asrUrl ?? import.meta.env.VITE_ASR_URL ?? '';
+
+/**
+ * 附件端点地址。桌面端由 Go 注入 `boda://localhost/ws/files`（走应用内代理，
+ * 因为附件是 http 请求，跨域会被拦）；浏览器里没有这个值，走下面的推导。
+ */
+export const AGENT_FILES_URL: string = appRuntimeSettings.agentFilesUrl ?? '';

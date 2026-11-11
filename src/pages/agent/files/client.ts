@@ -18,7 +18,7 @@
  */
 
 import { resolveAgentToken } from '../transport';
-import { AGENT_WS_URL, isAgentWsFromApp } from '@/utils/runtime-config';
+import { AGENT_FILES_URL, AGENT_WS_URL, isAgentWsFromApp } from '@/utils/runtime-config';
 import type { FileErrorData, FileInfoData, FileListData } from '../protocol';
 
 /**
@@ -59,6 +59,9 @@ function trimEndSlash(value: string): string {
  *    （生产没有 dev server，只能拿绝对地址，跨域由网关放行）。
  */
 export function agentFilesBaseUrl(): string {
+  // 桌面端：Go 注入了代理地址，附件请求也要走代理（http 跨域会被浏览器拦）
+  if (AGENT_FILES_URL) return trimEndSlash(AGENT_FILES_URL);
+
   const explicit = import.meta.env.VITE_AGENT_FILES_URL?.trim();
   if (explicit) return trimEndSlash(explicit);
 
