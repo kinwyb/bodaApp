@@ -27,6 +27,7 @@ export const AgentHeader: React.FC<{
   onAgentChange: (name: string) => void;
   connection: AgentConnectionStatus;
   mode: 'mock' | 'websocket';
+  temporary?: boolean;
   latency?: number;
   /** 紧凑形态（嵌在工作台左栏时）：标题更短、agent 下拉更窄、按钮只留图标 */
   compact?: boolean;
@@ -44,6 +45,7 @@ export const AgentHeader: React.FC<{
   onAgentChange,
   connection,
   mode,
+  temporary = false,
   latency,
   compact = false,
   conversationSlot,
@@ -95,9 +97,16 @@ export const AgentHeader: React.FC<{
     <header className={`agent-header${compact ? ' agent-header-compact' : ''}`}>
       <div className="agent-header-left">
         <div className="agent-header-title">
-          <Text strong ellipsis className="agent-header-name">
-            {title}
-          </Text>
+          <div className="agent-header-name-row">
+            <Text strong ellipsis className="agent-header-name">
+              {title}
+            </Text>
+            {temporary ? (
+              <Tag color="orange" bordered={false}>
+                临时会话
+              </Tag>
+            ) : null}
+          </div>
           <span className="agent-header-sub">{subtitle}</span>
         </div>
       </div>
@@ -122,7 +131,7 @@ export const AgentHeader: React.FC<{
           </Tag>
         </Tooltip>
         {/* 会话记录入口（新建 / 历史），由 AgentConversationPanel 提供 */}
-        {conversationSlot}
+        {temporary ? null : conversationSlot}
         {/*
           断开入口：idle（未连接）、error（连接异常）、failed（自动重连已停手）都必须有，
           而且紧凑形态也要给 —— 缩成纯图标（约 32px）就不会把 60px 的顶栏挤换行。
@@ -196,7 +205,7 @@ export const AgentHeader: React.FC<{
           </>
         )}
         {/* 紧凑形态里「新建对话」就在会话浮层顶部，顶栏不再放一个重复按钮 */}
-        {compact ? null : (
+        {compact || temporary ? null : (
           <Button type="primary" icon={<PlusOutlined />} onClick={onCreate}>
             新对话
           </Button>

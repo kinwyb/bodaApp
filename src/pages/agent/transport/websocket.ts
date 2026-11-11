@@ -35,6 +35,7 @@ import {
   parseUIRequest,
   toHistoryEvent,
   toReplayEvent,
+  uid,
 } from '../protocol';
 import type { AgentSessionPage, UIResponsePayload } from '../protocol';
 import type { AgentHello, AgentTransport, AgentUIRequest } from './types';
@@ -64,12 +65,42 @@ const VISIBLE_FAIL_ATTEMPTS = 2;
 const HANDSHAKE_FAIL_WINDOW = 2_000;
 /** 连续这么多个心跳周期都没收到 pong → 判定连接假死，主动断开触发重连 */
 const MISSED_PONG_LIMIT = 2;
+const VIEWER_ID_STORAGE_KEY = 'buibui.agent.viewer-id';
+const SESSION_ID_STORAGE_KEY = 'buibui.agent.session-id';
+
+function readSessionValue(key: string): string | undefined {
+  if (typeof window === 'undefined') return undefined;
+  try {
+    return window.sessionStorage.getItem(key) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function writeSessionValue(key: string, value: string | undefined) {
+  if (typeof window === 'undefined') return;
+  try {
+    if (value) window.sessionStorage.setItem(key, value);
+    else window.sessionStorage.removeItem(key);
+  } catch {
+    // 隐私模式等场景下不能持久化，不影响本次连接。
+  }
+}
 
 /** token 可以是固定值，也可以是每次（重）连都求值的函数（接登录态刷新） */
 export type TokenSource = string | (() => string | undefined);
 
 export function createWebSocketTransport(url: string, token?: TokenSource): AgentTransport {
   if (import.meta.env.DEV) installFrameTrace();
+
+  let viewerID = readSessionValue(VIEWER_ID_STORAGE_KEY) || uid();
+  writeSessionValue(VIEWER_ID_STORAGE_KEY, viewerID);
+  let resumeSessionID = readSessionValue(SESSION_ID_STORAGE_KEY);
+
+  const rememberSession = (sessionID: string | undefined) => {
+    resumeSessionID = sessionID?.trim() || undefined;
+    writeSessionValue(SESSION_ID_STORAGE_KEY, resumeSessionID);
+  };
 
   const eventListeners = new Set<(event: import('../protocol').AgentStreamEvent) => void>();
   const statusListeners = new Set<(status: AgentConnectionStatus) => void>();
@@ -203,6 +234,11 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
         everConnected = true;
         // hello 里的 userID 是 token 解析出来的身份，会话键 = {channel}_<userId>_<chatId>
         identity = { userId: hello.userId };
+        if (hello.viewerId) {
+          viewerID = hello.viewerId;
+          writeSessionValue(VIEWER_ID_STORAGE_KEY, viewerID);
+        }
+        rememberSession(hello.sessionId);
         setStatus('connected');
         reconnectAttempt = 0;
         startHeartbeat(hello.heartbeat);
@@ -214,6 +250,7 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
         const data = parseAck(envelope.data);
         const request = envelope.replyTo ? pending.get(envelope.replyTo) : undefined;
         if (request && data.sessionID) {
+          rememberSession(data.sessionID);
           // 登记后，下行 agent 事件靠 sessionID 就能定位会话
           sessions.set(data.sessionID, request.conversationId);
           // 告诉状态层「这条会话落库了」：草稿据此认领会话列表里的自己
@@ -248,6 +285,9 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
 
         const conversationId =
           request?.conversationId ?? conversationIdOf(envelope.sessionID, sessions, identity);
+        if (result.sessionID) {
+          rememberSession(result.sessionID);
+        }
         if (result.sessionID && conversationId) {
           sessions.set(result.sessionID, conversationId);
           emit({ type: 'session-bound', conversationId, sessionId: result.sessionID });
@@ -430,9 +470,11 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
 
     // token 每次都重新求值：登录态刷新 / 重新登录后重连能带上新凭证
     const rawToken = typeof token === 'function' ? token() : token;
-    const target = rawToken
-      ? `${url}${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(rawToken)}`
-      : url;
+    const params = new URLSearchParams();
+    if (rawToken) params.set('token', rawToken);
+    params.set('viewerID', viewerID);
+    if (resumeSessionID) params.set('sessionID', resumeSessionID);
+    const target = `${url}${url.includes('?') ? '&' : '?'}${params.toString()}`;
 
     handshaked = false;
     pongSeen = false;
@@ -570,6 +612,7 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
       // 已知 sessionID 就不再传 chatID：列表里那条会话的本地 key 是 threadID，
       // 当成 chatID 传给服务端会被记成连接上下文，后续消息就串到别的对话上了
       const sessionID = payload.sessionId || sessionIdOf(payload.conversationId);
+      rememberSession(sessionID);
       postEnvelope(
         buildChatSend({
           chatID: sessionID ? undefined : payload.conversationId,
@@ -586,6 +629,7 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
 
     history(query) {
       const sessionID = query.sessionId || sessionIdOf(query.conversationId);
+      if (sessionID) rememberSession(sessionID);
       postEnvelope(
         buildSessionHistory({
           chatID: sessionID ? undefined : query.conversationId,

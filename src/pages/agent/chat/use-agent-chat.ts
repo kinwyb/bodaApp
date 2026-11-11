@@ -85,8 +85,12 @@ export type AgentChatApi = {
   agents: AgentInfo[];
   /** 当前连接的用户身份（token 解析而来），mock 下为 mock-user */
   userId: string;
+  /** 当前标签页标识 */
+  viewerId: string;
   /** 服务端 hello 下发的当前对话（诊断用；本地会话 key 始终以本地为准） */
   serverChatId: string;
+  /** 当前页面是否为同一用户的后续临时会话 */
+  temporary: boolean;
   /** 当前选中的 agent */
   agent: string;
   setAgent: (name: string) => void;
@@ -129,7 +133,9 @@ export function useAgentChat(): AgentChatApi {
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [agent, setAgentState] = useState('');
   const [userId, setUserId] = useState('');
+  const [viewerId, setViewerId] = useState('');
   const [serverChatId, setServerChatId] = useState('');
+  const [temporary, setTemporary] = useState(false);
   const [latency, setLatency] = useState<number | undefined>(undefined);
   const [lastError, setLastError] = useState('');
   const [sessionsLoading, setSessionsLoading] = useState(false);
@@ -155,6 +161,7 @@ export function useAgentChat(): AgentChatApi {
   const uiEventBatchInFlightRef = useRef(false);
   /** 事件 sink 不应依赖 React 渲染闭包 */
   const connectionRef = useRef<AgentConnectionStatus>('idle');
+  const temporaryRef = useRef(false);
   const deletingKeysRef = useRef(new Set<string>());
 
   const beginDeletingConversation = useCallback((key: string): boolean => {
@@ -378,12 +385,24 @@ export function useAgentChat(): AgentChatApi {
       setAgents(hello.agents);
       setAgentState((current) => current || hello.defaultAgent || hello.agents[0]?.name || '');
       setUserId(hello.userId);
+      setViewerId(hello.viewerId);
       setServerChatId(hello.chatId);
+      setTemporary(hello.temporary);
+      temporaryRef.current = hello.temporary;
 
       /*
-       * hello 里的 chatID 只是「这条连接当前落在哪个对话」，不再拿它当会话身份：
-       * 历史会话统一由 session.list 提供，进入工作台默认仍是一条空白新对话。
+       * 首屏草稿先认领 hello 的 sessionID：
+       * 临时页面靠它固定在自己的 viewer 会话；主页面刷新时也能从原会话继续。
        */
+      const active = stateRef.current;
+      const conversation = active.conversations.find((item) => item.key === active.activeKey);
+      if (hello.sessionId && conversation && !conversation.sessionId) {
+        dispatch({
+          type: 'bind',
+          conversationKey: conversation.key,
+          sessionId: hello.sessionId,
+        });
+      }
     });
 
     // 会话列表（session.list）：服务端按 thread 返回，一条就是一次完整对话
@@ -459,11 +478,12 @@ export function useAgentChat(): AgentChatApi {
    */
   useEffect(() => {
     if (connection !== 'connected') return;
+    if (!userId) return;
     const transport = transportRef.current;
     if (!transport) return;
 
     // 会话列表与当前会话的历史互不依赖，一起发出去
-    requestSessions('replace');
+    if (!temporaryRef.current) requestSessions('replace');
 
     const { activeKey, conversations } = stateRef.current;
     const conversation = conversations.find((item) => item.key === activeKey);
@@ -490,7 +510,7 @@ export function useAgentChat(): AgentChatApi {
         mode: 'append',
       });
     }
-  }, [connection, requestSessions]);
+  }, [connection, requestSessions, temporary, userId]);
 
   /** 提交一条用户消息，同时插入一条空的助手消息等待流式填充 */
   const send = useCallback((text: string, attachments?: AgentMessage['attachments']) => {
@@ -691,10 +711,13 @@ export function useAgentChat(): AgentChatApi {
 
   const clearError = useCallback(() => setLastError(''), []);
 
-  const refreshSessions = useCallback(() => requestSessions('replace'), [requestSessions]);
+  const refreshSessions = useCallback(() => {
+    if (temporaryRef.current) return;
+    requestSessions('replace');
+  }, [requestSessions]);
 
   const loadMoreSessions = useCallback(() => {
-    if (!sessionsHasMore || sessionsLoading) return;
+    if (temporaryRef.current || !sessionsHasMore || sessionsLoading) return;
     requestSessions('append');
   }, [requestSessions, sessionsHasMore, sessionsLoading]);
 
@@ -734,7 +757,9 @@ export function useAgentChat(): AgentChatApi {
     historyLoading: Boolean(activeConversation.historyLoading),
     agents,
     userId,
+    viewerId,
     serverChatId,
+    temporary,
     agent,
     setAgent,
     uiFollow: Boolean(activeConversation.uiFollow),

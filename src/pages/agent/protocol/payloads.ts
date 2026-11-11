@@ -62,8 +62,14 @@ export type HelloData = {
   clientID?: string;
   /** 当前连接的用户身份，会话键为 {channel}_{userID}_{chatID} */
   userID?: string;
+  /** 当前标签页标识 */
+  viewerID?: string;
+  /** 当前连接使用的会话标识 */
+  sessionID?: string;
   /** 服务端确定的当前对话；客户端后续不传 chatID 时消息都落这里 */
   chatID?: string;
+  /** 是否为同一用户的后续临时页面 */
+  temporary?: boolean;
   protocol?: number;
   agents?: AgentInfo[];
   defaultAgent?: string;

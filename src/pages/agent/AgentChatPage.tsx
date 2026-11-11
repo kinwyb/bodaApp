@@ -244,6 +244,7 @@ const AgentChatPage: React.FC<AgentChatPageProps> = ({ embedded = false }) => {
           onAgentChange={chat.setAgent}
           connection={chat.connection}
           mode={chat.mode}
+          temporary={chat.temporary}
           latency={chat.latency}
           compact={embedded}
           conversationSlot={

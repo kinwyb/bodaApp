@@ -14,8 +14,14 @@ export type HelloInfo = {
   clientID: string;
   /** 当前连接的用户身份（token 解析而来），会话键 = {channel}_<userId>_<chatId> */
   userId: string;
+  /** 当前标签页标识 */
+  viewerId: string;
+  /** 当前连接使用的会话标识 */
+  sessionId: string;
   /** 服务端确定的当前对话，可能来自 token 或服务端生成 */
   chatId: string;
+  /** 是否为同一用户的后续临时页面 */
+  temporary: boolean;
   protocol: number;
   agents: AgentInfo[];
   defaultAgent: string;
@@ -28,7 +34,10 @@ export function parseHello(data: unknown): HelloInfo {
   return {
     clientID: raw.clientID ?? '',
     userId: raw.userID ?? '',
+    viewerId: raw.viewerID ?? '',
+    sessionId: raw.sessionID ?? '',
     chatId: raw.chatID ?? '',
+    temporary: raw.temporary === true,
     protocol: raw.protocol ?? 1,
     agents: Array.isArray(raw.agents) ? raw.agents : [],
     defaultAgent: raw.defaultAgent ?? '',
