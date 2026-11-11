@@ -25,8 +25,8 @@ import (
 
 func main() {
 	// 启动时读一次配置,之后不再变 —— 保存走的是「重启后生效」,
-	// 所以这里读到什么,这整个进程就用什么。
-	appSettings = loadSettings()
+	// 所以这里读到什么,这整个进程就用什么。空项填出厂默认。
+	appSettings = loadSettings().withDefaults()
 
 	// 与 Electron 版行为保持一致:macOS 关闭最后一个窗口后应用留在 Dock,
 	// 其它平台直接退出。
@@ -45,6 +45,10 @@ func main() {
 
 	mygo.App.WhenReady(func() {
 		installMenu()
+		// 代理要先起来：页面注入的地址就是它的端口
+		if err := startProxy(appSettings); err != nil {
+			log.Printf("启动转发失败: %v", err)
+		}
 		openWindow()
 	})
 
@@ -54,8 +58,8 @@ func main() {
 }
 
 // openWindow 创建主窗口,尺寸沿用 Electron 版的 1280x800。
-func openWindow() {
-	mygo.NewWindow(mygo.WindowOptions{
+func openWindow() *mygo.Window {
+	return mygo.NewWindow(mygo.WindowOptions{
 		Title:           "bodaWay",
 		Width:           1280,
 		Height:          800,
@@ -73,4 +77,3 @@ func openWindow() {
 		},
 	})
 }
-

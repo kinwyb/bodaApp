@@ -39,6 +39,32 @@ const (
 	fieldASRURL     = "asrUrl"
 )
 
+// 出厂默认地址。桌面版所有请求都经应用内代理转发，没有目标机就整站不可用，
+// 所以这里给一套默认值（与 .env.production 保持一致 —— 改一处记得改另一处）。
+// 界面上的「留空」即表示用这套默认。
+const (
+	defaultAPIBaseURL = "http://192.168.9.9:82/v1/boda"
+	defaultASRURL     = "http://192.168.9.16:9383"
+	// Agent 对话服务默认跑在本机。注意这是「用户本机」的 127.0.0.1：
+	// 地址由页面直连（ws 不走应用内代理），所以指的是应用所在那台机器。
+	defaultAgentWSURL = "ws://127.0.0.1:8765/ws"
+)
+
+// withDefaults 把空项填成出厂默认。启动与打设置窗口都用它，
+// 这样界面上看到的就是「当前实际生效的地址」，而不是空输入框。
+func (s Settings) withDefaults() Settings {
+	if s.APIBaseURL == "" {
+		s.APIBaseURL = defaultAPIBaseURL
+	}
+	if s.AgentWSURL == "" {
+		s.AgentWSURL = defaultAgentWSURL
+	}
+	if s.ASRURL == "" {
+		s.ASRURL = defaultASRURL
+	}
+	return s
+}
+
 // settingsFilePath 返回配置文件路径（用户数据目录，而不是安装目录）。
 func settingsFilePath() (string, error) {
 	dir, err := mygo.App.Path(mygo.PathUserData)
@@ -139,19 +165,49 @@ func (s Settings) validate() map[string]string {
 
 // preloadScript 生成注入到页面里的那段脚本。
 //
-// 用 PageOptions.PreloadScript 而不是 query 参数：它在页面自身脚本之前执行，
-// 所以前端模块顶层读 window.__BODA_SETTINGS__ 时值已经就位，不需要异步等待，
-// 也不用把「请求前先取配置」这件事扩散到每个调用点。
+// 注意注入的**不是**用户填的地址，而是应用内代理的地址：页面统一请求
+// `http://127.0.0.1:<端口>/...`（见 proxy.go），由 Go 转发到真实服务器并补上跨域头。
+// 用户填的地址只作为代理目标存在于 Go 侧，页面根本不需要知道。
 //
-// 内容全部来自用户输入，用 json.Marshal 转义，避免拼出可执行的 JS 片段。
+// 用 PageOptions.PreloadScript 而不是 query 参数：它在页面自身脚本之前执行，
+// 所以前端模块顶层读 window.__BODA_SETTINGS__ 时值已经就位，不需要异步等待。
 func (s Settings) preloadScript() string {
-	if s.isEmpty() {
+	// 代理还没起来时不注入，前端回落构建期默认值（至少不会指向一个空地址）
+	if proxyBaseURL == "" {
 		return ""
 	}
-	payload, err := json.Marshal(s)
+
+	payload := map[string]string{}
+
+	if s.APIBaseURL != "" {
+		// 保留路径前缀（/v1/boda），origin 换成本地代理
+		payload[fieldAPIBaseURL] = proxyBaseURL + pathOf(s.APIBaseURL)
+	}
+	if s.AgentWSURL != "" {
+		// ws 不受同源策略约束，直连即可
+		payload[fieldAgentWSURL] = s.AgentWSURL
+		// 附件走 http，会跨域，所以同样经代理
+		payload["agentFilesUrl"] = proxyBaseURL + "/ws/files"
+	}
+	if s.ASRURL != "" {
+		payload[fieldASRURL] = proxyBaseURL
+	}
+	if len(payload) == 0 {
+		return ""
+	}
+
+	encoded, err := json.Marshal(payload)
 	if err != nil {
-		// 字段都是字符串，正常走不到这里；真出错就不注入，退回默认值。
 		return ""
 	}
-	return "window.__BODA_SETTINGS__=" + string(payload) + ";"
+	return "window.__BODA_SETTINGS__=" + string(encoded) + ";"
+}
+
+// pathOf 取地址里的路径部分（去尾斜杠）；解析不了就当没有路径。
+func pathOf(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimRight(u.Path, "/")
 }

@@ -45,7 +45,8 @@ func openSettingsWindow() {
 		return
 	}
 
-	current := loadSettings()
+	// 显示当前实际生效的地址（空项已填成默认），而不是一片空输入框
+	current := loadSettings().withDefaults()
 	state := &settingsState{
 		apiBaseURL: current.APIBaseURL,
 		agentWSURL: current.AgentWSURL,
