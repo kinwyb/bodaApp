@@ -21,4 +21,7 @@ export type {LineChartProps, LineChartSeries} from './LineChart';
 export {PieChart} from './PieChart';
 export type {PieChartProps} from './PieChart';
 
+export {ComboChart} from './ComboChart';
+export type {ComboChartProps, ComboSeries} from './ComboChart';
+
 export type {ChartTheme} from './theme';

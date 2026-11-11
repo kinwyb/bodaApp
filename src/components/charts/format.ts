@@ -17,6 +17,17 @@ const UNITS: ReadonlyArray<{limit: number; suffix: string}> = [
     {limit: 1e3, suffix: 'k'},
 ];
 
+/**
+ * 堆叠段内标签的显示门槛：该段占**本柱合计**的比例。
+ *
+ * 6% 是实测出来的：420px 高的图里，800k 的柱子 6% ≈ 25px，刚好放下一行 `fontSizeSM` 的字；
+ * 再低就会和相邻段、坐标轴贴在一起。低于它的段**不写字**，具体数值看 tooltip。
+ *
+ * 放在这里（而不是某个组件里）：`StackedBarChart` 与 `ComboChart` 用的是同一条判据，
+ * 各写一个数迟早会漂。
+ */
+export const SEGMENT_LABEL_MIN_RATIO = 0.06;
+
 /** 去掉小数末尾多余的 0：`8.0` → `8`，`8.10` → `8.1` */
 function trimTrailingZero(text: string): string {
     return text.replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1');

@@ -13,7 +13,7 @@ import {
 } from 'recharts';
 import {toNumberOrZero} from '@/utils';
 import {ChartLegend, ChartShell, ChartTooltip} from './chartParts';
-import {formatCompactNumber, formatCompactOrBlank} from './format';
+import {formatCompactNumber, formatCompactOrBlank, SEGMENT_LABEL_MIN_RATIO} from './format';
 import {createChartTheme, seriesColor} from './theme';
 
 /**
@@ -74,12 +74,10 @@ export type StackedBarChartProps = {
 };
 
 /**
- * 段内标签的显示门槛：该段占本柱合计的比例。
+ * 段内标签的显示门槛：该段占本柱合计的比例（判据与 `ComboChart` 共用，见 `format.ts`）。
  *
- * 6% 是实测出来的：420px 高的图里，8M 的柱子 6% ≈ 25px，刚好放下一行 `fontSizeSM` 的字；
- * 再低就会和相邻段/坐标轴贴在一起。低于它的段**不写字**，具体数值看 tooltip。
+ * 低于它的段**不写字**，具体数值看 tooltip。
  */
-const SEGMENT_LABEL_MIN_RATIO = 0.06;
 
 /** 段标签字段名：与业务字段分开命名，避免覆盖原值（原值 tooltip 还要用） */
 function segmentLabelField(field: string): string {
