@@ -13,6 +13,11 @@ export default defineConfig({
   identifier: "com.bodaway.app",
   version: pkg.version,
 
+  // 应用图标：1024x1024 PNG，打包时由 CLI 转成 .icns 塞进 app bundle。
+  // 图形构成：工业六边形（生产系统）+ 中心对话气泡里的青色三节点网络（agent）。
+  // 源图是白底圆角矩形，已处理成透明四角、内容占 824/1024（macOS 规范）。
+  icon: "resources/icon.png",
+
   // 开发：由 mygo dev 拉起 Vite dev server，并把窗口指向它。
   // 这两个脚本定义在项目根的 package.json 里。
   devUrl: "http://localhost:5173",
