@@ -26,6 +26,7 @@ import {
 } from '../ui-bridge';
 import type { UIEventDefinition } from '../ui-bridge';
 import { composeUIEventMessage } from '../protocol';
+import { composeSteerMessage, steerGuidanceOf } from '../commands';
 import { createInitialConversations } from '../mock/fixtures';
 import type { AgentChatState } from './actions';
 import { createConversation, nextMessageKey } from './actions';
@@ -123,6 +124,8 @@ export type AgentChatApi = {
   /** 拉某一轮的完整过程（历史被截断时用） */
   replayTurn: (turnId: string) => void;
   send: (text: string, attachments?: AgentMessage['attachments']) => void;
+  /** 在回答生成中补充一条 `/steer` 引导，不新建空回答气泡 */
+  steer: (text: string, attachments?: AgentMessage['attachments']) => void;
   abort: () => void;
   retry: (messageKey: string) => void;
 };
@@ -564,6 +567,62 @@ export function useAgentChat(): AgentChatApi {
     transportRef.current?.send(payload);
   }, []);
 
+  /**
+   * 生成中的引导消息。
+   *
+   * 服务端把 `/steer` 当作当前这一轮的补充输入，因此本层只追加用户消息，
+   * 不再插入空的助手占位：现有流式回答要继续接收同一会话的后续帧。
+   */
+  const steer = useCallback(
+    (text: string, attachments?: AgentMessage['attachments']) => {
+      const guidance = steerGuidanceOf(text);
+      if (!guidance) return;
+
+      const conversationKey = stateRef.current.activeKey;
+      const conversation = stateRef.current.conversations.find(
+        (item) => item.key === conversationKey,
+      );
+      const isStreaming = conversation?.messages.some(
+        (message) => message.role === 'assistant' && message.status === 'streaming',
+      );
+
+      // 回答刚好结束时按普通消息继续提问，不把用户输入丢掉。
+      if (!isStreaming) {
+        send(guidance, attachments);
+        return;
+      }
+
+      const content = composeSteerMessage(guidance);
+      dispatch({
+        type: 'append',
+        conversationKey,
+        messages: [
+          {
+            key: nextMessageKey('user'),
+            role: 'user',
+            content,
+            createdAt: Date.now(),
+            status: 'done',
+            attachments,
+          },
+        ],
+      });
+
+      transportRef.current?.send({
+        conversationId: conversationKey,
+        sessionId: conversation?.sessionId,
+        threadId: conversation?.threadId,
+        content,
+        agent: sendAgentOf(conversation, agentRef.current),
+        fileIds: attachments
+          ?.map((file) => file.fileId)
+          .filter((id): id is string => Boolean(id)),
+        attachments: attachments?.map((file) => ({ name: file.name, size: file.size })),
+      });
+    },
+    [send],
+  );
+
   const abort = useCallback(() => {
     const { activeKey, conversations } = stateRef.current;
     const conversation = conversations.find((item) => item.key === activeKey);
@@ -781,6 +840,7 @@ export function useAgentChat(): AgentChatApi {
     loadMore,
     replayTurn,
     send,
+    steer,
     abort,
     retry,
   };

@@ -19,6 +19,7 @@ import {
 import { buildMockHistory } from '../mock/history';
 import { buildMockScript } from '../mock/scripts';
 import { sleep, splitText } from '../mock/util';
+import { isSteerMessage } from '../commands';
 import type { AgentHello, AgentTransport, AgentUIRequest } from './types';
 
 /** 演示用的 agent 列表（结构与 hello 下发的 AgentInfo 一致） */
@@ -229,6 +230,8 @@ export function createMockTransport(): AgentTransport {
     },
 
     send(payload) {
+      // 引导不会启动新一轮演示脚本；当前回答继续流式输出。
+      if (isSteerMessage(payload.content)) return;
       void play(payload);
     },
 

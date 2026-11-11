@@ -312,6 +312,7 @@ const AgentChatPage: React.FC<AgentChatPageProps> = ({ embedded = false }) => {
           onUIFollowChange={chat.setUIFollow}
           compact={embedded}
           onSend={chat.send}
+          onSteer={chat.steer}
           onAbort={chat.abort}
         />
       </section>

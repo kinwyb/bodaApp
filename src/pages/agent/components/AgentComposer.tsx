@@ -8,13 +8,25 @@
  * 文件本体与服务端的对应关系见 files/client.ts。
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { App as AntdApp, Button, Switch, Tooltip } from 'antd';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { App as AntdApp, Button, Dropdown, Switch, Tooltip } from 'antd';
 import type { UploadFile } from 'antd';
-import { PaperClipOutlined, ReloadOutlined } from '@ant-design/icons';
-import { Attachments, Sender } from '@ant-design/x';
+import {
+  AimOutlined,
+  AppstoreOutlined,
+  PaperClipOutlined,
+  ReloadOutlined,
+  StopOutlined,
+} from '@ant-design/icons';
+import { Attachments, Sender, Suggestion } from '@ant-design/x';
 import type { AgentAttachment, AgentConnectionStatus, AgentTokenUsage } from '../types';
 import { CONNECTION_META } from '../constants';
+import {
+  AGENT_SKILL_OPTIONS,
+  AGENT_STEER_COMMAND,
+  AGENT_UI_SKILL,
+  steerGuidanceOf,
+} from '../commands';
 import { deleteAgentFile, fileErrorMessage, uploadAgentFile } from '../files';
 import { useVoiceInput } from '../hooks/use-voice-input';
 import { AgentTokenMeter } from './AgentTokenMeter';
@@ -35,6 +47,11 @@ function descriptionOf(file: ComposerFile): string | undefined {
   return undefined;
 }
 
+/** 切换技能时先去掉正文开头已有的 `$xxx`，避免叠成 `$ui $other` */
+function stripSkillToken(text: string): string {
+  return text.replace(/^\$[^\s]+\s*/, '').trimStart();
+}
+
 export const AgentComposer: React.FC<{
   streaming: boolean;
   mode: 'mock' | 'websocket';
@@ -53,6 +70,8 @@ export const AgentComposer: React.FC<{
   canFollow: boolean;
   onUIFollowChange: (enabled: boolean) => void;
   onSend: (text: string, attachments?: AgentAttachment[]) => void;
+  /** 生成中补充引导；由聊天状态层负责加 `/steer` 前缀且不插入空回答 */
+  onSteer: (text: string, attachments?: AgentAttachment[]) => void;
   onAbort: () => void;
 }> = ({
   streaming,
@@ -65,11 +84,15 @@ export const AgentComposer: React.FC<{
   canFollow,
   onUIFollowChange,
   onSend,
+  onSteer,
   onAbort,
 }) => {
   const { message } = AntdApp.useApp();
   const [inputValue, setInputValue] = useState('');
   const [fileList, setFileList] = useState<ComposerFile[]>([]);
+  const [suggestionKind, setSuggestionKind] = useState<'command' | 'skill' | null>(null);
+  const [suggestionOpen, setSuggestionOpen] = useState(false);
+  const composerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   /** 上传中的请求：移除附件时要能中断，否则删了列表请求还在跑 */
   const uploadsRef = useRef(new Map<string, AbortController>());
@@ -83,6 +106,81 @@ export const AgentComposer: React.FC<{
     onTranscript: handleVoiceTranscript,
     onError: handleVoiceError,
   });
+
+  const focusComposer = useCallback(() => {
+    requestAnimationFrame(() => {
+      composerRef.current?.querySelector('textarea')?.focus();
+    });
+  }, []);
+
+  const applySkill = useCallback(
+    (token: string) => {
+      setInputValue((current) => {
+        const trimmed = current.trimStart();
+        const steering = /^\/steer(?:\s+|$)/i.test(trimmed);
+        const body = stripSkillToken(steering ? steerGuidanceOf(trimmed) : trimmed);
+        const next = body ? `${token} ${body}` : `${token} `;
+        return steering ? `${AGENT_STEER_COMMAND} ${next}` : next;
+      });
+      setSuggestionOpen(false);
+      setSuggestionKind(null);
+      focusComposer();
+    },
+    [focusComposer],
+  );
+
+  const applySuggestion = useCallback(
+    (value: string) => {
+      if (value.startsWith('$')) {
+        applySkill(value);
+        return;
+      }
+      setInputValue(`${value} `);
+      setSuggestionOpen(false);
+      setSuggestionKind(null);
+      focusComposer();
+    },
+    [applySkill, focusComposer],
+  );
+
+  const suggestionItems = useMemo(
+    () =>
+      suggestionKind === 'skill'
+        ? AGENT_SKILL_OPTIONS.map((option) => ({
+            value: option.token,
+            label: option.token,
+            description: option.description,
+            icon: <AppstoreOutlined />,
+            extra: option.label,
+          }))
+        : [
+            {
+              value: AGENT_STEER_COMMAND,
+              label: AGENT_STEER_COMMAND,
+              description: '回答生成中补充一条引导',
+              icon: <AimOutlined />,
+              extra: '生成中',
+            },
+          ],
+    [suggestionKind],
+  );
+
+  const skillMenu = useMemo(
+    () => ({
+      items: AGENT_SKILL_OPTIONS.map((option) => ({
+        key: option.token,
+        icon: <AppstoreOutlined />,
+        label: (
+          <div className="agent-skill-option">
+            <code>{option.token}</code>
+            <span>{option.label}</span>
+          </div>
+        ),
+      })),
+      onClick: ({ key }: { key: string }) => applySkill(key),
+    }),
+    [applySkill],
+  );
 
   // 卸载时中断所有在途上传：组件都没了，传完也没人接
   useEffect(() => {
@@ -152,6 +250,7 @@ export const AgentComposer: React.FC<{
   const handleSubmit = useCallback(
     (value: string) => {
       const text = value.trim();
+      const steerText = steerGuidanceOf(text);
 
       const uploading = fileList.filter((file) => file.status === 'uploading').length;
       if (uploading > 0) {
@@ -167,6 +266,10 @@ export const AgentComposer: React.FC<{
         message.info(fileList.length > 0 ? '请补充一句说明再发送' : '请先输入内容');
         return;
       }
+      if (streaming && !steerText) {
+        message.info('请输入要补充的引导内容');
+        return;
+      }
 
       const attachments: AgentAttachment[] = fileList.map((file) => ({
         uid: file.uid,
@@ -177,12 +280,16 @@ export const AgentComposer: React.FC<{
         url: file.fileUrl,
         status: 'done',
       }));
-      onSend(text, attachments.length > 0 ? attachments : undefined);
+      if (streaming) {
+        onSteer(steerText, attachments.length > 0 ? attachments : undefined);
+      } else {
+        onSend(text, attachments.length > 0 ? attachments : undefined);
+      }
       setInputValue('');
       // 发送成功不清服务端文件：它已经被这条消息引用（服务端会移到 agent 工作区）
       setFileList([]);
     },
-    [fileList, message, onSend],
+    [fileList, message, onSend, onSteer, streaming],
   );
 
   const handleFilesPicked = useCallback(
@@ -253,108 +360,173 @@ export const AgentComposer: React.FC<{
       : `ws · ${CONNECTION_META[connection].text}${latency !== undefined ? ` · ${latency}ms` : ''}`;
 
   return (
-    <div className="agent-composer">
-      <Sender
-        className="agent-sender"
-        value={inputValue}
-        onChange={setInputValue}
-        onSubmit={handleSubmit}
-        onCancel={onAbort}
-        loading={streaming}
-        placeholder={
-          compact ? '想让助手做什么？Enter 发送' : '描述你想让助手做的事，Enter 发送，Shift + Enter 换行'
-        }
-        allowSpeech={voice.allowSpeech}
-        autoSize={{ minRows: 2, maxRows: 6 }}
-        header={
-          fileList.length > 0 ? (
-            <Sender.Header
-              title={`已添加 ${fileList.length} 个附件`}
-              open
-              onOpenChange={(open) => {
-                if (!open) clearFiles();
-              }}
-            >
-              <Attachments
-                items={fileList.map((file) => ({
-                  ...file,
-                  // 卡片上用 description 表达「在传 / 传失败了」，byte 是字节数（卡片自己格式化）
-                  description: descriptionOf(file),
-                  byte: file.size,
-                  loading: file.status === 'uploading',
-                }))}
-                onChange={handleAttachmentsChange}
-                overflow="scrollX"
-                beforeUpload={() => false}
-              />
-              {failedCount > 0 ? (
-                <Button
-                  size="small"
-                  type="link"
-                  danger
-                  icon={<ReloadOutlined />}
-                  onClick={retryFailed}
+    <div className="agent-composer" ref={composerRef}>
+      <Suggestion
+        className="agent-suggestion"
+        block
+        items={suggestionItems}
+        open={suggestionOpen}
+        onOpenChange={(open) => {
+          setSuggestionOpen(open);
+          if (!open) setSuggestionKind(null);
+        }}
+        onSelect={applySuggestion}
+      >
+        {({ onTrigger, onKeyDown }) => (
+          <Sender
+            className="agent-sender"
+            value={inputValue}
+            onChange={(value) => {
+              setInputValue(value);
+              const candidate = value.trimStart();
+              if (/^\$[^\s]*$/.test(candidate)) {
+                setSuggestionKind('skill');
+                onTrigger({});
+                return;
+              }
+              if (streaming && /^\/[^\s]*$/.test(candidate)) {
+                setSuggestionKind('command');
+                onTrigger({});
+                return;
+              }
+              setSuggestionKind(null);
+              onTrigger(false);
+            }}
+            onKeyDown={onKeyDown}
+            onSubmit={handleSubmit}
+            placeholder={
+              streaming
+                ? compact
+                  ? '输入引导，Enter 发送 /steer'
+                  : '输入引导，Enter 发送 /steer；输入 / 或 $ 选择命令与技能'
+                : compact
+                  ? '想让助手做什么？Enter 发送'
+                  : '描述你想让助手做的事；输入 / 或 $ 选择命令与技能'
+            }
+            allowSpeech={voice.allowSpeech}
+            autoSize={{ minRows: 2, maxRows: 6 }}
+            header={
+              fileList.length > 0 ? (
+                <Sender.Header
+                  title={`已添加 ${fileList.length} 个附件`}
+                  open
+                  onOpenChange={(open) => {
+                    if (!open) clearFiles();
+                  }}
                 >
-                  重试失败项（{failedCount}）
-                </Button>
-              ) : null}
-            </Sender.Header>
-          ) : undefined
-        }
-        prefix={
-          <Tooltip title="添加附件">
-            <Button
-              type="text"
-              icon={<PaperClipOutlined />}
-              onClick={() => fileInputRef.current?.click()}
-            />
-          </Tooltip>
-        }
-        footer={
-          <div className="agent-sender-footer">
-            <span className="agent-sender-left">
-              <Tooltip
-                title={
-                  canFollow
-                    ? uiFollow
-                      ? '界面联动已开启：普通事件会合并，确认终态会立即发送'
-                      : '界面联动已关闭：页面事件不会记录或发送'
-                    : '先发送一条消息开始对话，之后才能开启界面联动'
-                }
-              >
-                <label className="agent-ui-follow">
-                  <span>界面联动</span>
-                  <Switch
-                    size="small"
-                    checked={uiFollow}
-                    disabled={!canFollow}
-                    aria-label="界面联动"
-                    onChange={onUIFollowChange}
+                  <Attachments
+                    items={fileList.map((file) => ({
+                      ...file,
+                      // 卡片上用 description 表达「在传 / 传失败了」，byte 是字节数（卡片自己格式化）
+                      description: descriptionOf(file),
+                      byte: file.size,
+                      loading: file.status === 'uploading',
+                    }))}
+                    onChange={handleAttachmentsChange}
+                    overflow="scrollX"
+                    beforeUpload={() => false}
                   />
-                </label>
-              </Tooltip>
-              <span className="agent-sender-conn">{footerText}</span>
-            </span>
-            <span className="agent-sender-meta">
-              {/* token 用量：服务端从来没给过数（新对话 / 老数据）就不占位 */}
-              {usage ? <AgentTokenMeter usage={usage} /> : null}
-              <span className="agent-sender-hint">
-                {uploadingCount > 0
-                  ? `${uploadingCount} 个附件上传中`
-                  : failedCount > 0
-                    ? `${failedCount} 个附件上传失败`
-                    : voice.transcribing
-                      ? '识别中…'
-                      : voice.recording
-                        ? '正在听…说完再点麦克风结束'
-                        : inputValue.length > 0
-                          ? `${inputValue.length} 字`
-                          : 'Shift + Enter 换行'}
+                  {failedCount > 0 ? (
+                    <Button
+                      size="small"
+                      type="link"
+                      danger
+                      icon={<ReloadOutlined />}
+                      onClick={retryFailed}
+                    >
+                      重试失败项（{failedCount}）
+                    </Button>
+                  ) : null}
+                </Sender.Header>
+              ) : undefined
+            }
+            prefix={
+              <span className="agent-composer-tools">
+                <Tooltip title="添加附件">
+                  <Button
+                    type="text"
+                    icon={<PaperClipOutlined />}
+                    onClick={() => fileInputRef.current?.click()}
+                  />
+                </Tooltip>
+                <Tooltip title={`${AGENT_UI_SKILL} UI 操作技能`}>
+                  <span>
+                    <Dropdown menu={skillMenu} trigger={['click']}>
+                      <Button type="text" icon={<AppstoreOutlined />} aria-label="选择技能" />
+                    </Dropdown>
+                  </span>
+                </Tooltip>
               </span>
-            </span>
-          </div>
-        }
-      />
+            }
+            suffix={(_original, { components }) => (
+              <span className="agent-sender-actions">
+                {voice.allowSpeech ? <components.SpeechButton /> : null}
+                {streaming ? (
+                  <Tooltip title="停止生成">
+                    <Button
+                      type="text"
+                      danger
+                      shape="circle"
+                      icon={<StopOutlined />}
+                      aria-label="停止生成"
+                      onClick={onAbort}
+                    />
+                  </Tooltip>
+                ) : null}
+                <Tooltip title={streaming ? '发送引导 /steer' : '发送'}>
+                  <components.SendButton />
+                </Tooltip>
+              </span>
+            )}
+            footer={
+              <div className="agent-sender-footer">
+                <span className="agent-sender-left">
+                  <Tooltip
+                    title={
+                      canFollow
+                        ? uiFollow
+                          ? '界面联动已开启：普通事件会合并，确认终态会立即发送'
+                          : '界面联动已关闭：页面事件不会记录或发送'
+                        : '先发送一条消息开始对话，之后才能开启界面联动'
+                    }
+                  >
+                    <label className="agent-ui-follow">
+                      <span>界面联动</span>
+                      <Switch
+                        size="small"
+                        checked={uiFollow}
+                        disabled={!canFollow}
+                        aria-label="界面联动"
+                        onChange={onUIFollowChange}
+                      />
+                    </label>
+                  </Tooltip>
+                  <span className="agent-sender-conn">{footerText}</span>
+                </span>
+                <span className="agent-sender-meta">
+                  {/* token 用量：服务端从来没给过数（新对话 / 老数据）就不占位 */}
+                  {usage ? <AgentTokenMeter usage={usage} /> : null}
+                  <span className="agent-sender-hint">
+                    {uploadingCount > 0
+                      ? `${uploadingCount} 个附件上传中`
+                      : failedCount > 0
+                        ? `${failedCount} 个附件上传失败`
+                        : voice.transcribing
+                          ? '识别中…'
+                          : voice.recording
+                            ? '正在听…说完再点麦克风结束'
+                            : inputValue.length > 0
+                              ? `${inputValue.length} 字`
+                              : streaming
+                                ? 'Enter 发送 /steer'
+                                : 'Shift + Enter 换行'}
+                  </span>
+                </span>
+              </div>
+            }
+          />
+        )}
+      </Suggestion>
       <input ref={fileInputRef} type="file" multiple hidden onChange={handleFilesPicked} />
     </div>
   );
