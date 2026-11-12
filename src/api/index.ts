@@ -69,3 +69,8 @@ export type {
     ScheduleUpdateReq,
 } from './modules/mis';
 export type {SalaryDetail, SalaryPiecesCountGroup} from './schemas/mis/scheduleSalary';
+export type {
+    ProductMonitorBJLog,
+    ProductionMonitorDetail,
+    ProductionMonitorQueryRes,
+} from './schemas/mis/productionMonitorQuery';

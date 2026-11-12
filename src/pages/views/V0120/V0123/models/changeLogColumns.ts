@@ -1,0 +1,41 @@
+import type {AppColumnDef} from '@/components/grid-table';
+
+export const CHANGE_LOG_DETAIL_COLUMNS: AppColumnDef[] = [
+    {field: 'DateRec', title: '日期', width: 131, dataType: 'date'},
+    {field: 'MachCode', title: '机台号', width: 53, dataType: 'int'},
+    {field: 'OrderCode', title: '订单号', width: 86},
+    {field: 'StLot', title: '批次号', width: 118},
+    {field: 'StyleCode', title: '款号', width: 89},
+    {field: 'StColor', title: '颜色', width: 90},
+    {field: 'StSize', title: '尺码', width: 56},
+    {field: 'MacProduction', title: '机器产量', width: 90, dataType: 'int'},
+    {field: 'GxProduction', title: '实际产量', width: 63, dataType: 'int'},
+    {field: 'CpQty', title: '次品数', width: 53, dataType: 'int', style: {color: '#cf1322'}},
+    {field: 'RoomCode', title: '厂别', width: 50},
+    {field: 'RespoCode', title: '班次', width: 43},
+    {field: 'DateStartShift', title: '开始时间', width: 135, dataType: 'datetime'},
+    {field: 'AuditUser', title: '审核人', width: 90},
+    {field: 'AuditTime', title: '审核日期', width: 138, dataType: 'datetime'},
+    {field: 'Cycle', title: '下机时间', width: 90, dataType: 'int'},
+];
+
+export const CHANGE_LOG_LOG_COLUMNS: AppColumnDef[] = [
+    {field: 'DateRec', title: '日期', width: 127, dataType: 'date'},
+    {field: 'RoomCode', title: '厂别', width: 53},
+    {field: 'GroupCode', title: '车间', width: 52},
+    {field: 'MachCode', title: '机台号', width: 64, dataType: 'int'},
+    {field: 'OrderCode', title: '订单号', width: 84},
+    {field: 'StLot', title: '批次号', width: 109},
+    {field: 'StyleCode', title: '款号', width: 90},
+    {field: 'StColor', title: '颜色', width: 90},
+    {field: 'StSize', title: '尺码', width: 55},
+    {field: 'Pieces', title: '生产件数', width: 90, dataType: 'int'},
+    {field: 'Discards', title: '废品数', width: 50, dataType: 'int'},
+    {field: 'Reason', title: '差异原因', width: 67, dataType: 'int'},
+    {field: 'RecordBy', title: '调整人', width: 90},
+    {field: 'RecordTime', title: '调整时间', width: 141, dataType: 'datetime'},
+    {field: 'TargetPieces', title: '目标件数', width: 90, dataType: 'int'},
+    {field: 'Cycle', title: '下机时间', width: 90, dataType: 'int'},
+    {field: 'RespoCode', title: '班次', width: 70},
+    {field: 'DateStartShift', title: '开始时间', width: 130, dataType: 'datetime'},
+];
