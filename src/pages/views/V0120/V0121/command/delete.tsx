@@ -13,6 +13,7 @@ export const deleteCommand: OrderInfoCommandFactory = ({activeRow, loading, savi
     permission: '删除',
     danger: true,
     waitConfirm: true,
+    dividerBefore: true,
     disabled: !activeRow || activeRow.Flag !== 0 || activeRow.Reason !== 999 || loading || saving,
     onClick: () => {
         const target = activeRow;

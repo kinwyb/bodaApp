@@ -1,13 +1,13 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {App, Modal, Splitter} from 'antd';
-import {misProductionMonitorApi, type ProductMonitorBJLog, type ProductionMonitorDetail} from '@/api';
+import {misProductionMonitorApi, type ProductionMonitorDetail, type ProductMonitorBJLog} from '@/api';
 import {ErrorMessage} from '@/api/request';
 import {GridTable, type GridTableApi, type GridTableCellValueChangeInfo} from '@/components/grid-table';
 import {registerAntdNumberEditor} from '@/components/grid-table/editors/register';
 import {useUIBridgeDialog} from '@/pages/agent/ui-bridge';
 import {toNumberOrZero, toStringOrEmpty} from '@/utils';
 import type {ProductionMonitorRow} from '../types';
-import {createChangeLogBridge, type ChangeLogBridgeContext} from './changeLogBridge';
+import {type ChangeLogBridgeContext, createChangeLogBridge} from './changeLogBridge';
 import {CHANGE_LOG_DETAIL_COLUMNS, CHANGE_LOG_LOG_COLUMNS} from './changeLogColumns';
 
 registerAntdNumberEditor('production-monitor-detail-gx', {min: 0, precision: 0}, {
@@ -49,9 +49,6 @@ export function ChangeLogModal({open, view, row, onClose, onChanged}: ChangeLogM
             const result = await misProductionMonitorApi.detail(id);
             const list = result.data ?? [];
             setDetails(list);
-            const first = list[0] ?? null;
-            setActiveDetail(first);
-            setLogs(first?.Detail ?? []);
         } catch (loadError) {
             const text = ErrorMessage(loadError, '数据加载失败');
             setError(text);
@@ -62,6 +59,11 @@ export function ChangeLogModal({open, view, row, onClose, onChanged}: ChangeLogM
     }, [message]);
 
     useEffect(() => {
+        const first = details[0] ?? null;
+        detailTableRef.current?.selectRowsByKeys([toStringOrEmpty(first?.ID)]);
+    }, [details]);
+
+    useEffect(() => {
         if (!open) return;
         if (rowId < 1) return;
         void loadDetail(rowId);
@@ -69,7 +71,7 @@ export function ChangeLogModal({open, view, row, onClose, onChanged}: ChangeLogM
 
     const persistDetail = useCallback(async (
         target: ProductionMonitorDetail,
-        patch: {GxProduction?: number; CpQty?: number},
+        patch: { GxProduction?: number; CpQty?: number },
     ) => {
         const next = {...target, ...patch};
         const fmid = toNumberOrZero(next.FMID);
@@ -92,7 +94,7 @@ export function ChangeLogModal({open, view, row, onClose, onChanged}: ChangeLogM
         });
     }, [message, persistDetail]);
 
-    const updateDetail = useCallback(async (patch: {GxProduction?: number; CpQty?: number}) => {
+    const updateDetail = useCallback(async (patch: { GxProduction?: number; CpQty?: number }) => {
         if (!activeDetail) throw new Error('请先选中一条明细');
         setError(undefined);
         try {
@@ -132,7 +134,8 @@ export function ChangeLogModal({open, view, row, onClose, onChanged}: ChangeLogM
         >
             <div style={{display: 'flex', flexDirection: 'column', height: 480, marginTop: 12}}>
                 <Splitter vertical style={{flex: 1, minHeight: 0, height: 'auto'}}>
-                    <Splitter.Panel className="splitter-pane-body" defaultSize={150} min={100} style={{overflow: 'hidden'}}>
+                    <Splitter.Panel className="splitter-pane-body" defaultSize={150} min={100}
+                                    style={{overflow: 'hidden'}}>
                         <GridTable
                             ref={detailTableRef}
                             columns={CHANGE_LOG_DETAIL_COLUMNS}

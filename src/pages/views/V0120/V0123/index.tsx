@@ -1,6 +1,6 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {App, Button, DatePicker, Form, Input, Space} from 'antd';
-import {EllipsisOutlined, SearchOutlined} from '@ant-design/icons';
+import {SearchOutlined} from '@ant-design/icons';
 import type {Dayjs} from 'dayjs';
 import {misProductionMonitorApi, type ProductionMonitorQueryRes} from '@/api';
 import {ErrorMessage} from '@/api/request';
@@ -15,7 +15,7 @@ import type {ViewPageProps} from '@/pages/types';
 import {formatDate, now, toDayjs, toNumberOrZero} from '@/utils';
 import {createProductionMonitorBridge, type ProductionMonitorBridgeContext} from './bridged';
 import {PRODUCTION_MONITOR_COLUMNS} from './columns';
-import {useProductionMonitorCommands, type ProductionMonitorCommandContext} from './command';
+import {type ProductionMonitorCommandContext, useProductionMonitorCommands} from './command';
 import {runProductionMonitorAudit} from './command/auditAction';
 import {ChangeLogModal} from './models/changeLog';
 import type {ProductionMonitorQueryState, ProductionMonitorRow} from './types';
@@ -130,7 +130,11 @@ const ProductionMonitorPage: React.FC<ViewPageProps> = ({view, trail}) => {
         setDialogOpen(true);
     }, [rows]);
 
-    const handlePiecesChange = useCallback((info: {field: string; record?: Record<string, unknown>; value: unknown}) => {
+    const handlePiecesChange = useCallback((info: {
+        field: string;
+        record?: Record<string, unknown>;
+        value: unknown
+    }) => {
         if (info.field !== 'Pieces') return;
         const rowId = String(info.record?.ID ?? '');
         if (!rowId) return;
@@ -203,7 +207,8 @@ const ProductionMonitorPage: React.FC<ViewPageProps> = ({view, trail}) => {
                         <Form.Item name="orderCode" noStyle>
                             <Input allowClear style={{width: 130}}/>
                         </Form.Item>
-                        <Button aria-label="选择订单号" icon={<EllipsisOutlined/>} onClick={() => setOrderPickerOpen(true)}/>
+                        <Button aria-label="选择订单号" icon={<SearchOutlined/>}
+                                onClick={() => setOrderPickerOpen(true)}/>
                     </Space.Compact>
                 </Form.Item>
                 <Form.Item name="machineCode" label="机台号">

@@ -12,6 +12,7 @@ export const copyCommand: OrderInfoCommandFactory = ({activeRow, loading, saving
     icon: <CopyOutlined/>,
     permission: '复制',
     waitConfirm: true,
+    dividerBefore: true,
     disabled: !activeRow || loading || saving,
     onClick: () => {
         const target = activeRow;

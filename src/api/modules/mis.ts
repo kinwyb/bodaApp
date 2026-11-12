@@ -6,10 +6,7 @@ import {
     type DateShiftDataQueryFromKnitStore,
     DateShiftDataQueryFromKnitStoreSchema,
 } from '../schemas/mis/productionMonitor';
-import {
-    ProductionMonitorDetailSchema,
-    ProductionMonitorQueryResSchema,
-} from '../schemas/mis/productionMonitorQuery';
+import {ProductionMonitorDetailSchema, ProductionMonitorQueryResSchema,} from '../schemas/mis/productionMonitorQuery';
 import {ProductionMonitorOrderListSchema, ProductionMonitorOrderSchema,} from '../schemas/mis/productionMonitorOrder';
 import {ShiftInfoSchema} from '../schemas/mis/machineShift';
 import {EmployeeSchema, ScheduleBJSchema, type ScheduleUpdateReq,} from '../schemas/mis/scheduleMaintenance';
@@ -198,11 +195,14 @@ export const misProductionMonitorApi = {
     queryList: (payload: ProductionMonitorQueryReq) =>
         http.postSchema('/mis/productionMonitor/query', ProductionMonitorQueryResSchema.array(), payload),
     detail: (id: number) =>
-        http.getSchema('/mis/productionMonitor/detail', ProductionMonitorDetailSchema.array(), {id}),
+        http.getSchema('/mis/productionMonitor/detail', ProductionMonitorDetailSchema.array(), {fmid: id}),
     qtyChange: (fmid: number, num: number, cpnum: number) =>
         http.post<string>('/mis/productionMonitor/update/qty', {fmid, num, cpnum}, {contentType: 'form'}),
     audit: (fmids: string, audit: boolean) =>
-        http.post<string>('/mis/productionMonitor/audit', {fmid: fmids, flag: audit ? '1' : '0'}, {contentType: 'form'}),
+        http.post<string>('/mis/productionMonitor/audit', {
+            fmid: fmids,
+            flag: audit ? '1' : '0'
+        }, {contentType: 'form'}),
 };
 
 export const misMachineApi = {

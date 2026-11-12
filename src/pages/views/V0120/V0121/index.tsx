@@ -1,6 +1,6 @@
 import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {App, Button, DatePicker, Form, Input, Space} from 'antd';
-import {EllipsisOutlined, SearchOutlined} from '@ant-design/icons';
+import {SearchOutlined} from '@ant-design/icons';
 import type {Dayjs} from 'dayjs';
 import {misProductionMonitorApi} from '@/api';
 import {ErrorMessage} from '@/api/request';
@@ -18,7 +18,7 @@ import type {ViewPageProps} from '@/pages/types';
 import {formatDate, toDayjs, toNumberOrZero} from '@/utils';
 import {createOrderInfoBridge, type OrderInfoBridgeContext} from './bridged';
 import {ORDER_INFO_COLUMNS} from './columns';
-import {useOrderInfoCommands, type OrderInfoCommandContext} from './command';
+import {type OrderInfoCommandContext, useOrderInfoCommands} from './command';
 import {commitActiveEditor} from './editorSession';
 import {
     createDefaultQuery,
@@ -26,6 +26,10 @@ import {
     isBlankStLot,
     isEditableField,
     isMoLinkedField,
+    type OrderInfoQuery,
+    type OrderInfoQueryResult,
+    type OrderInfoRow,
+    type OrderInfoSaveResult,
     queryToReq,
     rowIdFromRecord,
     sameShiftStart,
@@ -34,10 +38,6 @@ import {
     validateQuery,
     validateSaveRows,
     withFlagString,
-    type OrderInfoQuery,
-    type OrderInfoQueryResult,
-    type OrderInfoRow,
-    type OrderInfoSaveResult,
 } from './orderInfo';
 import {useOrderInfoEditors} from './useOrderInfoEditors';
 
@@ -433,7 +433,7 @@ const OrderInfoPage: React.FC<ViewPageProps> = ({view, trail}) => {
                         </Form.Item>
                         <Button
                             aria-label="选择订单号"
-                            icon={<EllipsisOutlined/>}
+                            icon={<SearchOutlined/>}
                             onClick={() => setOrderPickerOpen(true)}
                         />
                     </Space.Compact>
