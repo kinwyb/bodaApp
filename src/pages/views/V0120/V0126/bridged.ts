@@ -85,7 +85,7 @@ export function createProduceDataBridge(read: () => ProduceDataBridgeContext): U
             const query = queryFields(ctx.query);
             return {
                 view: ctx.view,
-                title: 'V0120 > 挡车产量',
+                title: 'MIS > 挡车产量',
                 mode: 'list',
                 guide: GUIDE,
                 actions: [

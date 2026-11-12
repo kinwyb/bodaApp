@@ -88,7 +88,7 @@ export function createSalaryDetailBridge(read: () => SalaryDetailBridgeContext):
     return {
         snapshot: (): UISnapshotData => ({
             view: read().view,
-            title: 'V0120 > 工资明细',
+            title: 'MIS > 工资明细',
             mode: 'list',
             guide: GUIDE,
             actions: [

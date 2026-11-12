@@ -43,6 +43,8 @@ export {sqlApi, S, N, B, OpS, OpN, OpB} from './modules/sql';
 export type {SQLResult, SQLProcedure, SQLQuery, SimpleDataTable} from './modules/sql';
 export {
     misProductionApi,
+    misProductionMonitorApi,
+    misMachineApi,
     misReportApi,
     misScheduleApi,
 } from './modules/mis';
@@ -55,6 +57,8 @@ export type {
     MisProduceDataRow,
     MisProductOutStoreBill,
     MisProductOutStoreBillListReq,
+    ProductionMonitorQueryReq,
+    ProductionMonitorOrderChangeReq,
     SalaryBonusMachRate,
     SalaryBonusMonth,
     SalaryBonusMonthDetail,

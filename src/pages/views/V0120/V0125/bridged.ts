@@ -63,7 +63,7 @@ export function createSalaryGroupBridge(read: () => SalaryGroupBridgeContext): U
     return {
         snapshot: (): UISnapshotData => ({
             view: read().view,
-            title: 'V0120 > 工资汇总',
+            title: 'MIS > 工资汇总',
             mode: 'list',
             guide: GUIDE,
             actions: [

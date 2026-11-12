@@ -2,8 +2,8 @@ import type {MisProductOutStoreBill} from '@/api';
 import type {CommandItem} from '@/components/CommandBar';
 import type {FilterTableApi} from '@/components/grid-table';
 import type {UIField, UIGuide, UISnapshotData} from '@/pages/agent/protocol';
-import {createTableBridge} from '@/pages/agent/ui-bridge';
 import type {UIBridgeHandler, UIBridgeHost} from '@/pages/agent/ui-bridge';
+import {createTableBridge} from '@/pages/agent/ui-bridge';
 import {toStringOrEmpty} from '@/utils';
 import {OUT_STORE_BILL_COLUMNS, OUT_STORE_DETAIL_COLUMNS} from './columns';
 
@@ -80,7 +80,7 @@ export function createOutStoreBridge(read: () => OutStoreBridgeContext): UIBridg
             const ctx = read();
             return {
                 view: ctx.view,
-                title: 'V0120 > 白坯出库单',
+                title: 'MIS > 白坯出库单',
                 mode: 'list',
                 guide: GUIDE,
                 actions: [
@@ -97,7 +97,11 @@ export function createOutStoreBridge(read: () => OutStoreBridgeContext): UIBridg
                         id: 'query.set',
                         label: '设置查询条件',
                         group: 'filter',
-                        params: queryFields(ctx.query).map((field) => ({name: field.id, type: field.type, hint: field.label})),
+                        params: queryFields(ctx.query).map((field) => ({
+                            name: field.id,
+                            type: field.type,
+                            hint: field.label
+                        })),
                     },
                 ],
                 query: queryFields(ctx.query),

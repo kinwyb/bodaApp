@@ -6,6 +6,12 @@ import {
     type DateShiftDataQueryFromKnitStore,
     DateShiftDataQueryFromKnitStoreSchema,
 } from '../schemas/mis/productionMonitor';
+import {
+    ProductionMonitorOrderListSchema,
+    ProductionMonitorOrderSchema,
+    SwaggerIntegerResponseStructSchema,
+} from '../schemas/mis/productionMonitorOrder';
+import {ShiftInfoSchema} from '../schemas/mis/machineShift';
 
 export type SalaryDetailReq = {
     EmployeeNo?: string;
@@ -93,6 +99,23 @@ export type MisProductOutStoreBillListReq = {
     EndDate: string;
 };
 
+export type ProductionMonitorQueryReq = {
+    StartDate: string;
+    EndDate: string;
+    OrderCode: string;
+    MachineCode: string;
+    RoomCode?: string;
+};
+
+export type ProductionMonitorOrderChangeReq = {
+    Cycle: number;
+    Mo: string;
+    Fmid: number;
+    DateStartShift?: string;
+    GroupCode?: string;
+    MachCode?: number;
+};
+
 export const misScheduleApi = {
     salary: (payload: SalaryDetailReq) =>
         http.postSchema('/mis/schedule/salary', SalaryDetailSchema.array(), payload),
@@ -142,6 +165,32 @@ export const misProductionApi = {
         http.post<MisProductOutStoreBill[]>('/mis/productOutStoreBill/list', payload),
     productOutStoreBillDelete: (billID: string) =>
         http.delete<string>('/mis/productOutStoreBill/del', {billID}),
+};
+
+export const misProductionMonitorApi = {
+    orderList: (payload: ProductionMonitorQueryReq, signal?: AbortSignal) =>
+        http.postSchema(
+            '/mis/productionMonitor/order/list',
+            ProductionMonitorOrderListSchema.array(),
+            payload,
+            {signal},
+        ),
+    moInfo: (mo: string) =>
+        http.getSchema('/mis/productionMonitor/order', ProductionMonitorOrderSchema, {mo}),
+    orderChange: (payload: ProductionMonitorOrderChangeReq[]) =>
+        http.post<string>('/mis/productionMonitor/order', payload),
+    orderDel: (id: number) =>
+        http.delete<string>('/mis/productionMonitor/order/del', {id}),
+    orderCopy: (id: number) =>
+        http.putSchema(
+            `/mis/productionMonitor/copy?id=${encodeURIComponent(String(id))}`,
+            SwaggerIntegerResponseStructSchema.shape.data,
+        ),
+};
+
+export const misMachineApi = {
+    machineShift: (date: string) =>
+        http.getSchema('/mis/machine/shift', ShiftInfoSchema.array(), {date}),
 };
 
 export const misReportApi = {
