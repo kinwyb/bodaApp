@@ -1,5 +1,5 @@
 import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
-import {App, Button, DatePicker, Form, Input, Space} from 'antd';
+import {App, Button, DatePicker, Form, Input} from 'antd';
 import {SearchOutlined} from '@ant-design/icons';
 import type {Dayjs} from 'dayjs';
 import {misProductionMonitorApi} from '@/api';
@@ -12,7 +12,7 @@ import {
     type GridTableSelectedRowChangeInfo,
 } from '@/components/grid-table';
 import {PageBreadcrumb} from '@/components/PageBreadcrumb';
-import {OrderCodeQuickSelect} from '@/components/quick-select';
+import {OrderCodeSelect} from '@/components/quick-select';
 import {useUIBridgeHost} from '@/pages/agent/ui-bridge';
 import type {ViewPageProps} from '@/pages/types';
 import {formatDate, toDayjs, toNumberOrZero} from '@/utils';
@@ -70,7 +70,6 @@ const OrderInfoPage: React.FC<ViewPageProps> = ({view, trail}) => {
     const [loading, setLoading] = useState(false);
     const [dirtyCount, setDirtyCount] = useState(0);
     const dirtyIdsRef = useRef(new Set<number>());
-    const [orderPickerOpen, setOrderPickerOpen] = useState(false);
     const pendingReselectRef = useRef<string | null>(null);
     const querySeqRef = useRef(0);
     const queryAbortRef = useRef<AbortController | null>(null);
@@ -426,17 +425,8 @@ const OrderInfoPage: React.FC<ViewPageProps> = ({view, trail}) => {
                 >
                     <DatePicker allowClear={false} style={{width: 140}}/>
                 </Form.Item>
-                <Form.Item label="订单号">
-                    <Space.Compact>
-                        <Form.Item name="orderCode" noStyle>
-                            <Input allowClear style={{width: 160}}/>
-                        </Form.Item>
-                        <Button
-                            aria-label="选择订单号"
-                            icon={<SearchOutlined/>}
-                            onClick={() => setOrderPickerOpen(true)}
-                        />
-                    </Space.Compact>
+                <Form.Item name="orderCode" label="订单号">
+                    <OrderCodeSelect style={{width: 130}}/>
                 </Form.Item>
                 <Form.Item name="machineCode" label="机台号">
                     <Input allowClear style={{width: 100}}/>
@@ -460,14 +450,6 @@ const OrderInfoPage: React.FC<ViewPageProps> = ({view, trail}) => {
                 cellTooltip={editors.cellTooltip}
                 onCellValueChange={handleCellValueChange}
                 onSelectedChange={handleSelectedChange}
-            />
-            <OrderCodeQuickSelect
-                open={orderPickerOpen}
-                onCancel={() => setOrderPickerOpen(false)}
-                onSelect={(orderCode) => {
-                    form.setFieldValue('orderCode', orderCode);
-                    setOrderPickerOpen(false);
-                }}
             />
         </div>
     );

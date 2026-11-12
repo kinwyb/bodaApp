@@ -1,5 +1,5 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {App, Button, DatePicker, Form, Input, Space} from 'antd';
+import {App, Button, DatePicker, Form, Input} from 'antd';
 import {SearchOutlined} from '@ant-design/icons';
 import type {Dayjs} from 'dayjs';
 import {misProductionMonitorApi, type ProductionMonitorQueryRes} from '@/api';
@@ -9,7 +9,7 @@ import {FilterTable, type FilterTableApi} from '@/components/grid-table';
 import type {FilterModel} from '@/components/grid-table/TableFilter';
 import {registerAntdNumberEditor} from '@/components/grid-table/editors/register';
 import {PageBreadcrumb} from '@/components/PageBreadcrumb';
-import {OrderCodeQuickSelect} from '@/components/quick-select';
+import {OrderCodeSelect} from '@/components/quick-select';
 import {useUIBridgeHost} from '@/pages/agent/ui-bridge';
 import type {ViewPageProps} from '@/pages/types';
 import {formatDate, now, toDayjs, toNumberOrZero} from '@/utils';
@@ -54,7 +54,6 @@ const ProductionMonitorPage: React.FC<ViewPageProps> = ({view, trail}) => {
     const [activeRow, setActiveRow] = useState<ProductionMonitorRow | null>(null);
     const [selectionCount, setSelectionCount] = useState(0);
     const [filters, setFilters] = useState<FilterModel>({});
-    const [orderPickerOpen, setOrderPickerOpen] = useState(false);
     const [dialogOpen, setDialogOpen] = useState(false);
     const [dialogRow, setDialogRow] = useState<ProductionMonitorRow | null>(null);
     const initialStart = useMemo(() => now().add(-1, 'day'), []);
@@ -202,14 +201,8 @@ const ProductionMonitorPage: React.FC<ViewPageProps> = ({view, trail}) => {
                 <Form.Item name="endDate" label="结束日期" rules={[{required: true}]}>
                     <DatePicker allowClear={false} style={{width: 130}}/>
                 </Form.Item>
-                <Form.Item label="订单号">
-                    <Space.Compact>
-                        <Form.Item name="orderCode" noStyle>
-                            <Input allowClear style={{width: 130}}/>
-                        </Form.Item>
-                        <Button aria-label="选择订单号" icon={<SearchOutlined/>}
-                                onClick={() => setOrderPickerOpen(true)}/>
-                    </Space.Compact>
+                <Form.Item name="orderCode" label="订单号">
+                    <OrderCodeSelect style={{width: 130}}/>
                 </Form.Item>
                 <Form.Item name="machineCode" label="机台号">
                     <Input allowClear style={{width: 100}}/>
@@ -250,14 +243,6 @@ const ProductionMonitorPage: React.FC<ViewPageProps> = ({view, trail}) => {
                     } catch (error) {
                         void message.warning(ErrorMessage(error, '无法打开调整记录'));
                     }
-                }}
-            />
-            <OrderCodeQuickSelect
-                open={orderPickerOpen}
-                onCancel={() => setOrderPickerOpen(false)}
-                onSelect={(orderCode) => {
-                    form.setFieldValue('orderCode', orderCode);
-                    setOrderPickerOpen(false);
                 }}
             />
             <ChangeLogModal
