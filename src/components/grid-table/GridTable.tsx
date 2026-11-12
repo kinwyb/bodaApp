@@ -298,6 +298,12 @@ export interface GridTableProps {
    * false：只能单选 —— 点新的会替换掉旧的，上面这些批量入口全部关闭。
    */
   multiSelect?: boolean;
+  /**
+   * 在业务列最前面加一列勾选框，并与表格选中态同步：
+   * 单击勾选/取消单行，表头勾选框全选/清空当前数据行。
+   * 默认 false，不影响现有表格；批量动作继续读 getSelection()。
+   */
+  checkboxSelection?: boolean;
   /** 列宽总和不足容器宽度时，是否自动拉宽各列来填满容器；默认 false（右侧留白） */
   autoFillWidth?: boolean;
   /**
@@ -424,6 +430,8 @@ export interface GridTableProps {
  * VisActor VTable（@visactor/vtable）的 React 封装：负责实例创建、数据更新、容器自适应与销毁。
  * 表格渲染在 canvas 上，单元格内容通过 columns 的样式/类型配置，交互通过事件回调。
  */
+const SELECTION_CHECKBOX_FIELD = '__grid_selection_checkbox__';
+
 export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
   columns: columnsProp,
   records,
@@ -439,6 +447,7 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
   highlightMode = 'row',
   highlightInRange = true,
   multiSelect = true,
+  checkboxSelection = false,
   autoFillWidth = false,
   widthMode = 'standard',
   heightMode = 'standard',
@@ -488,6 +497,10 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
   /** 建表 effect 只跑一次会锁住闭包，点击时要读的最新开关统一走 ref */
   const multiSelectRef = useRef(multiSelect);
   multiSelectRef.current = multiSelect;
+  const checkboxSelectionRef = useRef(checkboxSelection);
+  checkboxSelectionRef.current = checkboxSelection;
+  const syncingSelectionCheckboxesRef = useRef(false);
+  const syncSelectionCheckboxesRef = useRef<() => void>(() => {});
 
   /**
    * Ctrl 点击的待处理信息：mousedown 时记下「点击前的选中行」与按下坐标，click 时再决定要不要 toggle。
@@ -828,8 +841,22 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
         ? columns
         : decorate(columns);
     // 展开列插在行号列之后、业务列之前：跟行号一起冻住，横向滚动时按钮不消失
-    if (!hasExpandable) return decorated;
-    return [buildExpandColumn(renderExpandButton), ...decorated];
+    const withExpand = hasExpandable ? [buildExpandColumn(renderExpandButton), ...decorated] : decorated;
+    if (!checkboxSelection) return withExpand;
+    const selectionColumn = {
+      field: SELECTION_CHECKBOX_FIELD,
+      title: '',
+      width: 40,
+      cellType: 'checkbox',
+      headerType: 'checkbox',
+      disableColumnResize: true,
+      sort: false,
+      style: { textAlign: 'center', bgColor: '#ffffff' },
+      disable: (args: StyleArgs) =>
+        isSummaryRow(args.row, args.table) ||
+        isGroupRow(args.table.getCellOriginRecord?.(args.col, args.row)),
+    } as ColumnsDefine[number];
+    return [selectionColumn, ...withExpand];
   }, [
     columns,
     editableFields,
@@ -841,6 +868,7 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
     isSummaryRow,
     hasExpandable,
     renderExpandButton,
+    checkboxSelection,
     // 引用恒定（内部现读 ref），放进来只是为了让 lint 满意；它变化不会真的重建列配置
     isEditableCell,
   ]);
@@ -1122,7 +1150,7 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
     const scenegraph = host.scenegraph;
     if (!scenegraph?.updateAutoColWidth) return;
     // 行号列与展开列保持原宽，只自适应业务列
-    const firstDataCol = (host.leftRowSeriesNumberCount ?? 0) + (hasExpandable ? 1 : 0);
+    const firstDataCol = (host.leftRowSeriesNumberCount ?? 0) + (checkboxSelection ? 1 : 0) + (hasExpandable ? 1 : 0);
     for (let col = firstDataCol; col < host.colCount; col += 1) {
       scenegraph.updateAutoColWidth(col);
       // 再调一次 setColWidth，把该列标记为“已手动调整”
@@ -1138,7 +1166,7 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
     scenegraph.component?.setRightFrozenColumnShadow(host.colCount - host.rightFrozenColCount);
     scenegraph.updateNextFrame?.();
     // hasExpandable 决定跳过多宽的前缀列（行号列 + 展开列），跟着它重建即可
-  }, [hasExpandable]);
+  }, [hasExpandable, checkboxSelection]);
 
   /**
    * 菜单项解析：把业务上下文补齐后交给页面配置的函数。
@@ -1226,6 +1254,44 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
   } | null>(null);
 
   // 创建实例（仅一次），后续数据/列变化通过 API 增量更新
+  /** 勾选框列与原生选中态同步：body 逐行写 checkbox state，表头写全选/半选/未选。 */
+  const syncSelectionCheckboxes = useCallback(() => {
+    const table = tableRef.current;
+    if (!table || !checkboxSelectionRef.current || syncingSelectionCheckboxesRef.current) return;
+    syncingSelectionCheckboxesRef.current = true;
+    try {
+      const headerLevel = table.columnHeaderLevelCount;
+      const col = rowNumber ? 1 : 0;
+      const selectedKeys = new Set(
+        selection.getSelection().rows.map((row) => String(row[rowKey] ?? '')).filter(Boolean),
+      );
+      let dataCount = 0;
+      let selectedCount = 0;
+      for (let index = 0; index < rowsRef.current.length; index += 1) {
+        const row = index + headerLevel;
+        if (isSummaryRow(row, table)) continue;
+        const record = table.getCellOriginRecord(col, row);
+        if (hasGroupRef.current && isGroupRow(record)) continue;
+        const key = rowKeyByIndexRef.current[index] ?? '';
+        if (!key) continue;
+        dataCount += 1;
+        const checked = selectedKeys.has(key);
+        if (checked) selectedCount += 1;
+        table.setCellCheckboxStateByRecordIndex(index, SELECTION_CHECKBOX_FIELD, checked);
+      }
+      if (headerLevel > 0) {
+        table.setCellCheckboxState(
+          col,
+          headerLevel - 1,
+          dataCount > 0 && selectedCount === dataCount ? true : selectedCount > 0 ? 'indeterminate' : false,
+        );
+      }
+    } finally {
+      syncingSelectionCheckboxesRef.current = false;
+    }
+  }, [selection, rowKey, rowNumber, isSummaryRow]);
+  syncSelectionCheckboxesRef.current = syncSelectionCheckboxes;
+
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return undefined;
@@ -1235,7 +1301,7 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
       records: rows,
       // 行号列恒占 col 0，也要算进冻结列数；展开列插在行号列之后，一并冻住
       // （按钮得在横向滚动时保持可见，且业务列的冻结语义不变）
-      frozenColCount: frozenColCount + (rowNumber ? 1 : 0) + (hasExpandable ? 1 : 0),
+      frozenColCount: frozenColCount + (rowNumber ? 1 : 0) + (checkboxSelection ? 1 : 0) + (hasExpandable ? 1 : 0),
       maxFrozenWidth,
       unfreezeAllOnExceedsMaxWidth,
       // 行号列：@visactor/vtable 原生能力，生成的是独立列（不占 columns），位置在所有 columns 之前
@@ -1286,6 +1352,9 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
             },
           }
         : {}),
+      // 勾选框列的全选/半选由 GridTable 自己同步，避免 VTable 级联在 pointerup 里同步改 body
+      enableHeaderCheckboxCascade: false,
+      enableCheckboxCascade: false,
       select: {
         highlightMode,
         // 打开后，框选 / Shift 扩展的多格范围也会整行高亮（默认不打开，只有单击整行）
@@ -1486,6 +1555,7 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
       if (selectAll || (pos && pos.col >= 0 && pos.row >= table.columnHeaderLevelCount)) {
         selection.emitSelectedRow();
       }
+      queueMicrotask(() => syncSelectionCheckboxesRef.current());
       if (!handlers.current.onActiveSelectionChange) return;
       // 直接按选中范围算行数：getSelectedCellInfos 会把每个格子的信息都构造出来，
       // Ctrl+A 全选时是 O(行×列) 的对象分配，而 ranges 只有几段
@@ -1504,6 +1574,7 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
       // 激活行跟着回写「没有激活行」（能走到这里就没有「最后点选的那一行」了）
       selection.emitSelectedRow();
       handlers.current.onActiveSelectionChange?.({ rowCount: 0 });
+      queueMicrotask(() => syncSelectionCheckboxesRef.current());
     });
     // 悬停到单元格：页面给了文案就当 tooltip 显示（校验错误「为什么红」靠它）
     table.on('mouseenter_cell', (args) => {
@@ -1592,8 +1663,59 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
      */
     table.on('checkbox_state_change', (args) => {
       const { col, row, checked } = args;
-      if (table.isHeader(col, row)) return;
       const field = args.field === undefined ? '' : String(args.field);
+      if (checkboxSelectionRef.current && field === SELECTION_CHECKBOX_FIELD) {
+        // 自己同步勾选框状态时收到的程序化事件不能再反过来改选中态。
+        if (syncingSelectionCheckboxesRef.current) return;
+        // 勾选框的 pointerup 还在 VRender 事件栈里：同步改选中态会重建场景图，
+        // 把正在处理点击的 checkbox 销毁，随后 renderNextFrame 报 null。延到微任务。
+        queueMicrotask(() => {
+          if (tableRef.current !== table) return;
+          const headerLevel = table.columnHeaderLevelCount;
+          const selectionCol = rowNumber ? 1 : 0;
+          if (table.isHeader(col, row)) {
+            const indexes = rowKeyByIndexRef.current
+              .map((key, index) => ({ key, index }))
+              .filter(({ key, index }) =>
+                Boolean(key) &&
+                !isSummaryRow(index + headerLevel, table) &&
+                !isGroupRow(table.getCellOriginRecord(selectionCol, index + headerLevel)),
+              )
+              .map(({ index }) => index);
+            const selectedKeys = new Set(
+              selection.getSelection().rows
+                .map((record) => String(record[rowKey] ?? ''))
+                .filter(Boolean),
+            );
+            const allSelected = indexes.length > 0 &&
+              indexes.every((index) => selectedKeys.has(rowKeyByIndexRef.current[index] ?? ''));
+            if (allSelected) {
+              selection.clearSelection();
+            } else {
+              selection.selectRowIndexes(indexes);
+            }
+          } else {
+            const recordIndex = table.getRecordIndexByCell(col, row);
+            const index = Array.isArray(recordIndex) ? recordIndex[0] : recordIndex;
+            if (typeof index === 'number' && index >= 0) {
+              const key = rowKeyByIndexRef.current[index] ?? '';
+              if (key) {
+                const current = selection.getSelection().rows
+                  .map((record) => String(record[rowKey] ?? ''))
+                  .map((selectedKey) => rowKeyByIndexRef.current.indexOf(selectedKey))
+                  .filter((selectedIndex) => selectedIndex >= 0);
+                const next = checked
+                  ? Array.from(new Set([...current, index]))
+                  : current.filter((selectedIndex) => selectedIndex !== index);
+                selection.selectRowIndexes(next);
+              }
+            }
+          }
+          syncSelectionCheckboxesRef.current();
+        });
+        return;
+      }
+      if (table.isHeader(col, row)) return;
       if (!field) return;
       /**
        * `canEditCell` 已经通过该格的 `disable` 把点击挡在门外（禁用态不派发本事件），
@@ -1633,6 +1755,8 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
     // ResizeObserver 的通知是异步投递的：disconnect() 之后仍可能有一次已经排队的回调落地，
     // 而那时 table 已经 release、内部 scenegraph 被置空，resize() 会抛
     // 「Cannot read properties of null (reading 'element')」。用 disposed 挡在门外。
+    syncSelectionCheckboxesRef.current();
+
     let disposed = false;
     const observer = new ResizeObserver(() => {
       if (disposed) return;
@@ -1709,6 +1833,7 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
     // 主动通知外部归零：clearSelected() 不一定触发 selected_clear（它只在框选结束时触发），
     // 不回调的话页面那边的「选中行数」会停在旧值上
     handlers.current.onActiveSelectionChange?.({ rowCount: 0 });
+    syncSelectionCheckboxesRef.current();
     // 不依赖 summary：统计行内容没变时 stableSummaryRow 复用旧引用，rows 不失效，
     // 父组件重渲染就不会再触发一次全量 setRecords。
     // rowExpander 是 ref 惰性创建的单例，引用永远稳定，放进 deps 只为消警告
@@ -1751,7 +1876,7 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
       // 两者都不跟业务列一起缩放
       fitColumnsToContainer(
         current,
-        (current.leftRowSeriesNumberCount ?? 0) + (hasExpandable ? 1 : 0),
+        (current.leftRowSeriesNumberCount ?? 0) + (checkboxSelection ? 1 : 0) + (hasExpandable ? 1 : 0),
         host.clientWidth,
       );
     };
@@ -1770,7 +1895,7 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
       observer.disconnect();
       table.off('resize_column_end', onResizeColumnEnd);
     };
-  }, [autoFillWidth, widthMode, finalColumns, hasExpandable, rowNumber]);
+  }, [autoFillWidth, widthMode, finalColumns, hasExpandable, rowNumber, checkboxSelection]);
 
   /**
    * 统一导出入口，转发给插件挂在 ListTable 实例上的 exportToExcel / exportToCsv。
@@ -1967,6 +2092,7 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
     syncedOptionRef.current = { columns: finalColumns, autoFillWidth, widthMode, heightMode };
     // 列不足容器时是否拉宽填满：可在运行时切换
     base.autoFillWidth = autoFillWidth;
+    base.frozenColCount = frozenColCount + (rowNumber ? 1 : 0) + (checkboxSelection ? 1 : 0) + (hasExpandable ? 1 : 0);
     // 列宽 / 行高模式同样可以在运行时切换（比如「全屏看单」时切成 adaptive 铺满）
     base.widthMode = widthMode;
     base.heightMode = heightMode;
@@ -1990,6 +2116,7 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
     rowExpander.positionAll();
     // 列宽 / 列顺序 / 冻结列都可能在这次 updateOption 里变过，吸层的列位置要重新量
     refreshStickyGroup();
+    syncSelectionCheckboxesRef.current();
   }, [
     finalColumns,
     autoFillWidth,
@@ -2000,6 +2127,10 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
     hasGroup,
     group?.expandLevel,
     group?.indent,
+    frozenColCount,
+    rowNumber,
+    checkboxSelection,
+    hasExpandable,
   ]);
 
   // 行高变化时吸层的高度与定位要跟着改（分组开关本身由上面的 updateOption 覆盖）

@@ -142,6 +142,8 @@ export interface FilterTableProps {
     highlightInRange?: boolean;
     /** 是否允许多选，默认 true。false：只能单选，点新的会替换掉旧的（Ctrl/Shift 多选一并关掉） */
     multiSelect?: boolean;
+    /** 见 GridTable.checkboxSelection：首列勾选框与表格选中态同步。 */
+    checkboxSelection?: boolean;
     /** 单元格样式回调 */
     cellStyle?: GridTableCellStyleHook;
     /** 单元格悬停提示回调（返回文案即显示 tooltip，与 cellStyle 配套） */
@@ -282,6 +284,7 @@ export const FilterTable = React.forwardRef<FilterTableApi, FilterTableProps>(
             highlightMode,
             highlightInRange,
             multiSelect,
+            checkboxSelection,
             cellStyle,
             cellTooltip,
             autoFillWidth,
@@ -742,7 +745,8 @@ export const FilterTable = React.forwardRef<FilterTableApi, FilterTableProps>(
                         group={groupConfig}
                         highlightMode={highlightMode}
                         highlightInRange={highlightInRange}
-                        multiSelect={multiSelect ?? false}
+                        multiSelect={multiSelect ?? checkboxSelection ?? false}
+                        checkboxSelection={checkboxSelection}
                         cellStyle={cellStyle}
                         cellTooltip={cellTooltip}
                         autoFillWidth={autoFillWidth}
