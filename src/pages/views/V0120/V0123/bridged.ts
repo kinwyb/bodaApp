@@ -24,8 +24,8 @@ const GUIDE: UIGuide = {
     summary: '织造产量差异调整：按日期、订单、机台与厂别查询织造产量，调整正品产量并批量审核',
     steps: [
         '首屏不自动查询：先用 query.set 设置开始/结束日期（YYYY-MM-DD），再读 data.page',
-        '需要操作单行时先用 data.select 定位；审核只提交选中且尚未审核的记录',
-        '调整正品产量用 data.changePieces；查看/调整明细记录用 data.openChangeLog 打开弹窗',
+        '批量审核先用 data.select 选中多行（首列勾选框会同步），审核只提交选中且尚未审核的记录',
+        '调整正品产量用 data.changePieces；查看/调整明细记录用 data.openChangeLog 或双击数据行',
     ],
     terms: {
         Status: '界面派生：Flag=1 显示审核，Flag2=1 显示调整',
@@ -36,6 +36,7 @@ const GUIDE: UIGuide = {
     cautions: [
         'query.set 会重新请求后端；data.filter 只在已查回结果里筛选',
         '底部统计行不是业务记录，不要把它当订单行',
+        '打开调整记录弹窗前只校验 fmid 是否存在，明细在弹窗内加载一次',
         '补打条码/打印按项目约定未迁',
     ],
 };

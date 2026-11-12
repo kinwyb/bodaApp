@@ -125,6 +125,7 @@ const ProductionMonitorPage: React.FC<ViewPageProps> = ({view, trail}) => {
     const openChangeLog = useCallback((rowId: string) => {
         const target = rows.find((row) => String(row.ID ?? '') === rowId);
         if (!target) throw new Error(`未找到行 ${rowId}，请重新 data.page 取 rowId`);
+        if (toNumberOrZero(target.ID) < 1) throw new Error('缺少 fmid，无法打开调整记录');
         setDialogRow(target);
         setDialogOpen(true);
     }, [rows]);
@@ -223,6 +224,7 @@ const ProductionMonitorPage: React.FC<ViewPageProps> = ({view, trail}) => {
                 columns={PRODUCTION_MONITOR_COLUMNS}
                 records={rows}
                 rowKey="ID"
+                checkboxSelection
                 loading={loading}
                 emptyTip="没有任何记录"
                 exportName="产量差异调整"
@@ -233,12 +235,17 @@ const ProductionMonitorPage: React.FC<ViewPageProps> = ({view, trail}) => {
                 onCellValueChange={handlePiecesChange}
                 onSelectedChange={(info) => setActiveRow((info.record as ProductionMonitorRow | undefined) ?? null)}
                 onActiveSelectionChange={(info) => setSelectionCount(info.rowCount)}
-                onCellClick={(info) => {
-                    if (info.field !== 'Action' || info.isSummaryRow) return;
+                onCellDblClick={(info) => {
+                    if (info.isSummaryRow) return;
+                    if (info.field === 'Pieces' || info.field === '__grid_selection_checkbox__') return;
                     const rowId = String(info.record?.ID ?? '');
-                    if (rowId) openChangeLog(rowId);
+                    if (!rowId) return;
+                    try {
+                        openChangeLog(rowId);
+                    } catch (error) {
+                        void message.warning(ErrorMessage(error, '无法打开调整记录'));
+                    }
                 }}
-                cellTooltip={({field}) => (field === 'Action' ? '查看调整记录' : undefined)}
             />
             <OrderCodeQuickSelect
                 open={orderPickerOpen}

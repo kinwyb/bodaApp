@@ -2,14 +2,6 @@ import type {AppColumnDef} from '@/components/grid-table';
 
 export const PRODUCTION_MONITOR_COLUMNS: AppColumnDef[] = [
     {
-        field: 'Action',
-        title: '',
-        width: 36,
-        sortable: false,
-        fieldFormat: () => '...',
-        columnProps: {disableColumnResize: true},
-    },
-    {
         field: 'Status',
         title: '状态',
         width: 104,

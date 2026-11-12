@@ -53,22 +53,19 @@ export function ChangeLogModal({open, view, row, onClose, onChanged}: ChangeLogM
             setActiveDetail(first);
             setLogs(first?.Detail ?? []);
         } catch (loadError) {
-            void message.error(ErrorMessage(loadError, '数据加载失败'));
-            onClose();
+            const text = ErrorMessage(loadError, '数据加载失败');
+            setError(text);
+            void message.error(text);
         } finally {
             setLoading(false);
         }
-    }, [message, onClose]);
+    }, [message]);
 
     useEffect(() => {
         if (!open) return;
-        if (rowId < 1) {
-            void message.error('数据 ID 空');
-            onClose();
-            return;
-        }
+        if (rowId < 1) return;
         void loadDetail(rowId);
-    }, [open, rowId, loadDetail, message, onClose]);
+    }, [open, rowId, loadDetail]);
 
     const persistDetail = useCallback(async (
         target: ProductionMonitorDetail,
