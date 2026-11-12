@@ -22,10 +22,26 @@ export function isNavigableMenu(node: DesktopMenu): boolean {
 }
 
 /**
+ * 菜单是否对当前组织可见。与 C# 原版 Main.cs 的判定一致：
+ * `UseOrgs` 为空 → 所有组织可见；非空 → 必须包含当前组织 ID（子串匹配，
+ * 组织 ID 为定长 GUID，不会误命中）。
+ *
+ * 两个放行口：
+ * - 调试环境：和 Release 一样不过滤，本地能打开任意组织的页面；
+ * - orgId 为空（服务器没配 Service-Org 头）：fail-open，不因为缺配置把菜单藏没。
+ */
+export function menuMatchesOrg(node: DesktopMenu, orgId: string): boolean {
+  if (isDebugEnv) return true;
+  if (!orgId) return true;
+  if (!node.UseOrgs) return true;
+  return node.UseOrgs.includes(orgId);
+}
+
+/**
  * 生成实际可见的菜单树。
  *
  * 调试环境保留后端返回的全部导航节点；发布环境只保留满足下面任一条件的节点：
- * - 叶子菜单：`Release=true`，且页面目录里有精确匹配的 `index.tsx`；
+ * - 叶子菜单：`Release=true`、对当前组织可见，且页面目录里有精确匹配的 `index.tsx`；
  * - 父菜单：下面还有可见子菜单。父级本身通常没有页面，不能拿它去要求 index。
  *
  * 发布判断放在**树**上而不是 `isNavigableMenu` 里，是因为一个节点能不能自己做导航，
@@ -35,6 +51,7 @@ export function isNavigableMenu(node: DesktopMenu): boolean {
 export function filterAvailableMenuTree(
   nodes: DesktopMenu[],
   hasPage: (view: string) => boolean,
+  orgId: string,
 ): DesktopMenu[] {
   const filterNodes = (list: DesktopMenu[]): DesktopMenu[] => {
     const result: DesktopMenu[] = [];
@@ -42,7 +59,8 @@ export function filterAvailableMenuTree(
       if (node.IsAction) return;
       const children = node.Children ? filterNodes(node.Children) : [];
       const hasVisibleChildren = children.length > 0;
-      const canOpenPage = isNavigableMenu(node) && (isDebugEnv || hasPage(node.View));
+      const canOpenPage =
+        isNavigableMenu(node) && menuMatchesOrg(node, orgId) && (isDebugEnv || hasPage(node.View));
       if (!canOpenPage && !hasVisibleChildren) return;
       result.push({...node, Children: hasVisibleChildren ? children : null});
     });

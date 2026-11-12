@@ -28,6 +28,9 @@ type Settings struct {
 	AgentWSURL string `json:"agentWsUrl"`
 	// ASRURL 语音识别服务的根地址，前端自己补 /asr（如 http://192.168.9.16:9383）。
 	ASRURL string `json:"asrUrl"`
+	// OrgID 当前选中的组织。组织切换时与 APIBaseURL 一起写入；
+	// 仅用于设置窗口回显选中项，页面侧的组织以 Service-Org 响应头为准。
+	OrgID string `json:"orgId"`
 }
 
 const settingsFileName = "settings.json"
@@ -120,6 +123,7 @@ func (s Settings) normalized() Settings {
 		APIBaseURL: normalizeAddress(s.APIBaseURL),
 		AgentWSURL: normalizeAddress(s.AgentWSURL),
 		ASRURL:     normalizeAddress(s.ASRURL),
+		OrgID:      strings.TrimSpace(s.OrgID),
 	}
 }
 

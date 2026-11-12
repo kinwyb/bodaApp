@@ -23,9 +23,13 @@ import (
 	"github.com/egoist/mygo"
 )
 
+// mainWindow 是当前主窗口。设置窗口切换组织后要用它的 Page().Eval 通知页面。
+// 关闭时置空；macOS 点 Dock 重开时再赋值。
+var mainWindow *mygo.Window
+
 func main() {
-	// 启动时读一次配置,之后不再变 —— 保存走的是「重启后生效」,
-	// 所以这里读到什么,这整个进程就用什么。空项填出厂默认。
+	// 启动时读一次配置作为注入页面的默认值。地址类修改仍是「重启后生效」;
+	// 组织切换是例外 —— 它只改代理上游并即时通知页面,不必重启(见 settings_window.go)。
 	appSettings = loadSettings().withDefaults()
 
 	// 与 Electron 版行为保持一致:macOS 关闭最后一个窗口后应用留在 Dock,
@@ -59,7 +63,7 @@ func main() {
 
 // openWindow 创建主窗口,尺寸沿用 Electron 版的 1280x800。
 func openWindow() *mygo.Window {
-	return mygo.NewWindow(mygo.WindowOptions{
+	win := mygo.NewWindow(mygo.WindowOptions{
 		Title:           "bodaWay",
 		Width:           1280,
 		Height:          800,
@@ -76,4 +80,11 @@ func openWindow() *mygo.Window {
 			PreloadScript: appSettings.preloadScript(),
 		},
 	})
+	mainWindow = win
+	win.OnClosed(func() {
+		if mainWindow == win {
+			mainWindow = nil
+		}
+	})
+	return win
 }

@@ -9,6 +9,7 @@ import {
 } from '../services';
 import { useAuth } from './auth-context';
 import { PermissionContext, type PermissionContextValue } from './permission-context';
+import { useOrgEpoch } from './service-org';
 
 /**
  * 菜单权限的持有者。
@@ -19,6 +20,8 @@ import { PermissionContext, type PermissionContextValue } from './permission-con
 export const PermissionProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { message } = App.useApp();
   const { userInfo } = useAuth();
+  // 组织切换（app 设置窗口）后 epoch +1：菜单与权限是按服务器组织下发的，必须重拉。
+  const orgEpoch = useOrgEpoch();
   const [loading, setLoading] = useState(true);
   const [system, setSystem] = useState<DesktopMenu[]>([]);
   const [permittedIds, setPermittedIds] = useState<Set<number>>(() => new Set());
@@ -61,7 +64,7 @@ export const PermissionProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     return () => {
       cancelled = true;
     };
-  }, [message]);
+  }, [message, orgEpoch]);
 
   const value = useMemo<PermissionContextValue>(() => {
     const { tree, actions } = applyMenuPermission(system, { ids: effectiveIds });

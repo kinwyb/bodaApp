@@ -2,6 +2,7 @@ import type {ZodType} from 'zod';
 import type {ApiResponse, RequestOptions} from './types';
 import {fetchParsed} from './parse';
 import {API_BASE_URL} from '@/utils/runtime-config';
+import {captureServiceOrg} from '@/utils/service-org';
 
 /**
  * 接口基础路径。后端接口统一带 /v1/boda 前缀。
@@ -163,6 +164,10 @@ export async function request<T = unknown>(
         body: body === undefined ? undefined : useForm ? buildFormBody(body) : JSON.stringify(body),
         signal,
     });
+
+    // 服务器组织随响应头下发（nginx 的 Service-Org）。在判定成败之前先捕获，
+    // 这样 401/502 这类响应（nginx 带 always 也会加头）同样能确定当前组织。
+    captureServiceOrg(response.headers);
 
     if (!response.ok) {
         fail(response.status, `网络请求失败：${response.status} ${response.statusText}`);

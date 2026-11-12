@@ -3,6 +3,9 @@
 // 为什么不用网页：这个窗口要在「地址配错、页面连不上后端」时照样能打开。
 // 做成网页就得先加载前端、先拿到地址，正好卡在它要解决的问题上。
 // 原生 UI 不依赖 webview，也不需要前端构建，是唯一自洽的选择。
+//
+// 窗口里还有组织切换（对应 C# 主窗口底部栏的组织下拉）：选中即生效，
+// 只改后端接口的代理上游，ws / 语音地址不动，见 org.go。
 package main
 
 import (
@@ -14,7 +17,8 @@ var (
 	// settingsWindow 保证同一时刻只有一个设置窗口；关掉后置空，下次重新读配置。
 	settingsWindow *mygo.Window
 	// appSettings 是本次进程启动时读到的配置，主窗口注入它。
-	// 保存只写文件，不回头改它 —— 所以「必须重启才生效」是真实语义，不是提示话术。
+	// 地址保存只写文件，不回头改它 —— 所以「必须重启才生效」是真实语义，不是提示话术。
+	// 组织切换是例外：它立即生效，会回写 APIBaseURL / OrgID（见 org.go）。
 	appSettings Settings
 )
 
@@ -27,7 +31,7 @@ const (
 	toneError
 )
 
-// settingsState 是这个窗口的状态：三个输入框的值 + 校验/保存结果。
+// settingsState 是这个窗口的状态：三个输入框的值 + 校验/保存结果 + 组织切换。
 type settingsState struct {
 	apiBaseURL string
 	agentWSURL string
@@ -36,6 +40,17 @@ type settingsState struct {
 	problems map[string]string
 	notice   string
 	tone     noticeTone
+
+	// 组织切换。列表来自当前服务器的 /login/userOrgs；选中即切换代理上游。
+	orgs         []Org    // 服务器返回的组织列表
+	orgNames     []string // 下拉选项（OrgName，与 C# 的 orgLabel 一致）
+	selectedOrg  string   // 下拉当前选中的 OrgName
+	currentOrg   string   // 实际生效的 OrgName（切换失败时回滚到这里）
+	currentOrgID string   // 实际生效的 OrgID（保存地址时一并带上，避免被抹掉）
+	orgLoading   bool     // 正在拉组织列表
+	orgBusy      bool     // 正在切换组织
+	orgErr       string   // 拉取 / 切换失败的原因
+	orgNotice    string   // 切换成功的提示
 }
 
 // openSettingsWindow 打开设置窗口（已开着就提到前台）。
@@ -56,8 +71,9 @@ func openSettingsWindow() {
 	win := mygo.NewWindow(mygo.WindowOptions{
 		Title: "设置服务器地址",
 		Width: 600,
-		// 384 = 顶部 12 拖动区 + 内容区（内容实际需要约 360，底部留 12 的内边距）
-		Height: 384,
+		// 480 = 顶部 12 拖动区 + 内容区（组织下拉 + 三个地址 + 按钮 + 路径，
+		// 内容实际需要约 456，底部留 12 的内边距）
+		Height: 480,
 		// 无边框：这是个固定尺寸的设置窗，不需要缩放/缩放按钮，关闭也走底部那个。
 		// 系统标题栏去掉后由 view 自己画一条可拖动的标题区（见下）。
 		Frameless: true,
@@ -71,6 +87,8 @@ func openSettingsWindow() {
 	win.OnClosed(func() { settingsWindow = nil })
 	settingsWindow = win
 	win.Focus()
+	// 打开即拉组织列表（goroutine 里做，不阻塞界面）；没登录会在区域里提示
+	state.loadOrgs()
 }
 
 // closeSettingsWindow 关掉设置窗口（没开就什么都不做）。
@@ -94,6 +112,34 @@ func (s *settingsState) view(c *ui.Context) {
 			ui.Column(c).Gap(4).Children(func() {
 				ui.Text(c, "桌面版把前端打包在应用内，没有服务器反代可依赖，所以接口、").FontSize(12).TextColor(ui.Hex("#8c8c8c"))
 				ui.Text(c, "Agent 服务、语音识别都要写绝对地址。留空则使用应用内置的默认值。").FontSize(12).TextColor(ui.Hex("#8c8c8c"))
+			})
+
+			// 组织切换：选中即生效，只改后端接口上游（ws / 语音不动）。
+			// 状态（加载中 / 失败 / 成功）都并进标签这一行，不额外占高度。
+			ui.Column(c).Gap(6).Children(func() {
+				ui.Row(c).Gap(8).Children(func() {
+					switch {
+					case s.orgErr != "":
+						ui.Text(c, "组织 · "+shortText(s.orgErr, 48)).FontSize(13).TextColor(ui.Hex("#cf1322"))
+					case s.orgLoading:
+						ui.Text(c, "组织 · 加载中…").FontSize(13).TextColor(ui.Hex("#8c8c8c"))
+					case s.orgNotice != "":
+						ui.Text(c, "组织 · "+s.orgNotice).FontSize(13).TextColor(ui.Hex("#389e0d"))
+					default:
+						ui.Text(c, "组织").FontSize(13)
+						ui.Text(c, "切换立即生效，只改后端接口").FontSize(12).TextColor(ui.Hex("#8c8c8c"))
+					}
+				})
+				ui.Row(c).FillWidth().Gap(8).Children(func() {
+					sel := ui.Select(c, &s.selectedOrg, s.orgNames).FillWidth().
+						Disabled(s.orgLoading || s.orgBusy || len(s.orgNames) == 0)
+					if sel.Changed() {
+						s.switchSelectedOrg()
+					}
+					if ui.Button(c, "刷新").Disabled(s.orgLoading || s.orgBusy).Clicked() {
+						s.loadOrgs()
+					}
+				})
 			})
 
 			s.addressField(c, fieldAPIBaseURL, "后端接口地址", &s.apiBaseURL,
@@ -165,6 +211,8 @@ func (s *settingsState) save() {
 		APIBaseURL: s.apiBaseURL,
 		AgentWSURL: s.agentWSURL,
 		ASRURL:     s.asrURL,
+		// 组织不是这里改的，但保存地址不能把已选组织抹掉
+		OrgID: s.currentOrgID,
 	}.normalized()
 
 	if problems := next.validate(); len(problems) > 0 {
@@ -198,4 +246,131 @@ func (s *settingsState) clear() {
 	s.problems = nil
 	s.notice = "已清空输入框，点「保存」后恢复为内置默认地址"
 	s.tone = toneInfo
+}
+
+// loadOrgs 异步拉组织列表。token 从主窗口页面的 localStorage 读（与前端同一份），
+// 读不到说明没登录，直接在区域里提示，不发请求。结果经 win.Update 回到主线程。
+func (s *settingsState) loadOrgs() {
+	if s.orgLoading || s.orgBusy {
+		return
+	}
+	s.orgLoading = true
+	s.orgErr = ""
+	s.orgNotice = ""
+
+	// 窗口 / 页面 / 路径前缀都在主线程捕获，goroutine 里不碰共享变量
+	win := settingsWindow
+	basePath := pathOf(appSettings.APIBaseURL)
+	var page *mygo.Page
+	if mainWindow != nil && !mainWindow.IsDestroyed() {
+		page = mainWindow.Page()
+	}
+
+	go func() {
+		var token string
+		if page != nil {
+			token, _ = mygo.EvalAs[string](page, "localStorage.getItem('boda_token') || ''")
+		}
+		if token == "" {
+			if win.IsDestroyed() {
+				return
+			}
+			win.Update(func() {
+				s.orgLoading = false
+				s.orgErr = "未登录，请先在主窗口登录后刷新"
+			})
+			return
+		}
+
+		orgs, serverOrg, err := fetchOrgs(token, basePath)
+		if win.IsDestroyed() {
+			return
+		}
+		win.Update(func() {
+			s.orgLoading = false
+			if err != nil {
+				s.orgErr = err.Error()
+				return
+			}
+			s.orgs = orgs
+			s.orgNames = make([]string, len(orgs))
+			for i, org := range orgs {
+				s.orgNames[i] = org.OrgName
+			}
+			name := initialOrgName(orgs, serverOrg, loadSettings().OrgID)
+			s.selectedOrg = name
+			s.currentOrg = name
+			for _, org := range orgs {
+				if org.OrgName == name {
+					s.currentOrgID = org.OrgID
+					break
+				}
+			}
+			if len(orgs) == 0 {
+				s.orgErr = "服务器未返回可用组织"
+			}
+		})
+	}()
+}
+
+// switchSelectedOrg 把下拉选中的组织切为当前组织。切换在 goroutine 里做
+// （写盘 + 通知页面），期间禁用下拉；失败回滚选中项，成功回写接口地址输入框。
+func (s *settingsState) switchSelectedOrg() {
+	if s.orgBusy {
+		return
+	}
+	var target *Org
+	for i := range s.orgs {
+		if s.orgs[i].OrgName == s.selectedOrg {
+			target = &s.orgs[i]
+			break
+		}
+	}
+	if target == nil {
+		return
+	}
+	s.orgBusy = true
+	s.orgErr = ""
+	s.orgNotice = ""
+
+	prev := s.currentOrg
+	win := settingsWindow
+	basePath := pathOf(appSettings.APIBaseURL)
+	var page *mygo.Page
+	if mainWindow != nil && !mainWindow.IsDestroyed() {
+		page = mainWindow.Page()
+	}
+
+	go func() {
+		next, err := switchOrg(*target, basePath, page)
+		if win.IsDestroyed() {
+			return
+		}
+		win.Update(func() {
+			s.orgBusy = false
+			if err != nil {
+				s.orgErr = err.Error()
+				s.selectedOrg = prev
+				return
+			}
+			s.currentOrg = target.OrgName
+			s.currentOrgID = next.OrgID
+			s.selectedOrg = target.OrgName
+			s.apiBaseURL = next.APIBaseURL
+			s.orgNotice = "已切换到" + target.OrgName + "，立即生效"
+			// appSettings 记录「当前实际生效」：组织切换立即生效，回写它，
+			// 之后重开主窗口（macOS Dock）注入的路径前缀才是一致的
+			appSettings.APIBaseURL = next.APIBaseURL
+			appSettings.OrgID = next.OrgID
+		})
+	}()
+}
+
+// shortText 截断过长的提示，避免撑爆固定高度窗口的单行标签（详情看日志）。
+func shortText(s string, max int) string {
+	r := []rune(s)
+	if len(r) <= max {
+		return s
+	}
+	return string(r[:max]) + "…"
 }

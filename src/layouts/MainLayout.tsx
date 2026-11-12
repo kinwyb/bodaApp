@@ -1,6 +1,6 @@
 import React, {Suspense, useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import type {MenuProps} from 'antd';
-import {Avatar, Button, Dropdown, Input, Layout, Menu, Spin, Tabs, theme, Typography} from 'antd';
+import {Avatar, Button, Dropdown, Input, Layout, Menu, Spin, Tabs, Tag, theme, Typography} from 'antd';
 import {
     ApiOutlined,
     AppstoreOutlined,
@@ -27,6 +27,8 @@ import {
 import {useNavigate} from 'react-router-dom';
 import {useAuth} from '../store/auth-context';
 import {usePermission} from '../store/permission-context';
+import {useOrgEpoch, useServiceOrg} from '../store/service-org';
+import {ORG_NAME} from '../store/orgs';
 import {type TabsApi, TabsContext} from '../store/tabs';
 import {buildTabKey, instanceOfParams, sameParams} from '../store/tab-key';
 import {TabTitleContext, type TabTitleScope} from '../store/tab-title-context';
@@ -160,6 +162,9 @@ const MainLayout: React.FC = () => {
     const {userInfo, logout} = useAuth();
     const {token: {colorBgContainer}} = theme.useToken();
     const {menu: menuTree, loading: menuLoading} = usePermission();
+    // 当前服务器组织（Service-Org 响应头）与切换计数：前者过滤菜单，后者触发刷新。
+    const serviceOrg = useServiceOrg();
+    const orgEpoch = useOrgEpoch();
 
     const [collapsed, setCollapsed] = useState(false);
     const [menuKeyword, setMenuKeyword] = useState('');
@@ -175,9 +180,23 @@ const MainLayout: React.FC = () => {
      * 父级节点只负责分组，是否存在 index 不影响它保留可见子项。
      */
     const visibleMenuTree = useMemo(
-        () => filterAvailableMenuTree(menuTree, hasRegisteredView),
-        [menuTree],
+        () => filterAvailableMenuTree(menuTree, hasRegisteredView, serviceOrg),
+        [menuTree, serviceOrg],
     );
+
+    /**
+     * 组织切换后回到工作台：开着的页签都是按旧组织取数的，留在原页会显示错组织的数据。
+     * 清空页面实例缓存并重置页签，让一切从新组织重新加载。epoch 初始为 0，不触发。
+     */
+    const prevOrgEpoch = useRef(orgEpoch);
+    useEffect(() => {
+        if (orgEpoch === prevOrgEpoch.current) return;
+        prevOrgEpoch.current = orgEpoch;
+        tabInstances.current.clear();
+        setOpenTabs([HOME_TAB]);
+        setActiveTab(HOME_TAB.key);
+        setOpenKeys([]);
+    }, [orgEpoch]);
 
     /** View -> 菜单元数据（标签名 + 从根到当前的层级，用于面包屑） */
     const menuMetaMap = useMemo(() => {
@@ -571,12 +590,23 @@ const MainLayout: React.FC = () => {
                         />
                         <Button type="text" icon={<HomeOutlined/>} onClick={() => openTab(HOME_TAB)}/>
                     </div>
-                    <Dropdown menu={userMenuItems} placement="bottomRight">
-                        <div style={{cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8}}>
-                            <Avatar size="small" icon={<UserOutlined/>}/>
-                            <Text>{userInfo?.EmpName ?? userInfo?.EmpID ?? ''}</Text>
-                        </div>
-                    </Dropdown>
+                    <div style={{display: 'flex', alignItems: 'center', gap: 12}}>
+                        {serviceOrg && (
+                            <Tag
+                                icon={<ClusterOutlined/>}
+                                color="blue"
+                                style={{margin: 0, display: 'inline-flex', alignItems: 'center', gap: 4}}
+                            >
+                                {ORG_NAME(serviceOrg)}
+                            </Tag>
+                        )}
+                        <Dropdown menu={userMenuItems} placement="bottomRight">
+                            <div style={{cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8}}>
+                                <Avatar size="small" icon={<UserOutlined/>}/>
+                                <Text>{userInfo?.EmpName ?? userInfo?.EmpID ?? ''}</Text>
+                            </div>
+                        </Dropdown>
+                    </div>
                 </Header>
                 <Content style={{margin: 4, overflow: 'hidden'}}>
                     {/* 页面组件通过 useTabs() 拿跳转能力，所以 Provider 要包住 Tabs 的内容 */}

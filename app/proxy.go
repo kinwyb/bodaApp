@@ -29,20 +29,24 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/egoist/mygo"
 )
 
 // proxyRoutes 是启动时确定下来的转发目标（只存 scheme+host，路径原样透传）。
+// asr / agent 一经启动不再变；API 上游单独用原子指针存，支持运行时切换组织。
 type proxyRoutes struct {
-	api    *url.URL
 	asr    *url.URL
 	agentH *url.URL // Agent 的 http 端点（由 ws 地址推导），用于附件上传下载
 }
 
 var (
 	routes proxyRoutes
+	// apiTarget 是 API 上游 origin。组织切换时整体替换（见 retargetAPI），
+	// 代理 handler 每个请求读一次，原子保证并发安全。
+	apiTarget atomic.Pointer[url.URL]
 	// proxyBaseURL 是注入给页面的代理地址，形如 http://127.0.0.1:52341
 	proxyBaseURL string
 )
@@ -50,10 +54,10 @@ var (
 // startProxy 在本地回环的随机端口起转发服务，返回后 proxyBaseURL 才可用。
 func startProxy(settings Settings) error {
 	routes = proxyRoutes{
-		api:    originOf(settings.APIBaseURL),
 		asr:    originOf(settings.ASRURL),
 		agentH: agentHTTPOrigin(settings.AgentWSURL),
 	}
+	apiTarget.Store(originOf(settings.APIBaseURL))
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -69,6 +73,23 @@ func startProxy(settings Settings) error {
 		}
 	}()
 	return nil
+}
+
+// retargetAPI 运行时把 API 上游切到另一台服务器（组织切换）。只动 API，
+// asr / agent 不受影响。页面注入的代理地址不变，故无需重启或重新注入。
+func retargetAPI(apiBaseURL string) error {
+	origin := originOf(apiBaseURL)
+	if origin == nil {
+		return fmt.Errorf("无效的接口地址：%s", apiBaseURL)
+	}
+	apiTarget.Store(origin)
+	logProxy("API 上游切换 -> %s", origin.Host)
+	return nil
+}
+
+// currentAPIOrigin 返回当前 API 上游 origin（设置窗口拉组织列表要用）。
+func currentAPIOrigin() *url.URL {
+	return apiTarget.Load()
 }
 
 // originOf 取 scheme://host:port，丢掉路径。
@@ -153,7 +174,7 @@ func pickTarget(path string) *url.URL {
 	case routes.asr != nil && (path == "/asr" || strings.HasPrefix(path, "/asr/")):
 		return routes.asr
 	default:
-		return routes.api
+		return apiTarget.Load()
 	}
 }
 
@@ -166,6 +187,8 @@ func writeCORS(h http.Header, origin string) {
 	h.Set("Access-Control-Allow-Credentials", "true")
 	h.Set("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS")
 	h.Set("Access-Control-Allow-Headers", "Content-Type,Authorization,Token,X-Requested-With")
+	// 自定义响应头默认对跨域 JS 不可见，显式暴露组织头，页面才能读到当前组织。
+	h.Set("Access-Control-Expose-Headers", "Service-Org")
 	h.Set("Access-Control-Max-Age", "600")
 }
 
