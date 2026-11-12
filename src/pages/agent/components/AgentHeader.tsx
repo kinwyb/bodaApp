@@ -102,7 +102,7 @@ export const AgentHeader: React.FC<{
               {title}
             </Text>
             {temporary ? (
-              <Tag color="orange" bordered={false}>
+              <Tag color="orange" variant="filled">
                 临时会话
               </Tag>
             ) : null}

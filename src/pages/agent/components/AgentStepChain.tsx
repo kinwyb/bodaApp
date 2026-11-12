@@ -31,7 +31,7 @@ function prettyContent(step: AgentToolStep): string | undefined {
 const StepTitle: React.FC<{ step: AgentToolStep }> = ({ step }) => (
   <span className="agent-step-title">
     {step.origin === 'mcp' ? (
-      <Tag className="agent-step-tag" color="geekblue" bordered={false}>
+      <Tag className="agent-step-tag" color="geekblue" variant="filled">
         {step.server ? `MCP · ${step.server}` : 'MCP'}
       </Tag>
     ) : null}
