@@ -52,6 +52,7 @@ export {
     configApi
 } from './modules/config';
 export type {
+    MisScheduleEmployee,
     MisAppletsQRCodeData,
     MisProduceDataReq,
     MisProduceDataRow,
@@ -64,5 +65,7 @@ export type {
     SalaryBonusMonthDetail,
     SalaryDetailReq,
     SalaryPiecesCountGroupReq,
+    ScheduleBJ,
+    ScheduleUpdateReq,
 } from './modules/mis';
 export type {SalaryDetail, SalaryPiecesCountGroup} from './schemas/mis/scheduleSalary';

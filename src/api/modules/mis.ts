@@ -6,12 +6,11 @@ import {
     type DateShiftDataQueryFromKnitStore,
     DateShiftDataQueryFromKnitStoreSchema,
 } from '../schemas/mis/productionMonitor';
-import {
-    ProductionMonitorOrderListSchema,
-    ProductionMonitorOrderSchema,
-    SwaggerIntegerResponseStructSchema,
-} from '../schemas/mis/productionMonitorOrder';
+import {ProductionMonitorOrderListSchema, ProductionMonitorOrderSchema,} from '../schemas/mis/productionMonitorOrder';
 import {ShiftInfoSchema} from '../schemas/mis/machineShift';
+import {EmployeeSchema, ScheduleBJSchema, type ScheduleUpdateReq,} from '../schemas/mis/scheduleMaintenance';
+
+export type {Employee as MisScheduleEmployee, ScheduleBJ, ScheduleUpdateReq} from '../schemas/mis/scheduleMaintenance';
 
 export type SalaryDetailReq = {
     EmployeeNo?: string;
@@ -117,6 +116,15 @@ export type ProductionMonitorOrderChangeReq = {
 };
 
 export const misScheduleApi = {
+    scheduleLoad: (date: string) =>
+        http.getSchema('/mis/schedule/load', ScheduleBJSchema.array(), {date}),
+    scheduleUpdate: (payload: ScheduleUpdateReq) =>
+        http.post<string>('/mis/schedule/update', payload),
+    employees: (group: number, plantCode = '') =>
+        http.getSchema('/mis/employee', EmployeeSchema.array(), {
+            group,
+            ...(plantCode ? {plantCode} : {}),
+        }),
     salary: (payload: SalaryDetailReq) =>
         http.postSchema('/mis/schedule/salary', SalaryDetailSchema.array(), payload),
     piecesCountGroup: (payload: SalaryPiecesCountGroupReq) =>
@@ -182,10 +190,7 @@ export const misProductionMonitorApi = {
     orderDel: (id: number) =>
         http.delete<string>('/mis/productionMonitor/order/del', {id}),
     orderCopy: (id: number) =>
-        http.putSchema(
-            `/mis/productionMonitor/copy?id=${encodeURIComponent(String(id))}`,
-            SwaggerIntegerResponseStructSchema.shape.data,
-        ),
+        http.put<number>(`/mis/productionMonitor/copy?id=${encodeURIComponent(String(id))}`),
 };
 
 export const misMachineApi = {
