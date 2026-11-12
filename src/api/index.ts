@@ -40,4 +40,25 @@ export type {EmployeeQuery, EmployeeRecord} from './modules/employee';
 export {loginApi} from './modules/login';
 export type {UserInfo, LoginParams} from './modules/login';
 export {sqlApi, S, N, B, OpS, OpN, OpB} from './modules/sql';
-export type {SQLResult, SQLProcedure, SQLQuery} from './modules/sql';
+export type {SQLResult, SQLProcedure, SQLQuery, SimpleDataTable} from './modules/sql';
+export {
+    misProductionApi,
+    misReportApi,
+    misScheduleApi,
+} from './modules/mis';
+export {
+    configApi
+} from './modules/config';
+export type {
+    MisAppletsQRCodeData,
+    MisProduceDataReq,
+    MisProduceDataRow,
+    MisProductOutStoreBill,
+    MisProductOutStoreBillListReq,
+    SalaryBonusMachRate,
+    SalaryBonusMonth,
+    SalaryBonusMonthDetail,
+    SalaryDetailReq,
+    SalaryPiecesCountGroupReq,
+} from './modules/mis';
+export type {SalaryDetail, SalaryPiecesCountGroup} from './schemas/mis/scheduleSalary';
