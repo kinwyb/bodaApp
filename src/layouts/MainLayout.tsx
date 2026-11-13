@@ -175,6 +175,15 @@ const MainLayout: React.FC = () => {
 
     const tabInstances = useRef<Map<string, React.ReactNode>>(new Map());
 
+    // 关闭页签时读「当下」的页签与激活项：右键菜单的 onClick 被层层 memo 缓存，
+    // 直接闭包 activeTab/openTabs 会拿到旧值；用 ref 同步最新值，关闭逻辑永远基于现状。
+    const openTabsRef = useRef(openTabs);
+    const activeTabRef = useRef(activeTab);
+    useEffect(() => {
+        openTabsRef.current = openTabs;
+        activeTabRef.current = activeTab;
+    }, [openTabs, activeTab]);
+
     /**
      * 发布菜单只留下已经有页面目录的叶子；调试环境保持后端菜单原样。
      * 父级节点只负责分组，是否存在 index 不影响它保留可见子项。
@@ -387,23 +396,109 @@ const MainLayout: React.FC = () => {
     }, []);
 
 
+    /**
+     * 关闭一批页签（X 按钮单个关闭、右键菜单批量关闭都走这里）。
+     *
+     * 工作台永远保留；被关页签的页面实例缓存一并清掉，重新打开时按新状态重建。
+     * 基于 ref 读「当下」的页签与激活项（右键菜单的 onClick 被 memo 缓存，闭包会拿旧值），
+     * 并把 setActiveTab 放在 setOpenTabs 之外，保持 updater 纯净。
+     *
+     * 激活页被关掉时的落点：优先 fallbackKey（批量关闭时指向右键的那个页签），
+     * 否则取被关页签的右邻（没有右邻取左邻），最后兜底到工作台。
+     */
+    const closeTabs = useCallback((keys: string[], fallbackKey?: string) => {
+        const closing = new Set(keys.filter((key) => key !== HOME_TAB.key));
+        if (closing.size === 0) return;
+        const prev = openTabsRef.current;
+        const next = prev.filter((tab) => !closing.has(tab.key));
+        if (next.length === prev.length) return;
+        closing.forEach((key) => tabInstances.current.delete(key));
+        // 同步刷新 ref：紧接着 Dropdown 关闭会把焦点还给被右键的页签并触发 onChange，
+        // 守卫要立刻看到「这些页签已经没了」，不能等 effect。
+        openTabsRef.current = next;
+        setOpenTabs(next);
+        const currentActive = activeTabRef.current;
+        if (closing.has(currentActive)) {
+            const survived = fallbackKey ? next.find((tab) => tab.key === fallbackKey) : undefined;
+            const index = prev.findIndex((tab) => tab.key === currentActive);
+            const neighbor = next[Math.min(index, next.length - 1)];
+            const pick = (survived ?? neighbor ?? next[0]).key;
+            activeTabRef.current = pick;
+            setActiveTab(pick);
+        }
+    }, []);
+
     const handleTabEdit = useCallback(
         (targetKey: string | React.MouseEvent | React.KeyboardEvent, action: 'add' | 'remove') => {
             if (action !== 'remove') return;
-            const key = targetKey as string;
-            if (key === HOME_TAB.key) return;
-            setOpenTabs((prev) => {
-                const next = prev.filter((tab) => tab.key !== key);
-                if (next.length === 0) return prev;
-                tabInstances.current.delete(key);
-                if (activeTab === key) {
-                    const index = prev.findIndex((tab) => tab.key === key);
-                    setActiveTab(next[Math.min(index, next.length - 1)].key);
-                }
-                return next;
-            });
+            closeTabs([targetKey as string]);
         },
-        [activeTab],
+        [closeTabs],
+    );
+
+    /**
+     * 切换激活页签。右键菜单关闭页签后，Dropdown 会把焦点还给被右键的那个页签，
+     * rc-tabs 随之试图激活它；若它刚被关掉，这里要挡住，
+     * 否则激活项会落到一个不存在的 key 上，表现为「没有任何页签被选中」。
+     */
+    const handleTabChange = useCallback((key: string) => {
+        if (openTabsRef.current.some((tab) => tab.key === key)) {
+            setActiveTab(key);
+        }
+    }, []);
+
+    /** 右键菜单动作：按右键页签的位置算出要关闭的集合 */
+    const handleTabContextAction = useCallback(
+        (tabKey: string, action: string) => {
+            const index = openTabs.findIndex((tab) => tab.key === tabKey);
+            if (index < 0) return;
+            switch (action) {
+                case 'close':
+                    handleTabEdit(tabKey, 'remove');
+                    break;
+                case 'closeLeft':
+                    closeTabs(openTabs.slice(0, index).map((tab) => tab.key), tabKey);
+                    break;
+                case 'closeRight':
+                    closeTabs(openTabs.slice(index + 1).map((tab) => tab.key), tabKey);
+                    break;
+                case 'closeOthers':
+                    closeTabs(openTabs.filter((tab) => tab.key !== tabKey).map((tab) => tab.key), tabKey);
+                    break;
+                case 'closeAll':
+                    closeTabs(openTabs.map((tab) => tab.key), HOME_TAB.key);
+                    break;
+            }
+        },
+        [openTabs, handleTabEdit, closeTabs],
+    );
+
+    /** 页签右键菜单：按位置禁用不可用的动作（最左没有「关闭左侧」，工作台不可关闭） */
+    const tabContextMenu = useCallback(
+        (tabKey: string): MenuProps => {
+            const index = openTabs.findIndex((tab) => tab.key === tabKey);
+            const closable = (tab: TabMeta) => tab.key !== HOME_TAB.key;
+            return {
+                items: [
+                    {key: 'close', label: '关闭当前标签', disabled: tabKey === HOME_TAB.key},
+                    {
+                        key: 'closeLeft',
+                        label: '关闭左侧标签',
+                        disabled: !openTabs.slice(0, index).some(closable),
+                    },
+                    {key: 'closeRight', label: '关闭右侧标签', disabled: index >= openTabs.length - 1},
+                    {
+                        key: 'closeOthers',
+                        label: '关闭其他标签',
+                        disabled: !openTabs.some((tab) => tab.key !== tabKey && closable(tab)),
+                    },
+                    {type: 'divider'},
+                    {key: 'closeAll', label: '关闭全部标签', disabled: !openTabs.some(closable)},
+                ],
+                onClick: ({key: action}) => handleTabContextAction(tabKey, action),
+            };
+        },
+        [openTabs, handleTabContextAction],
     );
 
     const handleMenuSearch = useCallback(
@@ -474,11 +569,15 @@ const MainLayout: React.FC = () => {
         () =>
             openTabs.map((meta) => ({
                 key: meta.key,
-                label: displayTitle(meta),
+                label: (
+                    <Dropdown menu={tabContextMenu(meta.key)} trigger={['contextMenu']}>
+                        <span className="main-tab-label">{displayTitle(meta)}</span>
+                    </Dropdown>
+                ),
                 closable: meta.key !== HOME_TAB.key,
                 children: renderTabContent(meta),
             })),
-        [openTabs, renderTabContent],
+        [openTabs, renderTabContent, tabContextMenu],
     );
 
     /**
@@ -617,7 +716,7 @@ const MainLayout: React.FC = () => {
                                 type="editable-card"
                                 hideAdd
                                 activeKey={activeTab}
-                                onChange={setActiveTab}
+                                onChange={handleTabChange}
                                 onEdit={handleTabEdit}
                                 items={tabItems}
                                 destroyOnHidden={false}

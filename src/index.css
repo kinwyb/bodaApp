@@ -100,6 +100,11 @@ body {
   border-bottom: 1px solid #f0f0f0;
 }
 
+/* 页签右键菜单的命中区：文字撑满整个页签按钮，右键点在文字边缘也能弹出 */
+.main-tabs .main-tab-label {
+  display: block;
+}
+
 .main-tabs > .ant-tabs-body-holder {
   flex: 1;
   min-height: 0;
