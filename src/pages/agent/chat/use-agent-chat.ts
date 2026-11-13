@@ -132,6 +132,8 @@ export type AgentChatApi = {
   /** 在回答生成中补充一条 `/steer` 引导，不新建空回答气泡 */
   steer: (text: string, attachments?: AgentMessage['attachments']) => void;
   abort: () => void;
+  /** 回传审批决定（允许 / 拒绝）；先乐观记进时间线，回传失败会退回 pending */
+  respondApproval: (approvalId: string, decision: 'accept' | 'decline') => void;
   retry: (messageKey: string) => void;
 };
 
@@ -310,6 +312,15 @@ export function useAgentChat(): AgentChatApi {
             conversationKey: event.conversationId,
             approval: event.approval,
           });
+          break;
+        case 'approval-error':
+          // 回传被拒：把这条审批退回 pending 让用户能重试，原因走全局提示
+          dispatch({
+            type: 'approvalError',
+            conversationKey: event.conversationId,
+            approvalId: event.approvalId,
+          });
+          setLastError(event.message);
           break;
         case 'media':
           dispatch({
@@ -664,6 +675,24 @@ export function useAgentChat(): AgentChatApi {
     }
   }, []);
 
+  /**
+   * 审批表态：先把决定乐观地记进时间线（界面立刻收起按钮），再经 chat.approval 回传。
+   * 服务端拒绝时 approval-error 会把它退回 pending 并提示原因，用户可以重试。
+   */
+  const respondApproval = useCallback((approvalId: string, decision: 'accept' | 'decline') => {
+    if (!approvalId) return;
+    const { activeKey, conversations } = stateRef.current;
+    const conversation = conversations.find((item) => item.key === activeKey);
+    if (!conversation) return;
+    dispatch({ type: 'approvalDecision', conversationKey: activeKey, approvalId, decision });
+    transportRef.current?.approve({
+      conversationId: activeKey,
+      sessionId: conversation.sessionId,
+      approvalId,
+      decision,
+    });
+  }, []);
+
   /** 重跑某条助手回答：拿它前面最近的一条用户消息重新发一遍 */
   const retry = useCallback((messageKey: string) => {
     const { activeKey, conversations } = stateRef.current;
@@ -877,6 +906,7 @@ export function useAgentChat(): AgentChatApi {
     send,
     steer,
     abort,
+    respondApproval,
     retry,
   };
 }

@@ -94,6 +94,15 @@ export type AgentChatAction =
     }
   | { type: 'upsertStep'; conversationKey: string; step: AgentToolStep }
   | { type: 'setApproval'; conversationKey: string; approval: AgentAssistantContent['approval'] }
+  /** 用户点了「允许 / 拒绝」：乐观地把这条审批记为已表态，回传失败再退回 */
+  | {
+      type: 'approvalDecision';
+      conversationKey: string;
+      approvalId: string;
+      decision: 'accept' | 'decline';
+    }
+  /** 审批回传失败：把这条审批退回 pending，让用户能重试 */
+  | { type: 'approvalError'; conversationKey: string; approvalId: string }
   | { type: 'setMedia'; conversationKey: string; media: AgentMedia[] }
   | { type: 'setSources'; conversationKey: string; sources: AgentSource[] }
   /**

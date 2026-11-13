@@ -430,6 +430,43 @@
   margin: 2px 0;
 }
 
+.agent-approval-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.agent-approval-content {
+  font-size: 13px;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+/* 时间线卡片里的命令摘要：一行等宽，超长截断，细节留给弹窗 */
+.agent-approval-command {
+  display: block;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.06);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-approval-actions {
+  margin-top: 2px;
+}
+
+/* 已表态 / 失效的审批弱化显示，不再抢视觉 */
+.agent-approval-accepted,
+.agent-approval-declined,
+.agent-approval-expired {
+  opacity: 0.85;
+}
+
 /* 历史里以错误收尾的一轮 */
 .agent-answer-error {
   margin: 2px 0;
@@ -439,6 +476,94 @@
   margin-top: 4px;
   font-size: 12px;
   color: rgba(0, 0, 0, 0.45);
+}
+
+/* ---------------- 审批确认弹窗 ---------------- */
+
+/*
+ * 审批是助手发起的阻塞式决策，弹窗要在整屏居中、硬到用户必须看见。
+ * 工作台默认把弹窗遮罩从右侧收窄以免盖住助手（见 workbench.css），
+ * 这里用更高优先级的选择器把审批弹窗还原成整屏，width 仍由 Modal 的 520 控制。
+ */
+body .ant-modal-root.agent-approval-modal-root .ant-modal-mask,
+body .ant-modal-root.agent-approval-modal-root .ant-modal-wrap {
+  right: 0;
+}
+
+body .ant-modal-root.agent-approval-modal-root .ant-modal {
+  max-width: min(520px, calc(100vw - 32px)) !important;
+}
+
+.agent-approval-modal-icon {
+  color: #faad14;
+  font-size: 18px;
+}
+
+.agent-approval-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.agent-approval-modal-lede {
+  margin-bottom: 0;
+  color: rgba(0, 0, 0, 0.65);
+}
+
+.agent-approval-modal-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.agent-approval-modal-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+/* 待执行命令：深色代码块，逐字看清再决定 */
+.agent-approval-modal-command {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: #1f2430;
+  color: #e6e8ee;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.agent-approval-modal-cwd {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  color: rgba(0, 0, 0, 0.75);
+  word-break: break-all;
+}
+
+.agent-approval-modal-reason {
+  font-size: 13px;
+  line-height: 1.6;
+  color: rgba(0, 0, 0, 0.8);
+  word-break: break-word;
+}
+
+.agent-approval-modal-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: #fffbe6;
+  border: 1px solid #ffe58f;
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(0, 0, 0, 0.65);
 }
 
 .agent-media {

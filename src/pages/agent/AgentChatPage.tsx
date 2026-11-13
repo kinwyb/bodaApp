@@ -16,11 +16,12 @@ import { PaperClipOutlined, ReloadOutlined, RobotOutlined, UserOutlined } from '
 
 import { formatFileSize } from '@/utils';
 import type { AgentAssistantContent, AgentComposerApi, AgentConnectionStatus } from './types';
-import { assistantContentOf, hasRenderableContent } from './types';
+import { assistantContentOf, hasRenderableContent, timelineOf } from './types';
 import { AGENT_MAX_AUTO_RETRY } from './constants';
 import { resolveAgentFileUrl } from './files';
 import { useAgentChat } from './chat/use-agent-chat';
 import { AgentAnswer } from './components/AgentAnswer';
+import { AgentApprovalModal } from './components/AgentApproval';
 import { AgentComposer } from './components/AgentComposer';
 import { AgentConversationPanel } from './components/AgentConversationPanel';
 import { AgentHeader } from './components/AgentHeader';
@@ -35,39 +36,49 @@ const ASSISTANT_AVATAR = (
 const USER_AVATAR = <Avatar className="agent-avatar agent-avatar-user" icon={<UserOutlined />} size={32} />;
 
 /**
- * 气泡角色配置：放在模块级，保证引用稳定
- * （每次渲染重建会重置打字动画）。
+ * 气泡角色配置：工厂 + useMemo 保证引用稳定（每次渲染重建会重置打字动画）。
+ * 审批回调是稳定的 useCallback，roles 对象只在回调变化时重建。
  */
-const BUBBLE_ROLES = {
-  assistant: {
-    placement: 'start' as const,
-    variant: 'borderless' as const,
-    typing: false as const,
-    avatar: ASSISTANT_AVATAR,
-    /*
-     * 宽度：内容少时跟着内容走，内容多（表格/长文）最多到对话区 80%。
-     * x 的结构是 root(flex) > body(按内容收缩) > content，
-     * 必须先把 body 撑开（flex:1），80% 这个上限才有参照；
-     * body 是 column flex，默认 stretch 会把 content 拉满，所以 content 要 alignSelf:flex-start。
-     */
-    styles: {
-      root: { width: '100%' },
-      body: { flex: 1, minWidth: 0 },
-      content: { width: 'fit-content', maxWidth: '80%', alignSelf: 'flex-start' },
+function createBubbleRoles(
+  onApproval?: (approvalId: string, decision: 'accept' | 'decline') => void,
+  onShowApproval?: (approvalId: string) => void,
+) {
+  return {
+    assistant: {
+      placement: 'start' as const,
+      variant: 'borderless' as const,
+      typing: false as const,
+      avatar: ASSISTANT_AVATAR,
+      /*
+       * 宽度：内容少时跟着内容走，内容多（表格/长文）最多到对话区 80%。
+       * x 的结构是 root(flex) > body(按内容收缩) > content，
+       * 必须先把 body 撑开（flex:1），80% 这个上限才有参照；
+       * body 是 column flex，默认 stretch 会把 content 拉满，所以 content 要 alignSelf:flex-start。
+       */
+      styles: {
+        root: { width: '100%' },
+        body: { flex: 1, minWidth: 0 },
+        content: { width: 'fit-content', maxWidth: '80%', alignSelf: 'flex-start' },
+      },
+      contentRender: (content: unknown, info: { status?: string }) => (
+        <AgentAnswer
+          content={content as AgentAssistantContent}
+          streaming={info.status === 'loading'}
+          onApproval={onApproval}
+          onShowApproval={onShowApproval}
+        />
+      ),
     },
-    contentRender: (content: unknown, info: { status?: string }) => (
-      <AgentAnswer content={content as AgentAssistantContent} streaming={info.status === 'loading'} />
-    ),
-  },
-  user: {
-    placement: 'end' as const,
-    // 白底上用 filled（浅灰填充），和助手那块灰色内容卡区分得开
-    variant: 'filled' as const,
-    typing: false as const,
-    avatar: USER_AVATAR,
-    contentRender: (content: unknown) => <div className="agent-user-text">{String(content)}</div>,
-  },
-};
+    user: {
+      placement: 'end' as const,
+      // 白底上用 filled（浅灰填充），和助手那块灰色内容卡区分得开
+      variant: 'filled' as const,
+      typing: false as const,
+      avatar: USER_AVATAR,
+      contentRender: (content: unknown) => <div className="agent-user-text">{String(content)}</div>,
+    },
+  };
+}
 
 /**
  * 断线横幅：固定在聊天区顶部。
@@ -135,6 +146,44 @@ const AgentChatPage: React.FC<AgentChatPageProps> = ({ embedded = false }) => {
   const hasHumanMessage = messages.some((message) => message.role === 'user');
   /** 抽出来单独持有：下面的 useMemo 只依赖它，不必依赖整个 chat 对象 */
   const { retry, clearError, replayTurn } = chat;
+
+  const { respondApproval } = chat;
+  /**
+   * 当前待处理审批：从最近的消息往回找第一条 pending。
+   * 审批会阻塞 agent 这一轮，正常只有一个；历史 / 已表态的都不算。
+   */
+  const pendingApproval = useMemo(() => {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const item = messages[index];
+      if (item.role !== 'assistant') continue;
+      const timeline = timelineOf(assistantContentOf(item));
+      for (let cursor = timeline.length - 1; cursor >= 0; cursor -= 1) {
+        const entry = timeline[cursor];
+        if (entry.kind === 'approval' && (entry.approval.status ?? 'pending') === 'pending') {
+          return entry.approval;
+        }
+      }
+    }
+    return null;
+  }, [messages]);
+
+  /**
+   * 审批弹窗的开合直接在渲染期推导，不用 effect：
+   * 有 pending 且未被手动收起就打开。用户点 X 记下「已收起的审批 id」，
+   * 同一审批的后续流式帧不会把它再顶开；换一条新审批（id 不同）则自动弹出。
+   */
+  const [dismissedApprovalId, setDismissedApprovalId] = useState('');
+  const approvalModalOpen = pendingApproval !== null && pendingApproval.id !== dismissedApprovalId;
+  const showApproval = useCallback(() => setDismissedApprovalId(''), []);
+  const dismissApproval = useCallback(() => {
+    setDismissedApprovalId(pendingApproval?.id ?? '');
+  }, [pendingApproval]);
+
+  /** roles 引用要稳定，审批回调都是 useCallback，这里随其变化才重建 */
+  const bubbleRoles = useMemo(
+    () => createBubbleRoles(respondApproval, showApproval),
+    [respondApproval, showApproval],
+  );
 
   // 连接级错误（投不到具体会话的那种）用全局提示，避免悄悄失败
   useEffect(() => {
@@ -294,7 +343,7 @@ const AgentChatPage: React.FC<AgentChatPageProps> = ({ embedded = false }) => {
                 <Bubble.List
                   className="agent-bubble-list"
                   items={bubbleItems}
-                  role={BUBBLE_ROLES}
+                  role={bubbleRoles}
                   autoScroll
                   style={{ height: '100%' }}
                 />
@@ -328,6 +377,13 @@ const AgentChatPage: React.FC<AgentChatPageProps> = ({ embedded = false }) => {
         agent={chat.agent}
         agents={chat.agents}
         onAgentChange={chat.setAgent}
+      />
+
+      <AgentApprovalModal
+        approval={pendingApproval}
+        open={approvalModalOpen}
+        onClose={dismissApproval}
+        onRespond={respondApproval}
       />
     </div>
   );

@@ -63,6 +63,8 @@ export type {
   AgentSkillData,
   AgentSkillsData,
   AgentToolCall,
+  ApprovalDecisionData,
+  ChatApprovalData,
   ChatCancelData,
   ChatSendData,
   ErrorBody,

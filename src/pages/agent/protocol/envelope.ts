@@ -43,6 +43,8 @@ export const KIND = {
 export const CLIENT_TYPE = {
   chatSend: 'chat.send',
   chatCancel: 'chat.cancel',
+  /** 回传审批决定（允许 / 拒绝），approvalID 取下行 approval.id */
+  chatApproval: 'chat.approval',
   sessionHistory: 'session.history',
   /** 拉取对话列表（一条对应一个 thread） */
   sessionList: 'session.list',

@@ -12,6 +12,7 @@ import {
   finishStreamingReply,
   mapStreamingReply,
   mergeTokenUsage,
+  setConversationApprovalStatus,
   upsertTimelineApproval,
   upsertTimelineError,
   upsertTimelineTool,
@@ -286,6 +287,20 @@ export function chatReducer(state: AgentChatState, action: AgentChatAction): Age
             approval: action.approval,
           };
         }),
+      );
+
+    case 'approvalDecision':
+      return withConversation(state, action.conversationKey, (conversation) =>
+        setConversationApprovalStatus(
+          conversation,
+          action.approvalId,
+          action.decision === 'accept' ? 'accepted' : 'declined',
+        ),
+      );
+
+    case 'approvalError':
+      return withConversation(state, action.conversationKey, (conversation) =>
+        setConversationApprovalStatus(conversation, action.approvalId, 'pending'),
       );
 
     case 'setMedia':

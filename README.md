@@ -428,7 +428,7 @@ src/pages/agent/
 │   ├── envelope.ts   信封（{ v,id,kind,type,sessionID,replyTo,seq,ts,data }）与常量
 │   ├── payloads.ts / events.ts
 │   ├── ui.ts         ★ 界面操作协议（快照/补丁/请求/回执）
-│   ├── uplink/       chat.send / chat.cancel / session.history / session.list / session.delete / agent.skills / ping
+│   ├── uplink/       chat.send / chat.cancel / chat.approval / session.history / session.list / session.delete / agent.skills / ping
 │   └── downlink/     message / reasoning / tool / approval / usage / attachments …
 ├── transport/     # 连接实现：websocket 与 mock，把协议翻成语义事件
 ├── chat/          # 会话状态机与 hook（reducer、流式缓冲），不 import 任何 antd/x
@@ -450,6 +450,15 @@ src/pages/agent/
 - 连接成功或切换 agent 后自动请求 `agent.skills`；输入框的技能菜单只展示该 agent
   实际加载且已启用的技能，选择后插入 `$<skill-name>` 前缀。
 - 开发期有帧打点（`transport/frame-trace.ts`），用来定位"帧到了但界面不动"。
+
+**审批确认**（`approval` 帧 → `chat.approval` 回传）：
+
+- agent 执行到需授权的操作会下发 `approval` 帧并阻塞这一轮；前端**自动弹出确认框**（`AgentApprovalModal`），
+  展示命令 / 目录 / 理由，点「允许 / 拒绝」经 `chat.approval` 回传。时间线里同时留一条审批记录（`AgentApprovalCard`），
+  收起弹窗后可从它重新打开。
+- 表态是**乐观更新**：先记进时间线再回传，服务端拒绝时 `approval-error` 把它退回 pending 并提示原因。
+- 审批有状态（`pending / accepted / declined / expired`）：这一轮结束、被中断或来自历史回放时置为 `expired`，不再给可点按钮。
+- 演示模式问「审批 / 删除 / 清理」可触发一次阻塞式审批，便于无后端时验证弹窗交互。
 
 ## 工作台布局
 

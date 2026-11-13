@@ -12,6 +12,7 @@
 import type {
   AgentAssistantContent,
   AgentApproval,
+  AgentApprovalStatus,
   AgentConversation,
   AgentTimelineItem,
   AgentTokenDetail,
@@ -216,6 +217,60 @@ export function upsertTimelineApproval(
   return list;
 }
 
+/**
+ * 改一条审批的处理状态（允许 / 拒绝 / 失效），其余片段不动。
+ *
+ * 没命中就原样返回：审批回传的错误回执可能晚于消息清理，这时不该再造出一条。
+ */
+export function setTimelineApprovalStatus(
+  timeline: AgentTimelineItem[] | undefined,
+  approvalId: string,
+  status: AgentApprovalStatus,
+): AgentTimelineItem[] | undefined {
+  if (!timeline) return timeline;
+  const index = timeline.findIndex(
+    (item) => item.kind === 'approval' && item.approval.id === approvalId,
+  );
+  if (index < 0) return timeline;
+  const item = timeline[index];
+  if (item.kind !== 'approval' || item.approval.status === status) return timeline;
+  const list = [...timeline];
+  list[index] = { ...item, approval: { ...item.approval, status } };
+  return list;
+}
+
+/**
+ * 在整个会话里定位某条审批并改它的状态（时间线 + 汇总字段一起改）。
+ *
+ * 不局限于「正在流式的那条」：审批决定 / 失败回执到达时，这一轮可能刚好收尾，
+ * 按 id 找到真正承载它的那条消息才稳。找不到就原样返回。
+ */
+export function setConversationApprovalStatus(
+  conversation: AgentConversation,
+  approvalId: string,
+  status: AgentApprovalStatus,
+): AgentConversation {
+  for (let index = conversation.messages.length - 1; index >= 0; index -= 1) {
+    const message = conversation.messages[index];
+    if (message.role !== 'assistant') continue;
+    const content = assistantContentOf(message);
+    const timeline = setTimelineApprovalStatus(content.timeline, approvalId, status);
+    const summaryMatch = content.approval?.id === approvalId;
+    if (timeline === content.timeline && !summaryMatch) continue;
+    const messages = [...conversation.messages];
+    messages[index] = {
+      ...message,
+      content: {
+        ...content,
+        timeline,
+        approval: summaryMatch ? { ...content.approval!, status } : content.approval,
+      },
+    };
+    return { ...conversation, messages };
+  }
+  return conversation;
+}
+
 /** 错误：一条回答里通常只有一个，重复的覆盖 */
 export function upsertTimelineError(
   timeline: AgentTimelineItem[] | undefined,
@@ -231,12 +286,19 @@ export function upsertTimelineError(
   return list;
 }
 
-/** 收尾：所有还没标记完成的文本片段置为 done（思考的转圈据此停下） */
+/**
+ * 收尾：还没标记完成的文本片段置为 done（思考的转圈据此停下），
+ * 仍挂着的审批置为 expired —— 这一轮都结束了，再点「允许 / 拒绝」也没有意义。
+ */
 export function completeTimeline(timeline: AgentTimelineItem[] | undefined): AgentTimelineItem[] {
   if (!timeline || timeline.length === 0) return [];
-  return timeline.map((item) =>
-    isTextItem(item) && !item.done ? { ...item, done: true } : item,
-  );
+  return timeline.map((item) => {
+    if (isTextItem(item) && !item.done) return { ...item, done: true };
+    if (item.kind === 'approval' && (item.approval.status ?? 'pending') === 'pending') {
+      return { ...item, approval: { ...item.approval, status: 'expired' } };
+    }
+    return item;
+  });
 }
 
 /** 由时间线重算汇总字段（正文/思考/工具列表） */

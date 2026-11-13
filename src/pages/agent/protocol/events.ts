@@ -42,6 +42,11 @@ export type AgentStreamEvent =
   /** 工具调用的一步（tool_start → loading，tool_completed → success/error） */
   | { type: 'tool'; conversationId: string; step: AgentToolStep }
   | { type: 'approval'; conversationId: string; approval: AgentApproval }
+  /**
+   * 审批回传失败（服务端拒绝或连接错误）：把这条审批从「已表态」退回 pending，
+   * 让用户能重试；具体原因交给全局错误提示。
+   */
+  | { type: 'approval-error'; conversationId: string; approvalId: string; message: string }
   | { type: 'media'; conversationId: string; media: AgentMedia[] }
   | { type: 'sources'; conversationId: string; sources: AgentSource[] }
   /**

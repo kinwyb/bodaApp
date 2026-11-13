@@ -18,11 +18,25 @@ export type MockToolCall = {
   result: string;
 };
 
+/** 演示用的一次审批：推帧后阻塞演示轮，等用户允许 / 拒绝再决定后续正文 */
+export type MockApproval = {
+  content: string;
+  command?: string[];
+  cwd?: string;
+  reason?: string;
+  /** 用户允许后继续输出的正文 */
+  acceptText: string;
+  /** 用户拒绝后输出的正文 */
+  declineText: string;
+};
+
 export type MockScript = {
   /** 思考过程，按 reasoning_delta 分块下发 */
   reasoning: string;
   tools: MockToolCall[];
   text: string;
+  /** 可选审批步骤：有它就在正文前插入一次审批并阻塞等待决定 */
+  approval?: MockApproval;
 };
 
 export const DELIVERY_SCRIPT: MockScript = {
@@ -146,8 +160,27 @@ export const FALLBACK_SCRIPT: MockScript = {
 你可以试着问「本周预订单交付风险」「产能瓶颈」或「生成生产日报」，会走对应的示例脚本。`,
 };
 
+/** 审批演示：问「审批 / 删除 / 清理」触发，弹窗里允许或拒绝后走不同结尾 */
+export const APPROVAL_SCRIPT: MockScript = {
+  reasoning:
+    '用户要清理过期的临时导出文件。这属于有副作用的删除操作，需要先列出目标目录确认范围，再向用户发起审批，拿到允许后才执行。',
+  tools: [],
+  text: '',
+  approval: {
+    content: '执行命令：[rm -rf /tmp/boda-exports/2026-10],理由：清理一个月前的临时导出文件，释放磁盘空间',
+    command: ['rm', '-rf', '/tmp/boda-exports/2026-10'],
+    cwd: '/tmp/boda-exports',
+    reason: '清理一个月前的临时导出文件，释放磁盘空间',
+    acceptText:
+      '已按你的允许执行清理：删除了 `/tmp/boda-exports/2026-10` 下 **128 个**过期导出文件，释放约 **342 MB** 磁盘空间。当前导出目录只保留最近 30 天的内容。',
+    declineText:
+      '好的，已**取消**这次清理，没有删除任何文件。如果之后想继续，可以告诉我改用「移到回收站」或「只列出将被删除的文件」这类更稳妥的方式。',
+  },
+};
+
 /** 按关键词挑一段示例回答 */
 export function buildMockScript(question: string): MockScript {
+  if (/审批|删除|清理|授权/.test(question)) return APPROVAL_SCRIPT;
   if (/预订单|订单|交付|延期/.test(question)) return DELIVERY_SCRIPT;
   if (/产能|工时|瓶颈|负荷|效率/.test(question)) return CAPACITY_SCRIPT;
   if (/日报|报表|统计|汇总/.test(question)) return REPORT_SCRIPT;

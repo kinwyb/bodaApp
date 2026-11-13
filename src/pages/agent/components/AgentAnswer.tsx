@@ -19,6 +19,7 @@ import type {
 } from '../types';
 import { timelineOf } from '../types';
 import { resolveAgentFileUrl } from '../files';
+import { AgentApprovalCard } from './AgentApproval';
 import { AgentStepChain } from './AgentStepChain';
 
 /** 后端 media 只给 url 时，从末段取个文件名 */
@@ -131,10 +132,14 @@ const AgentReasoning: React.FC<{
   );
 };
 
-export const AgentAnswer: React.FC<{ content: AgentAssistantContent; streaming: boolean }> = ({
-  content,
-  streaming,
-}) => {
+export const AgentAnswer: React.FC<{
+  content: AgentAssistantContent;
+  streaming: boolean;
+  /** 审批表态（允许 / 拒绝）；不传则审批只读（历史渲染） */
+  onApproval?: (approvalId: string, decision: 'accept' | 'decline') => void;
+  /** 打开审批详情弹窗 */
+  onShowApproval?: (approvalId: string) => void;
+}> = ({ content, streaming, onApproval, onShowApproval }) => {
   const blocks = blocksOf(timelineOf(content));
 
   return (
@@ -148,20 +153,11 @@ export const AgentAnswer: React.FC<{ content: AgentAssistantContent; streaming: 
 
         if (block.kind === 'approval') {
           return (
-            <Alert
+            <AgentApprovalCard
               key={block.key}
-              className="agent-approval"
-              type="warning"
-              showIcon
-              message="需要审批"
-              description={
-                <>
-                  {block.approval.content || 'Agent 请求执行一个需要确认的操作。'}
-                  <div className="agent-approval-hint">
-                    （审批回传的上行命令后端暂未提供，这里先只做展示）
-                  </div>
-                </>
-              }
+              approval={block.approval}
+              onRespond={onApproval}
+              onShow={onShowApproval}
             />
           );
         }

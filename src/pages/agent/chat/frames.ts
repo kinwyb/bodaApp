@@ -99,7 +99,10 @@ export function contentFromFrames(frames: AgentEnvelope[]): AgentAssistantConten
       // 工具 / 审批 / 错误：语义与实时一致，直接复用协议映射
       for (const event of mapAgentEnvelope(frame, '')) {
         if (event.type === 'tool') timeline = upsertTimelineTool(timeline, event.step);
-        else if (event.type === 'approval') timeline = upsertTimelineApproval(timeline, event.approval);
+        else if (event.type === 'approval') {
+          // 历史 / 回放里的审批那一轮早已结束，置为 expired，界面不再给可点的按钮
+          timeline = upsertTimelineApproval(timeline, { ...event.approval, status: 'expired' });
+        }
         else if (event.type === 'error') {
           timeline = upsertTimelineError(timeline, event.message);
           error = event.message;

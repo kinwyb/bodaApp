@@ -60,10 +60,34 @@ export type AgentMedia = {
   metadata?: Record<string, unknown>;
 };
 
+/**
+ * 审批的处理状态。
+ *
+ * - `pending`：等待用户表态，agent 这一轮正被它阻塞；
+ * - `accepted` / `declined`：用户已点「允许 / 拒绝」，回传已发出；
+ * - `expired`：这一轮已结束或被中断、或来自历史回放 —— 再点也没有意义。
+ */
+export type AgentApprovalStatus = 'pending' | 'accepted' | 'declined' | 'expired';
+
+/** 审批的结构化附加信息（后端 data.approval.extra），用于弹窗展示命令细节 */
+export type AgentApprovalExtra = {
+  /** 待执行的命令（argv 拆分），仅命令类审批有 */
+  command?: string[];
+  /** 命令工作目录 */
+  cwd?: string;
+  /** agent 给出的申请理由 */
+  reason?: string;
+  /** 上游审批方法名（execCommandApproval / applyPatchApproval …） */
+  method?: string;
+};
+
 /** 审批请求，对应后端 data.approval */
 export type AgentApproval = {
   id: string;
   content: string;
+  /** 缺省按 pending 处理（历史旧数据可能没有该字段） */
+  status?: AgentApprovalStatus;
+  extra?: AgentApprovalExtra;
 };
 
 /** 附件的上传状态：选完文件就开始传，发送只认 done 的那些 */

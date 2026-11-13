@@ -88,6 +88,8 @@ export function createMockTransport(): AgentTransport {
 
   let status: import('../types').AgentConnectionStatus = 'idle';
   let cancelled = false;
+  /** 演示审批阻塞点：play 推到审批帧后挂起，等 approve() 送来决定再继续 */
+  let approvalResolve: ((decision: 'accept' | 'decline') => void) | null = null;
   /** 演示用的累计用量（真实后端由 DB 落库，这里按文本长度估） */
   let usedInput = 0;
   let usedOutput = 0;
@@ -108,6 +110,8 @@ export function createMockTransport(): AgentTransport {
     const sessionID = `${MOCK_CHANNEL}_${MOCK_USER_ID}_${payload.conversationId}`;
     const script = buildMockScript(payload.content);
     let chunk = 0;
+    /** 审批决定会改写最终正文（允许 → 继续执行；拒绝 → 说明已停止） */
+    let finalText = script.text;
 
     const push = (eventName: string, data: AgentEventData, eventId?: string) => {
       const envelope: AgentEnvelope = newEnvelope({
@@ -184,10 +188,38 @@ export function createMockTransport(): AgentTransport {
       await sleep(160);
     }
 
+    // 审批演示：推一帧 approval 后阻塞这一轮，等用户在弹窗里点「允许 / 拒绝」。
+    // 与真实后端一致 —— agent 被审批卡住，不回应就不会有后续帧。
+    if (script.approval) {
+      if (cancelled) return;
+      const approvalId = `mock-approval-${Date.now().toString(36)}`;
+      push(AGENT_EVENT.approval, {
+        event: AGENT_EVENT.approval,
+        role: 'system',
+        delta: false,
+        approval: {
+          id: approvalId,
+          content: script.approval.content,
+          extra: {
+            command: script.approval.command,
+            cwd: script.approval.cwd,
+            reason: script.approval.reason,
+            method: 'execCommandApproval',
+          },
+        },
+      });
+      const decision = await new Promise<'accept' | 'decline'>((resolve) => {
+        approvalResolve = resolve;
+      });
+      approvalResolve = null;
+      if (cancelled) return;
+      finalText = decision === 'accept' ? script.approval.acceptText : script.approval.declineText;
+    }
+
     if (cancelled) return;
     push(AGENT_EVENT.messageStart, { event: AGENT_EVENT.messageStart, role: 'assistant' }, 'mock-message-0');
 
-    for (const piece of splitText(script.text, 4)) {
+    for (const piece of splitText(finalText, 4)) {
       if (cancelled) return;
       push(
         AGENT_EVENT.messageDelta,
@@ -206,7 +238,7 @@ export function createMockTransport(): AgentTransport {
     // 完成帧带全量内容（与真实后端一致：completed 是收敛用的全量快照）
     push(
       AGENT_EVENT.messageCompleted,
-      { event: AGENT_EVENT.messageCompleted, role: 'assistant', content: script.text, delta: false },
+      { event: AGENT_EVENT.messageCompleted, role: 'assistant', content: finalText, delta: false },
       'mock-message-0',
     );
 
@@ -215,7 +247,7 @@ export function createMockTransport(): AgentTransport {
      * 走的是同一条 mapAgentEnvelope 路径，所以能验证「用量只更新面板、不拼正文」。
      */
     const lastInput = Math.round((payload.content.length + 420) * 2.4);
-    const lastOutput = Math.round(script.text.length * 1.7);
+    const lastOutput = Math.round(finalText.length * 1.7);
     usedInput += lastInput;
     usedOutput += lastOutput;
     const detail = (input: number, output: number) => ({
@@ -322,6 +354,21 @@ export function createMockTransport(): AgentTransport {
 
     abort() {
       cancelled = true;
+      // 审批挂起时中断：放行一个「拒绝」让 play 能退出，而不是永远卡在 await
+      if (approvalResolve) {
+        const resolve = approvalResolve;
+        approvalResolve = null;
+        resolve('decline');
+      }
+    },
+
+    approve(query) {
+      // 决定已由状态层乐观地记进时间线；这里只负责把阻塞的演示轮放行。
+      if (approvalResolve) {
+        const resolve = approvalResolve;
+        approvalResolve = null;
+        resolve(query.decision);
+      }
     },
 
     onEvent(listener) {

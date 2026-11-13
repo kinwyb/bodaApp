@@ -11,6 +11,8 @@ export type { ChatSendInput } from './chat-send';
 export { buildChatSend } from './chat-send';
 export type { ChatCancelInput } from './chat-cancel';
 export { buildChatCancel } from './chat-cancel';
+export type { ChatApprovalInput } from './chat-approval';
+export { buildChatApproval } from './chat-approval';
 export type { SessionListInput } from './session-list';
 export { buildSessionList } from './session-list';
 export type { SessionHistoryInput } from './session-history';

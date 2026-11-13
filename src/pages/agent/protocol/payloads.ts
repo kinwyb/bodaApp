@@ -171,6 +171,18 @@ export type ChatCancelData = {
   chatID?: string;
 };
 
+/** 审批决定取值，对齐后端 jsonRpc.ApprovalDecision（accept / decline） */
+export type ApprovalDecisionData = 'accept' | 'decline';
+
+/** protocol.ChatApprovalData（上行：回传审批决定） */
+export type ChatApprovalData = {
+  sessionID?: string;
+  chatID?: string;
+  /** 下行 approval.id，即上游审批请求标识 */
+  approvalID: string;
+  decision: ApprovalDecisionData;
+};
+
 /** protocol.SessionListData（上行：拉取对话列表） */
 export type SessionListData = {
   /** 返回条数：0 用默认 50，负数取全量（上限 200） */

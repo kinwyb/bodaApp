@@ -18,6 +18,7 @@ import {
   SYSTEM_TYPE,
   UI_TYPE,
   buildAgentSkills,
+  buildChatApproval,
   buildChatCancel,
   buildChatSend,
   buildPing,
@@ -44,7 +45,7 @@ import type { AgentHello, AgentTransport, AgentUIRequest } from './types';
 import { installFrameTrace, traceIncoming, traceUplink } from './frame-trace';
 
 /** 上行请求的类别：决定响应回来时用哪种方式解析 */
-type PendingKind = 'chat' | 'history' | 'replay' | 'sessions' | 'skills' | 'delete';
+type PendingKind = 'chat' | 'history' | 'replay' | 'sessions' | 'skills' | 'delete' | 'approval';
 
 /**
  * 重连退避：1s → 2s → 4s → 8s → 15s（封顶），最多自动重试 AGENT_MAX_AUTO_RETRY 次。
@@ -121,6 +122,7 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
       mode: HistoryMode;
       threadId?: string;
       agent?: string;
+      approvalId?: string;
     }
   >();
   /** sessionID → 会话 key */
@@ -189,6 +191,7 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
       mode?: HistoryMode;
       threadId?: string;
       agent?: string;
+      approvalId?: string;
     },
   ) => {
     if (related) {
@@ -198,6 +201,7 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
         mode: related.mode ?? 'replace',
         threadId: related.threadId,
         agent: related.agent,
+        approvalId: related.approvalId,
       });
     }
     rawPost(JSON.stringify(envelope));
@@ -278,11 +282,20 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
         }
         if (envelope.replyTo) pending.delete(envelope.replyTo);
         if (!data.ok && request) {
-          emit({
-            type: 'error',
-            conversationId: request.conversationId,
-            message: data.message || '请求未被受理',
-          });
+          if (request.kind === 'approval') {
+            emit({
+              type: 'approval-error',
+              conversationId: request.conversationId,
+              approvalId: request.approvalId ?? '',
+              message: data.message || '审批回传未被受理',
+            });
+          } else {
+            emit({
+              type: 'error',
+              conversationId: request.conversationId,
+              message: data.message || '请求未被受理',
+            });
+          }
         }
         break;
       }
@@ -382,6 +395,15 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
             type: 'session-delete-error',
             conversationId: request.conversationId,
             threadId: request.threadId ?? '',
+            message: data.message,
+          });
+          break;
+        }
+        if (request?.kind === 'approval') {
+          emit({
+            type: 'approval-error',
+            conversationId: request.conversationId,
+            approvalId: request.approvalId ?? '',
             message: data.message,
           });
           break;
@@ -708,6 +730,19 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
           chatID: sessionID ? undefined : conversationId,
           sessionID,
         }),
+      );
+    },
+
+    approve(query) {
+      const sessionID = query.sessionId || sessionIdOf(query.conversationId);
+      postEnvelope(
+        buildChatApproval({
+          chatID: sessionID ? undefined : query.conversationId,
+          sessionID,
+          approvalID: query.approvalId,
+          decision: query.decision,
+        }),
+        { conversationId: query.conversationId, kind: 'approval', approvalId: query.approvalId },
       );
     },
 

@@ -81,6 +81,15 @@ export type AgentSessionDeleteQuery = {
   threadId: string;
 };
 
+/** 回传一次审批决定；approvalId 取下行 approval.id */
+export type AgentApprovalQuery = {
+  conversationId: string;
+  /** 已落库会话的 sessionID（传了它就不传 chatID） */
+  sessionId?: string;
+  approvalId: string;
+  decision: 'accept' | 'decline';
+};
+
 /** hello 握手信息 */
 export type AgentHello = HelloInfo;
 
@@ -117,6 +126,8 @@ export type AgentTransport = {
   replay(query: AgentReplayQuery): void;
   /** 中断当前会话；已知 sessionID 时带上，避免用本地 key 去推导 */
   abort(conversationId: string, sessionId?: string): void;
+  /** 回传审批决定（chat.approval）；结果经 ack / approval-error 事件回到状态层 */
+  approve(query: AgentApprovalQuery): void;
   onEvent(listener: (event: AgentStreamEvent) => void): () => void;
   onStatusChange(listener: (status: AgentConnectionStatus) => void): () => void;
   onHello(listener: (hello: AgentHello) => void): () => void;
