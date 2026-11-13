@@ -8,7 +8,7 @@ import {FilterTable, type FilterTableApi} from "@/components/grid-table";
 import type {YupaiOrder, YupaiOrderGroupDateType} from "@/api";
 import {yupaiService} from "@/services/yupai.ts";
 import {ErrorMessage} from "@/api/request.ts";
-import {formatDate, now} from "@/utils";
+import {formatDate, now, toDayjs} from "@/utils";
 import {useUIBridgeHost} from "@/pages/agent/ui-bridge";
 import {PRESCHEDULE_COLUMNS} from "./columns.ts";
 import {createPrescheduleBridge, type PrescheduleBridgeContext, type PrescheduleQuery} from "./bridged";
@@ -110,6 +110,16 @@ const PrescheduleSummaryPage: React.FC<ViewPageProps> = ({view, trail}) => {
     const applyQuery = useCallback((next: PrescheduleQuery): Promise<void> =>
         new Promise<void>((resolve) => {
             pendingQueryRef.current = resolve;
+            /*
+             * 回写查询条：桥改的是页面 state，Form 的 store 不知道。
+             * 不回写的话，用户看到的是「旧条件 + 新数据」，再点一次「查询」还会把条件退回去。
+             * 注意 dateType=0（全部）时日期控件是禁用的，但仍要有值 —— 否则 rc-picker 报
+             * `disabled should not set with empty value`。
+             */
+            form.setFieldsValue({
+                dateType: next.dateType,
+                dateRange: [toDayjs(next.startDate)!, toDayjs(next.endDate)!],
+            });
             setQuery({...next});
             // 兜底：请求卡死时别让 agent 的 ui_act 一直挂着
             window.setTimeout(() => {
@@ -117,7 +127,7 @@ const PrescheduleSummaryPage: React.FC<ViewPageProps> = ({view, trail}) => {
                 pendingQueryRef.current = null;
                 resolve();
             }, 12000);
-        }), []);
+        }), [form]);
 
     /**
      * 「下单月份」是**界面派生列**：旧客户端用 `UnboundExpression`

@@ -8,7 +8,7 @@ import {FilterTable, type FilterTableApi} from '@/components/grid-table';
 import {PageBreadcrumb} from '@/components/PageBreadcrumb';
 import {useUIBridgeHost} from '@/pages/agent/ui-bridge';
 import type {ViewPageProps} from '@/pages/types';
-import {formatDate, now} from '@/utils';
+import {formatDate, now, toDayjs} from '@/utils';
 import {createSalaryGroupBridge, type SalaryGroupBridgeContext, type SalaryGroupQuery} from './bridged';
 import {SALARY_GROUP_COLUMNS} from './columns';
 import {OrderCodeSelect} from '@/components/quick-select';
@@ -59,13 +59,18 @@ const SalaryGroupPage: React.FC<ViewPageProps> = ({view, trail}) => {
     const applyQuery = useCallback((next: SalaryGroupQuery): Promise<void> =>
         new Promise((resolve) => {
             pendingQueryRef.current = resolve;
+            // 回写查询条：桥改的是 state，Form 的 store 不知道（不回写用户一按「查询」就把改动覆盖回去）
+            form.setFieldsValue({
+                dateRange: [toDayjs(next.startDate)!, toDayjs(next.endDate)!],
+                orderCode: next.orderCode,
+            });
             setQuery({...next});
             window.setTimeout(() => {
                 if (pendingQueryRef.current !== resolve) return;
                 pendingQueryRef.current = null;
                 resolve();
             }, 12000);
-        }), []);
+        }), [form]);
 
     const bridgeContext = useMemo<SalaryGroupBridgeContext>(() => ({
         view,

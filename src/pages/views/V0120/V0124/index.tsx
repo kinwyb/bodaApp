@@ -8,7 +8,7 @@ import {FilterTable, type FilterTableApi} from '@/components/grid-table';
 import {PageBreadcrumb} from '@/components/PageBreadcrumb';
 import {useUIBridgeHost} from '@/pages/agent/ui-bridge';
 import type {ViewPageProps} from '@/pages/types';
-import {formatDate, now} from '@/utils';
+import {formatDate, now, toDayjs} from '@/utils';
 import {createSalaryDetailBridge, type SalaryDetailBridgeContext, type SalaryDetailQuery} from './bridged';
 import {SALARY_DETAIL_COLUMNS} from './columns';
 import {OrderCodeSelect} from '@/components/quick-select';
@@ -61,13 +61,23 @@ const SalaryDetailPage: React.FC<ViewPageProps> = ({view, trail}) => {
     const applyQuery = useCallback((next: SalaryDetailQuery): Promise<void> =>
         new Promise((resolve) => {
             pendingQueryRef.current = resolve;
+            /*
+             * 必须回写查询条：桥改的是页面 state，Form 的 store 不知道。
+             * 不回写的话列表已按新条件刷新，控件还显示旧值 —— 用户随后点一次「查询」，
+             * 就会按旧值把 agent 刚改的条件覆盖回去。
+             */
+            form.setFieldsValue({
+                dateRange: [toDayjs(next.startDate)!, toDayjs(next.endDate)!],
+                orderCode: next.orderCode,
+                machineCode: next.machineCode,
+            });
             setQuery({...next});
             window.setTimeout(() => {
                 if (pendingQueryRef.current !== resolve) return;
                 pendingQueryRef.current = null;
                 resolve();
             }, 12000);
-        }), []);
+        }), [form]);
 
     const bridgeContext = useMemo<SalaryDetailBridgeContext>(() => ({
         view,

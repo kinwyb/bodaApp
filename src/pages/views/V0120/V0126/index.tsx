@@ -11,7 +11,7 @@ import {useUIBridgeHost} from '@/pages/agent/ui-bridge';
 import type {ViewPageProps} from '@/pages/types';
 import {misProductionService} from '@/services/mis';
 import {useAuth} from '@/store/auth-context';
-import {formatDate, now} from '@/utils';
+import {formatDate, now, toDayjs} from '@/utils';
 import {createProduceDataBridge, type ProduceDataBridgeContext, type ProduceDataQuery} from './bridged';
 import {createProduceDataColumns} from './columns';
 import {useProduceDataCommands, type ProduceDataCommandContext} from './command';
@@ -75,13 +75,18 @@ const ProduceDataPage: React.FC<ViewPageProps> = ({view, trail}) => {
     const applyQuery = useCallback((next: ProduceDataQuery): Promise<void> =>
         new Promise((resolve) => {
             pendingQueryRef.current = resolve;
+            // 回写查询条：桥改的是 state，Form 的 store 不知道（不回写用户一按「查询」就把改动覆盖回去）
+            form.setFieldsValue({
+                dateRange: [toDayjs(next.startDate)!, toDayjs(next.endDate)!],
+                machCode: next.machCode,
+            });
             setQuery({...next});
             window.setTimeout(() => {
                 if (pendingQueryRef.current !== resolve) return;
                 pendingQueryRef.current = null;
                 resolve();
             }, 12000);
-        }), []);
+        }), [form]);
 
     const clearDeletedRow = useCallback((id: string) => {
         setRows((previous) => previous.map((row) => row.ID === id ? {

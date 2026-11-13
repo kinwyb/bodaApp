@@ -13,7 +13,7 @@ import {FilterTable, type FilterTableApi} from '@/components/grid-table';
 import {PageBreadcrumb} from '@/components/PageBreadcrumb';
 import {useUIBridgeHost} from '@/pages/agent/ui-bridge';
 import type {ViewPageProps} from '@/pages/types';
-import {formatDate, now} from '@/utils';
+import {formatDate, now, toDayjs} from '@/utils';
 import {createOutStoreBridge, type OutStoreBridgeContext, type OutStoreQuery} from './bridged';
 import {OUT_STORE_BILL_COLUMNS, OUT_STORE_DETAIL_COLUMNS} from './columns';
 import {useOutStoreCommands, type OutStoreCommandContext} from './command';
@@ -65,13 +65,15 @@ const OutStoreBillPage: React.FC<ViewPageProps> = ({view, trail}) => {
     const applyQuery = useCallback((next: OutStoreQuery): Promise<void> =>
         new Promise((resolve) => {
             pendingQueryRef.current = resolve;
+            // 回写查询条：桥改的是 state，Form 的 store 不知道（不回写用户一按「查询」就把改动覆盖回去）
+            form.setFieldsValue({dateRange: [toDayjs(next.startDate)!, toDayjs(next.endDate)!]});
             setQuery({...next});
             window.setTimeout(() => {
                 if (pendingQueryRef.current !== resolve) return;
                 pendingQueryRef.current = null;
                 resolve();
             }, 12000);
-        }), []);
+        }), [form]);
 
     const commandContext = useMemo<OutStoreCommandContext>(() => ({
         message,

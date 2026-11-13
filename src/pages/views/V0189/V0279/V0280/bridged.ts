@@ -11,25 +11,23 @@
  * - 不重复描述命令：动作表直接来自页面的 `commands`（就是 CommandBar 的按钮），
  *   命令 ID 就是 `CommandItem.key`，另维护一份清单必然对不上。
  * - **表格的读能力全部来自 `createTableBridge`**：列目录、行数、排序、按行号取数据都在
- *   那一层。这里只补业务部分（筛选条件、选中行、命令条）。
+ *   那一层。这里只补业务部分（选中行、命令条）。
+ *
+ * 筛选也全部由表桥负责 —— 本页**没有独立查询表单**（整表一次取回、筛选只在前端隐掉几行），
+ * 页面上那排条件就是 `FilterTable` 的筛选面板，与 `filters` 是同一份 state。
+ * 所以这里**不设 `query`**：再造一份 `query.set` 只会得到「同一批条件两条路、口径还不一样」，
+ * 枚举候选值也不会有（列上 `filterType` 才会自动生成 `data.filter.options`）。
  */
 
 import type {YupaiOrder} from '@/api';
 import type {CommandItem} from '@/components/CommandBar';
 import type {FilterTableApi} from '@/components/grid-table';
-import type {UIField, UIGuide, UISnapshotData} from '@/pages/agent/protocol';
+import type {UIGuide, UISnapshotData} from '@/pages/agent/protocol';
 import {createTableBridge} from '@/pages/agent/ui-bridge';
 import type {UIBridgeHandler, UIBridgeHost} from '@/pages/agent/ui-bridge';
 import {toStringOrEmpty} from '@/utils';
 import {COLUMNS} from './columns';
 import {MACHINE_SIZE_FIELD_HINTS, MACHINE_SIZE_GUIDE_TERM} from './machineSize';
-
-export interface YupaiOrderFilter {
-    WorkPlace?: string,
-    OrderCode?: string,
-    YPDate?: string,
-    Ywy?: string,
-}
 
 /**
  * 页面自述：告诉 agent 这一页该怎么操作。
@@ -46,34 +44,27 @@ const PREORDER_GUIDE: UIGuide = {
         '问「12寸960针机器有多少量」这类尺码分布时，把对应列加进 data.page 的 fields：' +
             '12/960 = MCSize1、13/1152 = MCSize3（完整对应见术语「尺码分布(寸/针机型)」）',
         '要看表格上没显示的字段（主键、分批明细、状态位等）或核对整单：用 data.row 传 rowId 取完整一行',
-        '改查询条件用 query.set（参数名见该 action 的 params），它会重新查库，等列表变成你要的范围再动单据',
-        '只想在已查回的列表里临时只看某几类（不重新查库）用 data.filter；两种条件都会体现在 tables[0].filters 与 total 上',
+        '筛列表用 data.filter（列上配了 filterType 的都能筛，页面没有另外的查询条件）：' +
+            '枚举值直接给值（多个用逗号）、文本给关键字、日期写「起~止」如 2026-11-01~2026-11-13',
+        '预排日期是区间：要给一段就传「起~止」，只给一个日期 = 只筛那一天；只卡一头就只传那一端',
+        '不知道产地 / 业务员有哪些值就用 data.filter.options 取候选值，别猜（猜错是 0 行，看起来像「没数据」）',
         '删除 / 发布 / 分批 / 复制 / 设置 要求先选中行：用 data.select 传 rowIds（取 data.page 或 data.active 里的 rowId）',
         '新增 / 编辑 会打开表单弹窗，弹出后快照会切成表单那一层（见它自己的 guide）',
     ],
     terms: {
-        生产产地: 'WorkPlace，只可选「越南工厂,义乌工厂」',
+        生产产地: 'WorkPlace，只有「越南工厂 / 义乌工厂」两个值，用 data.filter 筛',
+        预排日期: 'YPDate（日期列）；筛选给「起~止」，两端都含当天',
         rowId: '单据的业务主键（字段名见 data.rowKey，一般是 ID；不用行号：排序一变行号就全错）',
         第几条: '用户说的「第 N 条」= data.page 的 offset N-1，与屏幕行号一致（排序后）',
         '尺码分布(寸/针机型)': MACHINE_SIZE_GUIDE_TERM,
     },
     cautions: [
         '命令被禁用时先看 disabledReason，不要反复重试',
-        'data.select 只认当前显示里的行：目标被筛掉了就先用 query.set 或 data.filter.clear 放宽条件',
+        'data.select 只认当前显示里的行：目标被筛掉了就先用 data.filter.clear 放宽条件',
         'data.total 是屏幕行数：含分组时的组行（isGroupRow）与底部统计行（summaryRow），回答「共几条」时只数明细行',
         '行号只在当前排序 / 筛选下成立：改条件或用户重新排序后要重新取，别拿旧行号做删除等操作',
     ],
 };
-
-/** 把 agent 传来的查询参数收敛成查询条件：只认已知字段，避免脏值进 state */
-function toQueryPatch(params: Record<string, unknown>): YupaiOrderFilter {
-    const patch: YupaiOrderFilter = {};
-    if (typeof params.Ywy === 'string') patch.Ywy = params.Ywy;
-    if (typeof params.OrderCode === 'string') patch.OrderCode = params.OrderCode;
-    if (typeof params.WorkPlace === 'string') patch.WorkPlace = params.WorkPlace;
-    if (typeof params.YPDate === 'string') patch.YPDate = params.YPDate;
-    return patch;
-}
 
 /**
  * 等页面把选中态落回 state。
@@ -98,25 +89,8 @@ async function waitForActiveRow(
 }
 
 /**
- * 页面级的**数据查询条件**（顶部查询表单）—— 改完会重新查库。
- *
- * 与表上的 `filters` 分工不同：那是列头筛选面板（纯前端隐掉几行），
- * 由表桥自动读写成 `tables[].filters`，本页**一行代码都不用写**；
- * 这里只负责「查哪批数据」，命令是 `query.set`。
- *
- * 同一份数据既当「当前值」发布，也当命令的参数声明 —— 一处维护，
- * 不会出现「快照里有这个条件、命令里却没有」这种对不上的情况。
+ * 页面交给桥的东西：只有状态与能力，没有桥的结构
  */
-function currentQuery(filter: YupaiOrderFilter): UIField[] {
-    return [
-        {id: 'OrderCode', label: '订单号', type: 'text', value: filter.OrderCode ?? ''},
-        {id: 'Ywy', label: '业务员', type: 'text', value: filter.Ywy ?? ''},
-        {id: 'WorkPlace', label: '生产产地', type: 'text', value: filter.WorkPlace ?? ''},
-        {id: 'YPDate', label: '预排日期', type: 'text', value: filter.YPDate ?? ''},
-    ];
-}
-
-/** 页面交给桥的东西：只有状态与能力，没有桥的结构 */
 export type YupaiOrderBridgeContext = {
     /** 当前 View（可能带子级，菜单里配的就是它） */
     view: string;
@@ -126,12 +100,6 @@ export type YupaiOrderBridgeContext = {
     activeRow: YupaiOrder | null;
     /** 选中行数（只驱动 disabled，行数据向表格要） */
     activeRowCount: number;
-    /**
-     * 预订单过滤
-     */
-    filter: YupaiOrderFilter;
-    /** 用新条件重新查询：页面负责落 state 并拉数据 */
-    applyFilter: (next: YupaiOrderFilter) => Promise<void>;
     /**
      * 取表格实例（`() => tableRef.current`）。
      *
@@ -152,7 +120,7 @@ export type YupaiOrderBridgeContext = {
  * 装配本页的界面桥宿主。
  *
  * 吃的是**取值函数**而不是 ctx 对象本身：桥的 snapshot / handler 都在「被调用的那一刻」
- * 才去读页面状态。宿主对象因此可以长期不变，而读到的永远是最新的 query、选中行与命令表
+ * 才去读页面状态。宿主对象因此可以长期不变，而读到的永远是最新的选中行与命令表
  * （这与 `registerPageHost` 存 getter 而不是存快照是同一个理由）。
  */
 export function createYupaiOrderBridge(read: () => YupaiOrderBridgeContext): UIBridgeHost {
@@ -194,7 +162,7 @@ export function createYupaiOrderBridge(read: () => YupaiOrderBridgeContext): UIB
         ],
         columnHints: {
             WorkPlace: '可选值：越南工厂 / 义乌工厂',
-            YPDate: '预排日期，格式 YYYY-MM-DD',
+            YPDate: '预排日期，格式 YYYY-MM-DD；筛选按区间给（2026-11-01~2026-11-13）',
             ...MACHINE_SIZE_FIELD_HINTS,
         },
         // 页面工具栏的 disabled 读 activeRow（React state），选中后要等它落地再回执
@@ -209,7 +177,6 @@ export function createYupaiOrderBridge(read: () => YupaiOrderBridgeContext): UIB
      */
     const snapshot = (): UISnapshotData => {
         const ctx = read();
-        const query = currentQuery(ctx.filter);
         return {
             view: ctx.view,
             title: '计划管理 > 预订单 > 预订单管理',
@@ -226,28 +193,18 @@ export function createYupaiOrderBridge(read: () => YupaiOrderBridgeContext): UIB
                     // 本页命令的 disabled 几乎都来自「没有选中行」，写清原因省得模型反复试错
                     disabledReason: item.disabled ? '需要先选中一行：用 data.select 传 rowIds' : undefined,
                 })),
-                // 取数 / 取整行 / 选中 / 筛选（data.filter）：与业务无关，全在通用表格桥里
+                /*
+                 * 取数 / 取整行 / 选中 / 筛选（data.filter、filter.clear、filter.options）
+                 * 全部来自表桥：列上配了 filterType 就有，页面零代码。
+                 * 本页没有页面级查询，所以这里**只有**表桥的命令，没有 query.set。
+                 */
                 ...tableBridge.actions(),
-                {
-                    /*
-                     * 查询条件改的是「查哪批数据」，这个语义只有页面知道（要发请求），
-                     * 所以命令也由页面提供；表上的筛选则相反，列上配了 filterType 就全自动。
-                     */
-                    id: 'query.set',
-                    label: '设置查询条件',
-                    group: 'filter' as const,
-                    params: query.map((field) => ({
-                        name: field.id,
-                        type: field.type,
-                        hint: field.label,
-                    })),
-                },
             ],
-            query,
             /*
              * 单表页面也是数组：表格段只有一个容器（`tables`），模型不用记两套位置。
              *
-             * 表的筛选由桥自动读写（列上配了 filterType 就有），这里不用喂。
+             * 筛选也在表段里（`filters`，由桥自动读写）：这一页的筛选就是列头面板，
+             * 没有「查哪批数据」的页面级条件 —— 别在页面层再造一份，两套口径迟早打架。
              * 选中态用页面这份 —— 表格判定的激活行未必是业务认可的
              * （点到底部统计行时，页面算「没选中」），所以走 `selection` 覆写而不是让桥自己派生。
              */
@@ -338,20 +295,11 @@ function buildHandlers(read: () => YupaiOrderBridgeContext): Record<string, UIBr
         };
     });
 
-    /**
-     * 数据查询：改条件并按新条件重新加载。
-     *
-     * 这里等查询真的返回再回执：否则补丁里的 `total` 还是旧行数，
-     * 模型会以为查询没生效（页面的 useEffect 也会因 query 变化再拉一次，
-     * 两个请求内容一致，真实实现应收敛成一条加载路径）。
-     *
-     * 表上的筛选（`data.filter`）不走这里 —— 它由表格桥自动处理，只在前端隐掉几行。
+    /*
+     * 没有 `query.set`：本页的筛选全部是表桥的 `data.filter`（列上配了 filterType 就自动有），
+     * 页面侧不再维护一份「筛选条件」并自己 setFilters —— 那样会把用户在面板里筛的其它列
+     * 一起冲掉，而且枚举候选值、日期区间都得在页面里再实现一遍。
      */
-    handlers['query.set'] = async (params) => {
-        const ctx = read();
-        await ctx.applyFilter({...ctx.filter, ...toQueryPatch(params)});
-        return `已按 ${JSON.stringify(params)} 重新查询`;
-    };
 
     return handlers;
 }

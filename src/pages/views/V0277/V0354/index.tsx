@@ -348,11 +348,19 @@ const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({view, trail}) => {
      * 只落 state，请求仍由 `loadData` 发 —— 这里把 resolve 交给它，等它落地再回执。
      * `{...nextQuery}` 换一个新引用是必须的：内容相同时 React 认为没变就不重渲染，
      * `loadData` 不重建、effect 不跑，promise 永远等不到。
+     *
+     * 同时把条件写回查询条：桥改的是页面 state，Form 的 store 不知道 ——
+     * 不回写的话物料/项目输入框还是旧值，用户一按「查询」就把 agent 的条件覆盖回去。
+     * 字段名两边不同（查询条的 `materialCode` ↔ 请求的 `PackMaterialCode`），映射只在这一处。
      */
     const reloadList = useCallback(
         (nextQuery: packBomMatrixListReq, nextPage: number): Promise<MatrixListResult> =>
             new Promise<MatrixListResult>((resolve) => {
                 pendingListRef.current = resolve;
+                form.setFieldsValue({
+                    materialCode: nextQuery.PackMaterialCode ?? '',
+                    ProjectCode: nextQuery.ProjectCode ?? '',
+                });
                 setQuery({...nextQuery});
                 setPage(nextPage);
                 window.setTimeout(() => {
@@ -361,7 +369,7 @@ const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({view, trail}) => {
                     resolve({ok: false, page: nextPage, rows: 0, total: 0});
                 }, LIST_REQUEST_TIMEOUT_MS);
             }),
-        [],
+        [form],
     );
 
     /** 交给桥的状态与能力：桥通过取值函数读它，不直接持有 */

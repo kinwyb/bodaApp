@@ -49,7 +49,8 @@ const BOM_MATRIX_GUIDE: UIGuide = {
         '**选中主表某一行之后，下方三张表才是这个矩阵的明细**：在此之前它们装的是上一个矩阵的数据',
         '主表是服务端分页：list.page 与 list.select 只认当前页显示的行；' +
         '看下一页用 list.goto 传 page（从 1 起），换页后行号会变，要重新 list.page 取 rowId',
-        '要按物料号找矩阵用 query.set（会重新查库、回到第 1 页）；只想在当前页里临时收窄用 list.filter（不查库）',
+        '要按物料号 / 项目找矩阵用 query.set（两个条件可单独给，会重新查库并回到第 1 页）；' +
+        '只想在当前页里临时收窄用 list.filter（不查库）',
         '三张明细表是**同一批子项行的三种看法**，但界面同一时刻只渲染一个标签页：' +
         '要读哪一张先用 tab.switch 切过去，切过去之后那张表的 total 才是真的',
         '取数各用各的前缀：子项物料 items.page、配色 colors.page、配码 sizes.page（行号从 0 起，与屏幕一致）',
@@ -327,6 +328,17 @@ function currentQuery(query: packBomMatrixListReq): UIField[] {
             value: query.PackMaterialCode ?? '',
             hint: '按包装物料编码模糊查；留空 = 不限。改完会重新查库并回到第 1 页',
         },
+        {
+            /*
+             * 查询条上「物料」后面还有一个「项目」输入框（页面 `onFinish` 两个条件一起发请求）：
+             * 不提它的话，agent 既读不到当前项目条件，也没法改。
+             */
+            id: 'ProjectCode',
+            label: '项目',
+            type: 'text',
+            value: query.ProjectCode ?? '',
+            hint: '按项目编码查；留空 = 不限。改完会重新查库并回到第 1 页',
+        },
     ];
 }
 
@@ -414,6 +426,15 @@ export function createBomMatrixBridge(read: () => BomMatrixBridgeContext): UIBri
                     name: 'PackMaterialCode',
                     type: 'text',
                     hint: '包装物料编码（模糊匹配）；传空串 = 不再按物料过滤',
+                },
+                {
+                    /*
+                     * 查询条上的「项目」：页面 `onFinish` 一开始就把它写进请求
+                     * （`{PackMaterialCode, ProjectCode}`），桥漏了它 agent 就既看不到、也改不了。
+                     */
+                    name: 'ProjectCode',
+                    type: 'text',
+                    hint: '项目编码；传空串 = 不再按项目过滤',
                 },
             ],
         },
@@ -509,10 +530,18 @@ export function createBomMatrixBridge(read: () => BomMatrixBridgeContext): UIBri
                 if (code) next.PackMaterialCode = code;
                 else delete next.PackMaterialCode;
             }
+            if (params.ProjectCode !== undefined) {
+                const project = toStringOrEmpty(params.ProjectCode).trim();
+                if (project) next.ProjectCode = project;
+                else delete next.ProjectCode;
+            }
 
             // 换了条件一定回第 1 页：留在第 5 页看新条件的结果，多半是空的
             const result = await ctx.reloadList(next, 1);
-            const scope = next.PackMaterialCode ? `物料「${next.PackMaterialCode}」` : '全部物料';
+            const scope = [
+                next.PackMaterialCode ? `物料「${next.PackMaterialCode}」` : '',
+                next.ProjectCode ? `项目「${next.ProjectCode}」` : '',
+            ].filter(Boolean).join('、') || '全部';
             if (!result.ok) {
                 return `已按${scope}发起查询，但请求失败了（列表还是原来的样子）：先确认网络 / 后端，再重试一次`;
             }

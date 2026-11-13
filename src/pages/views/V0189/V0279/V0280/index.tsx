@@ -17,8 +17,8 @@ import {emitActiveUIEvent, useUIBridgeHost} from '@/pages/agent/ui-bridge';
 import type {ViewPageProps} from '@/pages/types';
 import {useTabs} from '@/store/tabs';
 import {yupaiService} from '@/services/yupai.ts';
-import {isBlank, toStringOrEmpty} from '@/utils';
-import {createYupaiOrderBridge, type YupaiOrderBridgeContext, type YupaiOrderFilter} from './bridged';
+import {isBlank} from '@/utils';
+import {createYupaiOrderBridge, type YupaiOrderBridgeContext} from './bridged';
 import {buildPreorderColumns} from './columns';
 import YupaiOrderEdit from './models/yupaiOrderEdit';
 import YupaiOrderMasterDetail from './models/yupaiOrderMasterDetail.tsx';
@@ -370,48 +370,15 @@ const YupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
     }, []);
 
     /**
-     * 应用桥传来的筛选条件：收敛成 FilterModel 落到 state，表格按它就地过滤。
-     *
-     * 这里是**纯前端筛选**，没有请求可等 —— 保留 async 只是为了让桥那边照常 await 回执；
-     * 条件一旦落到 state，下一次读快照看到的就是新结果。
-     */
-    const applyFilter = useCallback(
-        async (filter: YupaiOrderFilter) => {
-            const next: FilterModel = {};
-            if (filter.WorkPlace) {
-                next.WorkPlace = {values: [filter.WorkPlace]};
-            }
-            if (filter.YPDate) {
-                next.YPDate = {min: filter.YPDate, max: filter.YPDate};
-            }
-            if (filter.OrderCode) {
-                next.OrderCode = {text: filter.OrderCode};
-            }
-            if (filter.Ywy) {
-                next.Ywy = {values: [filter.Ywy]};
-            }
-            setFilters(next);
-        },
-        [],
-    );
-
-    const brigdeFilter = useMemo((): YupaiOrderFilter => {
-        const reg = {
-            WorkPlace: filters.WorkPlace?.values?.[0] ?? '',
-            YPDate: toStringOrEmpty(filters.YPDate?.min),
-            OrderCode: filters.OrderCode?.text ?? '',
-            Ywy: filters.Ywy?.values?.[0] ?? '',
-        }
-        return reg
-    }, [filters])
-
-    /**
      * 把表格实例交给界面桥。
      *
      * 桥按**显示行号**取数据（用户说「第 5 条」就是这里取到的第 5 行）、按主键选中行，
      * 而行号跟随排序 / 分组 / 统计行 —— 这些状态只存在于表格里，所以给的是取值函数
      * 而不是一份数据副本。**页面不再自己复算「筛选后有哪些行」**：那份复算与表格真实显示
      * 很容易不一致（分组收起、统计行都不在页面视野里），有效性判断统一交给表格。
+     *
+     * 筛选也一样交给表格（`filters` / `setFilters` 由表桥直接读写）：本页没有「查哪批数据」
+     * 的页面级条件，`data.filter` 就是面板上那排筛选 —— 页面不必再维护一份筛选映射。
      */
     const readTable = useCallback(() => tableRef.current, []);
 
@@ -425,8 +392,6 @@ const YupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
             commands,
             activeRow,
             activeRowCount,
-            filter: brigdeFilter,
-            applyFilter,
             readTable,
             readActiveRow,
         }),
@@ -435,8 +400,6 @@ const YupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
             commands,
             activeRow,
             activeRowCount,
-            applyFilter,
-            brigdeFilter,
             readTable,
             readActiveRow,
         ],
@@ -445,7 +408,7 @@ const YupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
     /**
      * 界面桥：把「本页有哪些命令、当前看到什么」发布给 agent。
      *
-     * 装配全在 `./bridged.ts`，这里只交出状态与能力（含 applyQuery）。
+     * 装配全在 `./bridged.ts`，这里只交出状态与能力。
      * 那个文件的存在即「本页接入了界面桥」的标记，工作台的导航清单靠它判定。
      */
     const bridge = useMemo(() => createYupaiOrderBridge(() => bridgeContext), [bridgeContext]);

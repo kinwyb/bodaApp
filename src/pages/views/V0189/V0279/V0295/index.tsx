@@ -80,13 +80,18 @@ const YupaiCompleteGroupPage: React.FC<ViewPageProps> = ({view, trail}) => {
     const applyQuery = useCallback((next: YupaiCompleteGroupQuery): Promise<void> =>
         new Promise<void>((resolve) => {
             pendingQueryRef.current = resolve;
+            /*
+             * 回写查询条：桥改的是 state，Form 的 store 不知道。
+             * 不回写的话组织下拉还停在原值，用户一按「查询」就把 agent 的设置覆盖回去。
+             */
+            form.setFieldsValue({org: next.org, orderCode: next.orderCode});
             setQuery({...next});
             window.setTimeout(() => {
                 if (pendingQueryRef.current !== resolve) return;
                 pendingQueryRef.current = null;
                 resolve();
             }, 12000);
-        }), []);
+        }), [form]);
 
     const records = useMemo(
         () => [...orders].sort((left, right) => {
