@@ -345,6 +345,26 @@
   padding: 20px 24px 16px;
 }
 
+/* 消息头像：助手用品牌蓝青渐变，用户用暖橙渐变，避免默认灰白头像混在气泡里 */
+.agent-bubble-list .agent-avatar {
+  flex: 0 0 auto;
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 0 2px 6px rgba(15, 35, 70, 0.14);
+}
+
+.agent-bubble-list .agent-avatar .anticon {
+  color: #fff;
+}
+
+.agent-bubble-list .agent-avatar-ai {
+  background: linear-gradient(135deg, #1677ff 0%, #36cfc9 100%);
+}
+
+.agent-bubble-list .agent-avatar-user {
+  background: linear-gradient(135deg, #fa8c16 0%, #ffc53d 100%);
+}
+
 /* 助手回答：白底 + 淡边框的轻容器，比灰底更清爽；宽度由气泡角色配置给（跟随内容，最多 80%） */
 .agent-answer {
   display: flex;

@@ -30,7 +30,7 @@ import { composeUIEventMessage } from '../protocol';
 import { composeSteerMessage, steerGuidanceOf } from '../commands';
 import { createInitialConversations } from '../mock/fixtures';
 import type { AgentChatState } from './actions';
-import { createConversation, nextMessageKey } from './actions';
+import { createConversation, DEFAULT_LABEL, nextMessageKey } from './actions';
 import { chatReducer } from './reducer';
 import { createStreamBuffer } from './stream-buffer';
 import {
@@ -52,12 +52,12 @@ function sendAgentOf(conversation: AgentConversation | undefined, selected: stri
 }
 
 function createInitialState(): AgentChatState {
-  // 演示模式给几条带内容的会话；真实模式只留一个空会话，
-  // 等 hello 到了再「认领」服务端的当前对话（见下面的 adopted 逻辑），
-  // 否则首页会混进演示数据、也看不到后端已经存在的历史。
+  // 两种模式都默认打开空白新对话。演示模式额外保留几条演示会话；
+  // 真实模式的历史由用户从会话列表主动打开，不在首屏自动续接最近会话。
   if (agentTransportMode() === 'mock') {
     const conversations = createInitialConversations();
-    return { conversations, activeKey: conversations[0].key };
+    const draft = createConversation();
+    return { conversations: [draft, ...conversations], activeKey: draft.key };
   }
   const conversation = createConversation();
   return { conversations: [conversation], activeKey: conversation.key };
@@ -418,12 +418,13 @@ export function useAgentChat(): AgentChatApi {
       temporaryRef.current = hello.temporary;
 
       /*
-       * 首屏草稿先认领 hello 的 sessionID：
-       * 临时页面靠它固定在自己的 viewer 会话；主页面刷新时也能从原会话继续。
+       * 普通页面首屏保持新对话，不认领 hello 带回的历史 sessionID ——
+       * 否则刷新 / 进入工作台会自动加载最近一条历史。历史由用户从会话列表主动打开。
+       * 临时页面仍固定在自己的 viewer 会话，继续走原来的绑定逻辑。
        */
       const active = stateRef.current;
       const conversation = active.conversations.find((item) => item.key === active.activeKey);
-      if (hello.sessionId && conversation && !conversation.sessionId) {
+      if (hello.temporary && hello.sessionId && conversation && !conversation.sessionId) {
         dispatch({
           type: 'bind',
           conversationKey: conversation.key,
@@ -535,6 +536,9 @@ export function useAgentChat(): AgentChatApi {
     const conversation = conversations.find((item) => item.key === activeKey);
     if (!conversation) return;
 
+    // 真实连接的纯本地新草稿没有可拉取的历史；演示模式仍按本地 key 回放脚本。
+    if (mode === 'websocket' && !conversation.sessionId && !conversation.threadId) return;
+
     if (!conversation.historyLoaded) {
       transport.history({
         conversationId: activeKey,
@@ -556,7 +560,7 @@ export function useAgentChat(): AgentChatApi {
         mode: 'append',
       });
     }
-  }, [connection, requestSessions, temporary, userId]);
+  }, [connection, mode, requestSessions, temporary, userId]);
 
   /** 提交一条用户消息，同时插入一条空的助手消息等待流式填充 */
   const send = useCallback((text: string, attachments?: AgentMessage['attachments']) => {
@@ -725,18 +729,24 @@ export function useAgentChat(): AgentChatApi {
   }, []);
 
   const switchConversation = useCallback((key: string) => {
+    const conversation = stateRef.current.conversations.find((item) => item.key === key);
+    // 会话可能刚被列表刷新合并 / 删除；不能把 activeKey 切到一个已不存在的草稿上。
+    if (!conversation) return;
+
     setUIEventCaptureEnabled(false);
     uiEventBufferRef.current = [];
     uiEventBatchInFlightRef.current = false;
     clearWaitConfirms();
     dispatch({ type: 'switch', key });
     // 切到一个还没拉过历史的会话：顺手拉一次（服务端也会因此订阅该会话）
-    const conversation = stateRef.current.conversations.find((item) => item.key === key);
     if (conversation?.agent && conversation.agent !== agentRef.current) {
       agentRef.current = conversation.agent;
       setAgentState(conversation.agent);
     }
-    if (conversation && !conversation.historyLoaded) {
+    if (
+      !conversation.historyLoaded &&
+      (mode === 'mock' || conversation.sessionId || conversation.threadId)
+    ) {
       transportRef.current?.history({
         conversationId: key,
         sessionId: conversation.sessionId,
@@ -744,7 +754,7 @@ export function useAgentChat(): AgentChatApi {
         mode: 'replace',
       });
     }
-  }, []);
+  }, [mode]);
 
   /** 往上翻页：用当前最早一条的 seq 作为 beforeSeq */
   const loadMore = useCallback(() => {
@@ -781,10 +791,20 @@ export function useAgentChat(): AgentChatApi {
   }, []);
 
   const handleCreate = useCallback(() => {
+    const existingDraft = stateRef.current.conversations.find(
+      (item) => !item.threadId && item.messages.length === 0 && item.label === DEFAULT_LABEL,
+    );
+
     setUIEventCaptureEnabled(false);
     uiEventBufferRef.current = [];
     uiEventBatchInFlightRef.current = false;
     clearWaitConfirms();
+
+    // 新窗口只保留一个：已有空草稿时直接切过去，不再制造新的本地 key。
+    if (existingDraft) {
+      dispatch({ type: 'switch', key: existingDraft.key });
+      return;
+    }
     dispatch({ type: 'create', conversation: createConversation() });
   }, []);
 

@@ -16,12 +16,12 @@ export type AgentPrompt = {
      * 留空则退回 description。
      */
     prompt?: string;
-  /**
-   * 图标名（schedule / bar-chart / line-chart / pie-chart / file-text /
-   * database / alert / tool / check / clock / search，见 PromptIcon）；
-   * 留空按 key 映射，再落到默认文档图标。
-   */
-  icon?: string;
+    /**
+     * 图标名（schedule / bar-chart / line-chart / pie-chart / file-text /
+     * database / alert / tool / check / clock / search，见 PromptIcon）；
+     * 留空按 key 映射，再落到默认文档图标。
+     */
+    icon?: string;
 };
 
 export const AGENT_PROMPTS: AgentPrompt[] = [
@@ -52,7 +52,7 @@ export const AGENT_PROMPTS: AgentPrompt[] = [
 
 /** 欢迎页与参数抽屉里展示的能力 */
 export const AGENT_CAPABILITIES: AgentPrompt[] = [
-    {key: 'sql', label: '数据查询', description: '自然语言转查询条件，直接落到现有表格视图'},
+    {key: 'sql', label: '界面操作', description: '自然语言描述操作系统界面功能，直接展示结果用于人机互动'},
     {key: 'tool', label: '工具调用', description: '串接多条业务接口，结果带完整调用链'},
     {key: 'history', label: '历史会话', description: '按 session.history 拉回轮次，支持翻页与增量补发'},
 ];

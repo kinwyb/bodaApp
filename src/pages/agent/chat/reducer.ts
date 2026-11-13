@@ -25,6 +25,11 @@ function isDraft(conversation: AgentConversation): boolean {
   return !conversation.threadId;
 }
 
+/** 还没落库、也没说过话的「新对话」占位；列表里最多保留一个。 */
+function isNewDraft(conversation: AgentConversation): boolean {
+  return isDraft(conversation) && conversation.messages.length === 0 && conversation.label === DEFAULT_LABEL;
+}
+
 /**
  * 从历史线程里取用量。
  *
@@ -57,13 +62,24 @@ function usageFromHistory(
 export function chatReducer(state: AgentChatState, action: AgentChatAction): AgentChatState {
   switch (action.type) {
     case 'switch':
-      return { ...state, activeKey: action.key };
+      return state.conversations.some((conversation) => conversation.key === action.key)
+        ? { ...state, activeKey: action.key }
+        : state;
 
     case 'create': {
-      // 新建时清掉别的「还没落库、也没说过话」的草稿，避免列表里堆一串「新对话」
+      // 新窗口只保留一个：已有空草稿就复用并置顶，避免重复点击堆出多条「新对话」。
+      const existing =
+        state.conversations.find((conversation) => isNewDraft(conversation) && conversation.key === state.activeKey) ??
+        state.conversations.find(isNewDraft);
       const kept = state.conversations.filter(
-        (conversation) => !isDraft(conversation) || conversation.messages.length > 0,
+        (conversation) => !isNewDraft(conversation) || conversation.key === existing?.key,
       );
+      if (existing) {
+        return {
+          conversations: [existing, ...kept.filter((conversation) => conversation.key !== existing.key)],
+          activeKey: existing.key,
+        };
+      }
       return { conversations: [action.conversation, ...kept], activeKey: action.conversation.key };
     }
 
@@ -166,8 +182,20 @@ export function chatReducer(state: AgentChatState, action: AgentChatAction): Age
       const previous =
         mode === 'append' ? knownServer.filter((item) => !fromServerKeys.has(item.key)) : [];
       const leftoverDrafts = drafts.filter((draft) => !claimed.has(draft.key));
+      // 兜底保证列表里只有一个空白「新对话」占位；已发过消息的草稿仍保留。
+      const newDrafts = leftoverDrafts.filter(isNewDraft);
+      const keptNewDraft =
+        newDrafts.find((draft) => draft.key === state.activeKey) ?? newDrafts[0];
+      const otherDrafts = leftoverDrafts.filter(
+        (draft) => !isNewDraft(draft) || draft.key !== keptNewDraft?.key,
+      );
 
-      const merged = [...leftoverDrafts, ...fromServer, ...previous];
+      const merged = [
+        ...(keptNewDraft ? [keptNewDraft] : []),
+        ...otherDrafts,
+        ...fromServer,
+        ...previous,
+      ];
       if (merged.length === 0) return state;
       const activeKey = merged.some((item) => item.key === state.activeKey)
         ? state.activeKey

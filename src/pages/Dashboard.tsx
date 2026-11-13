@@ -2,13 +2,14 @@ import React from 'react';
 import {Card, Col, Row, Statistic} from 'antd';
 import {FileTextOutlined, RiseOutlined, ShoppingCartOutlined, UserOutlined} from '@ant-design/icons';
 import {useTabs} from '@/store/tabs';
+import {isDebugEnv} from "@/utils";
 
 const Dashboard: React.FC = () => {
     const {openView} = useTabs();
 
     return (
         <div style={{padding: 0}}>
-            <Row gutter={[16, 16]}>
+            <Row gutter={[16, 16]} hidden={!isDebugEnv}>
                 <Col xs={24} sm={12} lg={6}>
                     <Card
                         hoverable
@@ -57,8 +58,8 @@ const Dashboard: React.FC = () => {
                 </Col>
             </Row>
             <Card title="系统公告" style={{marginTop: 16}}>
-                <p>欢迎使用 BodaWay 企业管理后台系统。</p>
-                <p>本系统基于 React + TypeScript + Ant Design 6 构建。</p>
+                <p>欢迎使用</p>
+                <p>本系统内嵌一个AI Agent用于辅助用户使用系统功能。</p>
             </Card>
         </div>
     );
