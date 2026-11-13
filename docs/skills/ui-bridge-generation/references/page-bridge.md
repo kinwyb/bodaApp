@@ -88,6 +88,11 @@ export function createXxxBridge(read: () => XxxBridgeContext): UIBridgeHost {
 
 一页多表时给每张表不同 `name`。所有表的目录都常驻 `tables[]`，切换标签页只改变 `visible/readable`，不要换成另一份宿主。
 
+列的 `filterType` 同时决定**快照里 `filters` 的写法**（`<name>.filter` 的 `value` 是同一个口径）：
+`enum` 逗号分隔多值、`text` 给关键字、`date` / `number` 写「起~止」（`2026-11-01~2026-11-13`，
+单值 = 只筛那一天）。这和页面 `RangePicker` 的 `{min, max}` 一一对应 —— 页面对 `filters`
+只读写 `{min, max}`，**不要在页面里再压成单值**，否则快照与界面同时对不上。
+
 ## Query
 
 `query` 是改完会重新请求后端的条件，命令通常叫 `query.set`。
@@ -98,6 +103,82 @@ export function createXxxBridge(read: () => XxxBridgeContext): UIBridgeHost {
 - 后端分页页面要把查询条件重置到第 1 页，并把匹配总数写进回执。
 
 表内 `filterType` 不是 query。前者只隐藏当前数据，后者重新请求。
+
+### 没有独立查询表单的页面：不要造 query
+
+判据很简单 —— **页面上那排条件是不是 `FilterTable` 的筛选面板**（同一份 `filters` state、
+整表一次取回、不发请求）。如果是，就**不要发布 `query` / `query.set`**，全部交给列上的 `filterType`。
+V0280（预订单管理）一开始造了一份 `query`，结果是同一批条件两条路：枚举列在表桥里有候选值、
+在 `query` 里只能当文本（传「义乌」静默 0 行）；`query.set` 还会用 `setFilters(新条件)`
+把用户在面板上筛的其它列一起冲掉。
+
+```ts
+// ❌ 页面本没有查询表单，却在桥里再造一份「查询条件」
+{id: 'WorkPlace', label: '生产产地', type: 'text', value: filter.WorkPlace ?? ''}
+//    → 枚举值没有候选、传错就是 0 行；applyFilter 里 setFilters(next) 还会清掉别列的筛选
+
+// ✅ 只留表桥的命令（列上配了 filterType 就自动有）
+actions: [...ctx.commands.map(toAction), ...tableBridge.actions()],
+tables: [tableBridge.data({active, selection})],
+```
+
+写成这样，`data.filter` 自然带上枚举候选值（`data.filter.options`）、日期「起~止」与按项合并；
+guide 里也就只需要教一遍「怎么筛」。
+
+只有当页面**真有**一套独立的、会重新请求后端的查询表单（V0121 / V0124 / V0288 这类）时，
+才需要 `query`：那套条件与表筛选是两件事，语义只有页面知道。
+
+### 日期与数值区间：一个条件拆成两个参数
+
+页面上的日期控件基本都是区间（`DatePicker.RangePicker`，`FilterModel` 存 `{min, max}`）。
+**页面级 query 里不能只给一个日期参数**：一个字符串只能表达「某一天」，用户在界面上筛的
+`2026-11-01 ~ 2026-11-13` 经过桥就只剩一天。
+
+反例（V0280 早期就长这样：桥给单值，页面再 `min = max = 值`，两头各错一半）：
+
+```ts
+// ❌ 快照与参数只有一项，区间信息在源头就没了
+{id: 'YPDate', label: '预排日期', type: 'text', value: filter.YPDate ?? ''}
+// ❌ 页面侧再把它压成单日，界面上筛的一段全部丢失
+next.YPDate = {min: filter.YPDate, max: filter.YPDate};
+```
+
+正例（V0121 / V0124 / V0126 一类：查询表单里就是一段日期）：
+
+```ts
+// 起止各一个字段，type 用 date
+{id: 'startDate', label: '开始日期', type: 'date', value: query.startDate,
+ hint: '格式 YYYY-MM-DD，含当天；留空传空串 = 不限下限'},
+{id: 'endDate', label: '结束日期', type: 'date', value: query.endDate,
+ hint: '格式 YYYY-MM-DD，含当天；留空传空串 = 不限上限'},
+
+// 页面侧：两端一起回写表单，否则查询条还停在旧值（见下「回写控件」）
+form.setFieldsValue({dateRange: [toDayjs(next.startDate), toDayjs(next.endDate)]});
+```
+
+- 命名：查询表单本身就是一段日期的用 `startDate` / `endDate`；**列筛选也是页面 query** 的页面，
+  字段名跟着列名走（`YPDate` → `YPDateFrom` / `YPDateTo`）。同一列不要同时留单值参数当兼容，
+  真要做就按「起止同一天」解释。
+- **`hint` 必须写**：格式、是否含当天、怎么清空。不写时 `params` 只剩字段标签，模型看不出这是区间的一端。
+- 快照与页面 state **两端都取**（`min` 与 `max` 都要回填），否则界面上已经是
+  `2026-11-01~2026-11-13`，快照却只报一头。
+- `query.set` 通常是**按项合并**（只改传入的项）：所以要么在 label / guide 里写清「只改传入项，
+  清空传空串」，要么改成整份替换 —— 不说清就会出现「只传了起、旧止还在」的静默收窄。
+- 起 > 止时直接回一句人话回绝（V0121 `validateQuery` / V0288「结束不能早于开始」都是这个做法），
+  别让它静默筛出 0 行。
+
+### 回写控件：`applyQuery` 不能只 `setQuery`
+
+桥改的是页面 state，`Form` 的 store 不知道。只 `setQuery` 的后果：列表按新条件刷新了，
+查询条还显示旧值；用户随后点一次「查询」，就按旧值把 agent 刚改的条件覆盖回去。
+
+```ts
+// ✅ 与 setQuery 同一处回写（V0121 / V0122 / V0123 / V0288 都这么做）
+form.setFieldsValue({startDate: toDayjs(next.startDate), endDate: toDayjs(next.endDate), orderCode: next.orderCode});
+```
+
+比回写更彻底的是**把控件直接受控在 state 上**（V0297 的年份/图表：`value={query.year}`），
+它的注释专程写过这个坑 —— 两种都行，但**不能两样都不做**。
 
 ## 业务命令
 

@@ -13,6 +13,12 @@
 - [ ] 快照只给目录，不塞整表数据行。
 - [ ] 单表也在 `tables[]` 中；多表 name 唯一。
 - [ ] 页面级查询在 `query`，表内筛选留给 `filterType`。
+- [ ] 页面**没有**独立查询表单（只有筛选面板）时，桥里没有 `query` / `query.set` —— 全部交给 `filterType`。
+- [ ] `applyQuery` 除了 `setQuery`，还回写了查询控件（`form.setFieldsValue`）或控件直接受控在 state 上。
+- [ ] 日期 / 数值区间拆成**起止两个参数**（`type: 'date'` 或 `'number'`），没有压成单值；
+      `hint` 写清格式、「含当天」与「清空传空串」。
+- [ ] 页面侧区间两端都读写（`FilterModel` 的 `min` / `max`），写回只填有值的一端。
+- [ ] `query.set` 的合并语义（只改传入项 / 整份替换）在 label 或 guide 里说清；起晚于止会被回绝。
 - [ ] 异步标签页/折叠区正确表达 `visible` 与 `readable`。
 - [ ] 分组统计行、服务端分页总数、当前页行数没有被混淆。
 - [ ] 没有为了列表首屏接口阻塞 `ready()`。
@@ -25,6 +31,7 @@
 - [ ] 关键字段有 `columnHints`。
 - [ ] 依赖选中态的业务按钮配置了 `waitSelected` 或等价等待。
 - [ ] enum 过滤依赖 `.filter.options`，不把候选值塞进快照。
+- [ ] `date` / `number` 列的 `filterType` 与快照 `filters` 的「起~止」写法一致，页面没有另做一次单值转换。
 
 ## 命令
 

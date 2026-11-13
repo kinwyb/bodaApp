@@ -41,7 +41,8 @@ description: 为 bodaWay 页面生成、补全或审查 bridged.ts 界面桥。�
 列出 agent 此刻需要知道的东西：
 
 - `guide.summary/steps/terms/cautions`：页面功能、硬顺序、业务术语、陷阱。
-- `query`：改完会重新请求后端的页面级查询条件。
+- `query`：改完会重新请求后端的页面级查询条件。日期 / 数值这类区间条件**一项拆成起止两项**，
+  不能压成单个值（见 page-bridge.md「日期与数值区间」）。
 - `tables[]`：集合固定的所有表；单表也用数组。
 - `actions`：用户能点的业务命令与通用读/筛选/选中命令。
 - `events`：只声明真实用户交互需要主动通知 agent 的事件。
@@ -94,6 +95,11 @@ npx oxlint <本次修改文件>
 - 快照塞了数据行，或拿页面 `dataSource` 当显示行，导致“第 N 条”与用户屏幕不一致。
 - 页面复制了一份 `columns` 或 `CommandItem`，界面改了而桥没改。
 - `query.set` 只 setState 就返回，不等待请求落地，补丁里的行数仍是旧值。
+- 日期区间只给一个参数（`YPDate`）：页面控件是 `RangePicker`、存 `{min, max}`，用户筛的一段在桥里只剩一天。
+  区间要拆成 `xxxFrom` / `xxxTo` 两项，页面侧两端都读写（见 page-bridge.md「日期与数值区间」）。
+- 页面只有筛选面板（没有查询表单）却在桥里另造 `query`：同一批条件两条路，枚举列在 `query` 里没有候选值，
+  `query.set` 还会把用户筛的其它列冲掉。这种页面**不发布 query**，全走 `filterType`。
+- `applyQuery` 只 `setQuery`、不回写查询控件：列表换了、查询条还是旧值，用户一点「查询」就覆盖回去。
 - `ready()` 等首屏接口，导航被慢接口拖到超时。列表快照不需要等数据行。
 - 删除/发布只弹确认框，却把回执写成“已完成”。
 - 表单逐字段写 16 次，而不是 `form.setMany` 一次写入。

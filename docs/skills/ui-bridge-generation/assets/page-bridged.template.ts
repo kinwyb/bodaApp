@@ -23,6 +23,15 @@ function currentQuery(query: XxxQuery): UIField[] {
     return [
         {id: 'Keyword', label: '关键字', type: 'text', value: query.Keyword},
         // 枚举的 options 与 query.set 参数从同一份字段描述派生
+        /*
+         * 日期 / 数值区间：**一项拆成起止两项**。页面控件是 RangePicker（FilterModel 存 {min, max}），
+         * 给一个单值参数就只能表达「某一天」，用户在界面上筛的一段会丢掉一半。
+         * hint 要写清格式、含当天、怎么清空 —— 不写时 params 只剩标签，模型看不出这是区间的一端。
+         */
+        // {id: 'DateFrom', label: '日期(起)', type: 'date', value: query.DateFrom ?? '',
+        //  hint: '格式 YYYY-MM-DD，含当天；留空传空串 = 不限下限'},
+        // {id: 'DateTo', label: '日期(止)', type: 'date', value: query.DateTo ?? '',
+        //  hint: '格式 YYYY-MM-DD，含当天；留空传空串 = 不限上限'},
     ];
 }
 
@@ -30,6 +39,9 @@ function toQueryPatch(params: Record<string, unknown>, _fallback: XxxQuery): Par
     const patch: Partial<XxxQuery> = {};
     if (typeof params.Keyword === 'string') patch.Keyword = params.Keyword.trim();
     // 只认已知字段；数字、日期、枚举在这里收敛
+    // 区间是两项，各归各的键：只传一端就只改那一端（清空传空串），别把区间拼成一个字符串
+    // if (typeof params.DateFrom === 'string') patch.DateFrom = params.DateFrom;
+    // if (typeof params.DateTo === 'string') patch.DateTo = params.DateTo;
     return patch;
 }
 
