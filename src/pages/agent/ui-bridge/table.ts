@@ -28,6 +28,7 @@
 import type { ColumnSource, GridTableApi } from '@/components/grid-table';
 import type { FilterCondition, FilterModel } from '@/components/grid-table/TableFilter';
 import { isEmptyFilterCondition } from '@/components/grid-table/filtering';
+import { normalizeColumns } from '@/components/grid-table/columnBuilder';
 import { isBlank, toNumberOrZero, toStringOrEmpty } from '@/utils';
 import type {
   UIAction,
@@ -302,21 +303,100 @@ function isBlankCell(value: unknown): boolean {
   return value === null || value === undefined || value === '';
 }
 
+/** 列的显示格式化函数：与表格渲染共用同一份 fieldFormat，保证桥给的值 = 用户屏幕上的值 */
+type CellFormatter = (record: Record<string, unknown>) => unknown;
+
+/** 列上的 fieldFormat 可能是函数，也可能是 `{get, set}`（VTable FieldAssessor）；统一成函数 */
+function toCellFormatter(fieldFormat: unknown): CellFormatter | null {
+  if (typeof fieldFormat === 'function') return fieldFormat as CellFormatter;
+  if (fieldFormat && typeof fieldFormat === 'object') {
+    const get = (fieldFormat as { get?: unknown }).get;
+    if (typeof get === 'function') return get as CellFormatter;
+  }
+  return null;
+}
+
+/**
+ * 从归一化后的列定义收「字段 → 显示格式化函数」。
+ *
+ * 先 `normalizeColumns`：原始 `AppColumnDef` 会被 `buildColumns` 补上 dataType 推导的
+ * fieldFormat（date → formatDate、int → 取整等），已转换过的列原样保留 —— 于是这里拿到的
+ * 格式化函数与表格渲染用的是**同一份**。桥取数因此与界面显示一致：日期给本地 `YYYY-MM-DD`，
+ * 而不是 Dayjs 序列化出的 `2026-11-06T16:00:00.000Z`（那会让模型把 11-07 误读成 11-06）。
+ */
+function collectFormatters(columns: ColumnSource, formatters: Map<string, CellFormatter>): void {
+  const walk = (cols: unknown) => {
+    if (!Array.isArray(cols)) return;
+    for (const raw of cols) {
+      if (!raw || typeof raw !== 'object') continue;
+      const col = raw as {
+        field?: unknown;
+        fieldFormat?: unknown;
+        columns?: unknown;
+        children?: unknown;
+      };
+      const nested = Array.isArray(col.columns) ? col.columns : col.children;
+      if (nested) {
+        walk(nested);
+        continue;
+      }
+      if (typeof col.field !== 'string' || !col.field || formatters.has(col.field)) continue;
+      const formatter = toCellFormatter(col.fieldFormat);
+      if (formatter) formatters.set(col.field, formatter);
+    }
+  };
+  walk(columns);
+}
+
+/**
+ * 原始值 → 显示值：有列格式化函数就用它（与界面一致），并把结果收敛成模型好用的标量。
+ *
+ * - boolean 列的 fieldFormat 返回 `{checked, disable, text}`：取文案，没文案取勾选态；
+ * - 其它对象/数组（自定义渲染结构）不吐给模型，退回原始值；
+ * - 格式化函数抛错（脏数据）也退回原始值 —— 别让一格坏数据使整次取数失败。
+ */
+function toDisplayValue(
+  raw: unknown,
+  record: Record<string, unknown>,
+  formatter: CellFormatter | undefined,
+): unknown {
+  if (!formatter) return raw;
+  let formatted: unknown;
+  try {
+    formatted = formatter(record);
+  } catch {
+    return raw;
+  }
+  if (formatted && typeof formatted === 'object') {
+    const obj = formatted as { checked?: unknown; text?: unknown };
+    if (typeof obj.text === 'string' && obj.text) return obj.text;
+    if (typeof obj.checked === 'boolean') return obj.checked;
+    return raw;
+  }
+  return formatted;
+}
+
 /**
  * 按列白名单裁剪一行，并做两件必然的收缩：
  *
  * - **空值不出现**：几十列里通常一半以上是空的，而键名往往比值贵（`"WaitCustStep": null`）。
  *   省略 = 没填，这条写在取数结果的 `note` 里，模型不会误读成 0。
  * - **长文本截断**：备注、款式描述这类自由文本能写几百字，完整值让模型用 `<name>.row` 取。
+ *
+ * 值先过列的显示格式化函数（`formatters`）：日期 → `YYYY-MM-DD`、tag → 文案、数字 → 显示精度，
+ * 与用户屏幕一致；要原始值（编辑/核对）走 `<name>.row`。
  */
 function toCells(
   record: Record<string, unknown>,
   fields: string[],
   maxChars: number,
+  formatters: Map<string, CellFormatter>,
 ): Record<string, unknown> {
   const cells: Record<string, unknown> = {};
   fields.forEach((field) => {
-    const value = record[field];
+    const raw = record[field];
+    if (isBlankCell(raw)) return;
+    const value = toDisplayValue(raw, record, formatters.get(field));
     if (isBlankCell(value)) return;
     cells[field] =
       typeof value === 'string' && value.length > maxChars
@@ -458,6 +538,9 @@ export function createTableBridge(options: TableBridgeOptions): TableBridge {
   /** 列字段 → 筛选控件类型（只有配了 `filterType` 的列才有）；同时标在列目录上 */
   const filterTypes = new Map<string, UITableFilterType>();
   const columns = collectColumns(options.columns, filterTypes);
+  /** 字段 → 显示格式化函数：取数时把原始值转成界面显示值（日期 YYYY-MM-DD、tag 文案等） */
+  const formatters = new Map<string, CellFormatter>();
+  collectFormatters(normalizeColumns(options.columns), formatters);
   const hints = options.columnHints ?? {};
   if (Object.keys(hints).length > 0) {
     columns.forEach((column) => {
@@ -623,7 +706,7 @@ export function createTableBridge(options: TableBridgeOptions): TableBridge {
     const hasOverride = override !== undefined && 'active' in override;
     const activeRecord = hasOverride ? override.active : tableActive?.record;
     if (activeRecord) {
-      const picked = toCells(activeRecord, columnFields, maxCellChars);
+      const picked = toCells(activeRecord, columnFields, maxCellChars, formatters);
       // 行标识统一叫 rowId（与 `<name>.page` 的行一致），后续命令直接拿去用
       if (tableActive?.record) picked.rowId = tableActive.rowKey;
       summary.active = picked;
@@ -686,7 +769,7 @@ export function createTableBridge(options: TableBridgeOptions): TableBridge {
         {
           name: 'fields',
           type: 'text',
-          hint: '只取这些字段（逗号分隔）；不给 = 整行全部字段，含表格未显示的列（这条要全就给全，不裁剪）',
+          hint: '只取这些字段（逗号分隔）；不给 = 整行全部字段，含表格未显示的列（这条要全就给全，不裁剪）。值为原始值（未格式化，日期是 ISO 串）',
         },
       ],
     },
@@ -831,7 +914,7 @@ export function createTableBridge(options: TableBridgeOptions): TableBridge {
         const picked: Record<string, unknown> = {
           index,
           rowId: row.rowKey,
-          ...toCells(record, fields, maxCellChars),
+          ...toCells(record, fields, maxCellChars, formatters),
         };
         if (row.isGroupRow) picked.isGroupRow = true;
         if (row.isSummaryRow) picked.isSummaryRow = true;
@@ -849,8 +932,8 @@ export function createTableBridge(options: TableBridgeOptions): TableBridge {
         /** 这次真给了哪些列：默认只有关键列，模型据此决定要不要再点几个列或传 "*" */
         fields,
         note:
-          `空值不出现（省略即未填，不是 0）；文本超 ${maxCellChars} 字截断，` +
-          `要完整内容用 ${rowCmd}；全部列用 ${pageCmd} 的 fields="*"`,
+          `值与界面显示一致（日期 YYYY-MM-DD 等）；空值不出现（省略即未填，不是 0）；` +
+          `文本超 ${maxCellChars} 字截断；原始值或完整内容用 ${rowCmd}；全部列用 ${pageCmd} 的 fields="*"`,
         rows,
       };
     },

@@ -1,4 +1,5 @@
-import { isBlank, toNumberOrZero } from '@/utils';
+import dayjs from 'dayjs';
+import { isBlank, toDayjs, toNumberOrZero } from '@/utils';
 
 /**
  * 树形分组（组行 + 明细行），支持多层。
@@ -214,11 +215,19 @@ function groupByValue(
 
 /** 空值统一归到一个桶；前缀区分「空组」与字符串 'null' 这类真实取值 */
 function valueKey(value: unknown): string {
-  return isBlank(value) ? '\u0000blank' : `v:${String(value)}`;
+  if (isBlank(value)) return '\u0000blank';
+  // Dayjs 按时间戳归一：date 列同一天都是本地零点，自然归一组；datetime 列保留到秒的区分。
+  // 不用 String(Dayjs)（那是 'Wed, 05 Nov 2026 …' UTC 串，难读、排序还会先比星期几）。
+  if (dayjs.isDayjs(value)) return `v:${value.valueOf()}`;
+  return `v:${String(value)}`;
 }
 
-function defaultTitle(value: unknown): string {
-  return isBlank(value) ? '(空)' : String(value);
+function defaultTitle(value: unknown): unknown {
+  if (isBlank(value)) return '(空)';
+  // Dayjs 原样交给列的 fieldFormat 格式化：date 列显示 YYYY-MM-DD、datetime 列显示到秒，
+  // 精度由列定义决定（Dayjs 自己不记得这一列有没有时间）。先 String 化会丢精度或被二次解析错。
+  if (dayjs.isDayjs(value)) return value;
+  return String(value);
 }
 
 function sortBuckets(
@@ -232,6 +241,12 @@ function sortBuckets(
     if (isBlank(a.value) || isBlank(b.value)) return isBlank(a.value) ? 1 : -1;
     if (typeof a.value === 'number' && typeof b.value === 'number') {
       return (a.value - b.value) * direction;
+    }
+    // 日期组按时间先后排，而不是按 String(Dayjs) 的星期字母序
+    if (dayjs.isDayjs(a.value) || dayjs.isDayjs(b.value)) {
+      const av = toDayjs(a.value)?.valueOf() ?? 0;
+      const bv = toDayjs(b.value)?.valueOf() ?? 0;
+      return (av === bv ? 0 : av < bv ? -1 : 1) * direction;
     }
     return String(a.value).localeCompare(String(b.value), 'zh-CN') * direction;
   });

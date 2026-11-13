@@ -17,6 +17,7 @@
 import type {ColumnsDefine} from '@visactor/vtable';
 import type {FilterCondition, FilterField, FilterModel} from './TableFilter';
 import {type AppColumnDef, collectFilterFields} from './columnBuilder';
+import {formatDate} from '@/utils';
 
 /**
  * 条件是否为空 —— 「这个字段实际上没在筛」。
@@ -66,14 +67,18 @@ export function filterRecords(
             }
             // 没配 filterType 的字段、以及认识不了的类型：条件不参与过滤
             if (type !== 'date' && type !== 'number') return true;
+            // 日期先归一到 YYYY-MM-DD 再比：记录里可能是 Dayjs / ISO 串 / 已是 YYYY-MM-DD。
+            // String(Dayjs) 得到的是 'Wed, 05 Nov 2026 …' 这种 UTC 串，星期字母开头永远大于
+            // '2'，直接比大小会把整表筛空；formatDate 与列显示、面板回填同一口径（本地时区、到日）。
+            const dateText = type === 'date' ? formatDate(value) : '';
             if (condition.min !== undefined && value != null) {
                 if (type === 'date') {
-                    if (String(value) < String(condition.min)) return false;
+                    if (dateText < String(condition.min)) return false;
                 } else if (Number(value) < Number(condition.min)) return false;
             }
             if (condition.max !== undefined && value != null) {
                 if (type === 'date') {
-                    if (String(value) > String(condition.max)) return false;
+                    if (dateText > String(condition.max)) return false;
                 } else if (Number(value) > Number(condition.max)) return false;
             }
             return true;
