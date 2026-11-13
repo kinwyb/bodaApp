@@ -287,6 +287,12 @@ export type AgentTokenUsage = {
   contextWindow: number;
 };
 
+/** 输入区对外暴露的命令式接口（欢迎页快捷指令用 ref 调用） */
+export type AgentComposerApi = {
+  /** 覆盖输入框内容并聚焦（光标置末尾），只填充不发送，给用户留出修改余地 */
+  fill: (text: string) => void;
+};
+
 /**
  * 这份明细是不是空的（没有真实 token 数）。
  *

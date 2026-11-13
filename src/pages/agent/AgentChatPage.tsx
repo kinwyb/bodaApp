@@ -8,14 +8,14 @@
  * 本文件按项目约定只导出组件 —— 内部子组件不导出，避免破坏 Vite Fast Refresh。
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { App as AntdApp, Avatar, Button, Tag } from 'antd';
 import { Bubble } from '@ant-design/x';
 import type { BubbleItemType } from '@ant-design/x';
 import { PaperClipOutlined, ReloadOutlined, RobotOutlined, UserOutlined } from '@ant-design/icons';
 
 import { formatFileSize } from '@/utils';
-import type { AgentAssistantContent, AgentConnectionStatus } from './types';
+import type { AgentAssistantContent, AgentComposerApi, AgentConnectionStatus } from './types';
 import { assistantContentOf, hasRenderableContent } from './types';
 import { AGENT_MAX_AUTO_RETRY } from './constants';
 import { resolveAgentFileUrl } from './files';
@@ -127,6 +127,8 @@ const AgentChatPage: React.FC<AgentChatPageProps> = ({ embedded = false }) => {
   const { message, modal } = AntdApp.useApp();
 
   const [settingsOpen, setSettingsOpen] = useState(false);
+  /** 欢迎页快捷指令点选 → 填充输入框（不直接发送），给用户留出修改措辞的余地 */
+  const composerRef = useRef<AgentComposerApi>(null);
 
   const { messages } = chat.activeConversation;
   const isEmpty = messages.length === 0;
@@ -287,7 +289,7 @@ const AgentChatPage: React.FC<AgentChatPageProps> = ({ embedded = false }) => {
 
             <div className="agent-messages">
               {isEmpty ? (
-                <AgentWelcome onPick={(text) => chat.send(text)} />
+                <AgentWelcome onPick={(text) => composerRef.current?.fill(text)} />
               ) : (
                 <Bubble.List
                   className="agent-bubble-list"
@@ -302,6 +304,7 @@ const AgentChatPage: React.FC<AgentChatPageProps> = ({ embedded = false }) => {
         </div>
 
         <AgentComposer
+          ref={composerRef}
           streaming={chat.streaming}
           mode={chat.mode}
           connection={chat.connection}

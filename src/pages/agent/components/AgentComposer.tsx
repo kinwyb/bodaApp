@@ -2,13 +2,14 @@
  * 底部输入区：Sender + 附件。
  *
  * 输入框内容与附件是纯 UI 状态，放在本组件内部；提交后清空自己，再回调 onSend。
+ * 欢迎页快捷指令通过 ref 的 fill 注入正文（只填充不发送）。
  *
  * 附件是**选完就开始上传**的（不等到发送）：几十 MB 的文件传起来要几秒，
  * 等用户按下回车才动会让整个过程看起来像卡住了。发送时只带 fileID，
  * 文件本体与服务端的对应关系见 files/client.ts。
  */
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { App as AntdApp, Button, Dropdown, Switch, Tooltip } from 'antd';
 import type { UploadFile } from 'antd';
 import {
@@ -18,7 +19,13 @@ import {
   StopOutlined,
 } from '@ant-design/icons';
 import { Attachments, Sender, Suggestion } from '@ant-design/x';
-import type { AgentAttachment, AgentConnectionStatus, AgentSkill, AgentTokenUsage } from '../types';
+import type {
+  AgentAttachment,
+  AgentComposerApi,
+  AgentConnectionStatus,
+  AgentSkill,
+  AgentTokenUsage,
+} from '../types';
 import { CONNECTION_META } from '../constants';
 import { AGENT_STEER_COMMAND, steerGuidanceOf } from '../commands';
 import { deleteAgentFile, fileErrorMessage, uploadAgentFile } from '../files';
@@ -46,7 +53,7 @@ function stripSkillToken(text: string): string {
   return text.replace(/^\$[^\s]*\s*/, '').trimStart();
 }
 
-export const AgentComposer: React.FC<{
+type AgentComposerProps = {
   streaming: boolean;
   mode: 'mock' | 'websocket';
   connection: AgentConnectionStatus;
@@ -71,7 +78,9 @@ export const AgentComposer: React.FC<{
   /** 生成中补充引导；由聊天状态层负责加 `/steer` 前缀且不插入空回答 */
   onSteer: (text: string, attachments?: AgentAttachment[]) => void;
   onAbort: () => void;
-}> = ({
+};
+
+export const AgentComposer = React.forwardRef<AgentComposerApi, AgentComposerProps>(({
   streaming,
   mode,
   connection,
@@ -86,7 +95,7 @@ export const AgentComposer: React.FC<{
   onSend,
   onSteer,
   onAbort,
-}) => {
+}, ref) => {
   const { message } = AntdApp.useApp();
   const [inputValue, setInputValue] = useState('');
   const [fileList, setFileList] = useState<ComposerFile[]>([]);
@@ -132,6 +141,25 @@ export const AgentComposer: React.FC<{
       composerRef.current?.querySelector('textarea')?.focus();
     });
   }, []);
+
+  // 快捷指令填充：覆盖正文、收起可能开着的建议浮层，聚焦后把光标放到末尾方便接着改
+  useImperativeHandle(
+    ref,
+    () => ({
+      fill(text: string) {
+        setInputValue(text);
+        setSuggestionOpen(false);
+        setSuggestionKind(null);
+        requestAnimationFrame(() => {
+          const textarea = composerRef.current?.querySelector('textarea');
+          if (!textarea) return;
+          textarea.focus();
+          textarea.setSelectionRange(text.length, text.length);
+        });
+      },
+    }) satisfies AgentComposerApi,
+    [],
+  );
 
   const applySkill = useCallback(
     (token: string) => {
@@ -583,4 +611,6 @@ export const AgentComposer: React.FC<{
       <input ref={fileInputRef} type="file" multiple hidden onChange={handleFilesPicked} />
     </div>
   );
-};
+});
+
+AgentComposer.displayName = 'AgentComposer';

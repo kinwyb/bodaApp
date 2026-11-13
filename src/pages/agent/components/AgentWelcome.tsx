@@ -17,7 +17,7 @@ export const AgentWelcome: React.FC<{ onPick: (text: string) => void }> = ({ onP
         key: prompt.key,
         label: prompt.label,
         description: prompt.description,
-        icon: <PromptIcon name={prompt.key} />,
+        icon: <PromptIcon name={prompt.icon ?? prompt.key} />,
       })),
     [],
   );
@@ -39,7 +39,12 @@ export const AgentWelcome: React.FC<{ onPick: (text: string) => void }> = ({ onP
         title="你可以这样问我"
         items={promptItems}
         wrap
-        onItemClick={(info) => onPick(String(info.data.description ?? info.data.label ?? ''))}
+        onItemClick={(info) => {
+          // info.data 是库的 PromptProps，不带自定义字段，按 key 回配置里取填充文本
+          const picked = AGENT_PROMPTS.find((item) => item.key === info.data.key);
+          if (!picked) return;
+          onPick(picked.prompt?.trim() ? picked.prompt : picked.description);
+        }}
       />
 
       <div className="agent-capabilities">

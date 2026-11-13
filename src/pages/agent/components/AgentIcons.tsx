@@ -7,26 +7,51 @@
 
 import React from 'react';
 import {
+  AlertOutlined,
   ApiOutlined,
   BarChartOutlined,
+  CheckCircleOutlined,
+  ClockCircleOutlined,
   DatabaseOutlined,
   FileTextOutlined,
   HistoryOutlined,
+  LineChartOutlined,
   LinkOutlined,
+  PieChartOutlined,
   ScheduleOutlined,
+  SearchOutlined,
+  ToolOutlined,
 } from '@ant-design/icons';
 
-/** 欢迎页快捷指令的图标 */
+/** 欢迎页快捷指令的图标：先认配置里的图标名，再认业务 key，最后落默认文档图标 */
 export const PromptIcon: React.FC<{ name: string }> = ({ name }) => {
   switch (name) {
     case 'delivery':
+    case 'schedule':
       return <ScheduleOutlined />;
     case 'capacity':
+    case 'bar-chart':
       return <BarChartOutlined />;
     case 'report':
+    case 'file-text':
       return <FileTextOutlined />;
     case 'material':
+    case 'database':
       return <DatabaseOutlined />;
+    case 'line-chart':
+      return <LineChartOutlined />;
+    case 'pie-chart':
+      return <PieChartOutlined />;
+    case 'alert':
+      return <AlertOutlined />;
+    case 'tool':
+      return <ToolOutlined />;
+    case 'check':
+      return <CheckCircleOutlined />;
+    case 'clock':
+      return <ClockCircleOutlined />;
+    case 'search':
+      return <SearchOutlined />;
     default:
       return <FileTextOutlined />;
   }
