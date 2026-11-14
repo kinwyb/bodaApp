@@ -777,7 +777,8 @@ export function useAgentChat(): AgentChatApi {
    * 拉某一轮的完整过程（session.turn.replay）。
    *
    * 历史里带的过程帧会被服务端按条数/体积截断（framesTruncated），
-   * 用户点「查看完整过程」时用这个接口换成不带截断的版本。
+   * 用这个接口换成不带截断的版本：limit=-1 取全量帧（服务端上限 20000），
+   * 否则默认只回 500 帧，长轮次照样不全。默认折叠省流量，由用户点「完整过程」手动展开。
    */
   const replayTurn = useCallback((turnId: string) => {
     if (!turnId) return;
@@ -787,6 +788,7 @@ export function useAgentChat(): AgentChatApi {
       conversationId: activeKey,
       sessionId: conversation?.sessionId,
       turnId,
+      limit: -1,
     });
   }, []);
 

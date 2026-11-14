@@ -145,7 +145,7 @@ const AgentChatPage: React.FC<AgentChatPageProps> = ({ embedded = false }) => {
   const isEmpty = messages.length === 0;
   const hasHumanMessage = messages.some((message) => message.role === 'user');
   /** 抽出来单独持有：下面的 useMemo 只依赖它，不必依赖整个 chat 对象 */
-  const { retry, clearError, replayTurn } = chat;
+  const { clearError, replayTurn } = chat;
 
   const { respondApproval } = chat;
   /**
@@ -255,8 +255,6 @@ const AgentChatPage: React.FC<AgentChatPageProps> = ({ embedded = false }) => {
             <AgentMessageFooter
               text={answer.text}
               createdAt={item.createdAt}
-              messageKey={item.key}
-              onRetry={retry}
               truncated={item.truncated}
               turnId={item.turnId}
               onReplay={replayTurn}
@@ -266,7 +264,7 @@ const AgentChatPage: React.FC<AgentChatPageProps> = ({ embedded = false }) => {
 
         return base;
       }),
-    [messages, retry, replayTurn],
+    [messages, replayTurn],
   );
 
   const confirmClear = useCallback(() => {
