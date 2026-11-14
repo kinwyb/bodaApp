@@ -43,11 +43,27 @@ export const AGENT_PROMPTS: AgentPrompt[] = [
         description: '分析近一周的生产效率',
         prompt: '$order-progress-analysis 分析近一周的生产效率情况',
     },
-    // {
-    //     key: 'material',
-    //     label: '物料齐套检查',
-    //     description: '检查明天开工工单的缺料情况',
-    // },
+    {
+        key: 'lastWorkStatus',
+        label: '上周生产情况',
+        description: '周生产情况分析',
+        icon: 'stockout',
+        prompt: '$ui-operation 打开周生产数据,分析上周的生产数据情况',
+    },
+    {
+        key: 'lastMonthStatus',
+        label: '上月生产情况',
+        description: '月生产情况分析',
+        icon: 'fundout',
+        prompt: '$ui-operation 打开月生产数据,分析上个月的生产数据情况',
+    },
+    {
+        key: 'lastWeekMachStatus',
+        label: '上周织造机器效率',
+        description: '周织造机器效率统计分析',
+        icon: 'boxplot',
+        prompt: '$ui-operation 打开织造机型周数据,分析上个周织造机器效率和使用率',
+    },
 ];
 
 /** 欢迎页与参数抽屉里展示的能力 */
