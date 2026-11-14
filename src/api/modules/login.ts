@@ -1,5 +1,6 @@
 import { http } from '../request';
 import { toHexString } from '../../utils';
+import { UserOrgSchema } from '../schemas/login/userOrgs';
 
 /**
  * 当前登录用户信息，与后端 `/login/userInfo` 返回的 data 一一对应（2026-10-12 实测）。
@@ -65,6 +66,11 @@ export const loginApi = {
     ),
   /** 获取当前登录用户信息，凭证由请求头 token 携带 */
   userInfo: () => http.get<UserInfo>('/login/userInfo'),
+  /**
+   * 获取用户组织信息（旧客户端 LoginAPI.UserOrgs）。
+   * userID 缺省查当前用户；返回的 OrgID/OrgName 是大写开头（后端 JsonProperty 约定）。
+   */
+  userOrgs: (userID = '') => http.getSchema('/login/userOrgs', UserOrgSchema.array(), { userID }),
   /** 退出登录 */
   logout: () => http.post<null>('/login/loginout', {}),
 };

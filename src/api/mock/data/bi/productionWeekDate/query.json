@@ -1,0 +1,28 @@
+[
+  {
+    "WeekYear": 2026, "WeekNum": 1,
+    "WeekStartDate": "2026-01-05", "WeekEndDate": "2026-01-11",
+    "Datas": {
+      "0001E610000000KO20VW": {"ZZZZTotalNum": 125000, "ZZZZCPNum": 860, "ZZCPRate": 0.69, "ZZWorkHours": 4200.5, "ZZEfficiency": 85.5, "ZZUtilizationRate": 92.3, "FZRSTotalWeight": 86000.5, "FZRSFXCount": 12, "FZRSCPNum": 320, "FZFJRSRate": 0.37, "FZFJTotalNum": 118000, "FZFJCPNum_ZZ": 700, "FZFJCPRate": 0.59, "FZFZTotalNum": 112000, "FZFZCPNum": 450, "FZFQCRate": 0.4, "FZFZRate": 88.2, "FZFZWorkHours": 5600, "FZBZNum": 108000, "FZBZOutNum": 99000},
+      "0001E610000000KTWQDG": {"ZZZZTotalNum": 68000, "ZZZZCPNum": 520, "ZZCPRate": 0.76, "ZZWorkHours": 2300, "ZZEfficiency": 79.8, "ZZUtilizationRate": 88.1, "FZFZTotalNum": 52000, "FZFZCPNum": 260, "FZFQCRate": 0.5, "FZFZRate": 82.4, "FZFZWorkHours": 2900, "FZBZNum": 50000, "FZBZOutNum": 46000},
+      "0001E610000000KWHO9D": {"ZZZZTotalNum": 94000, "ZZZZCPNum": 700, "ZZCPRate": 0.74, "ZZWorkHours": 3100, "ZZEfficiency": 81.2, "ZZUtilizationRate": 90.5, "FZRSTotalWeight": 52000, "FZRSFXCount": 8, "FZFJTotalNum": 88000, "FZFZTotalNum": 80000, "FZFZCPNum": 300, "FZFQCRate": 0.38, "FZFZRate": 85, "FZFZWorkHours": 4100, "FZBZNum": 76000, "FZBZOutNum": 70000}
+    }
+  },
+  {
+    "WeekYear": 2026, "WeekNum": 2,
+    "WeekStartDate": "2026-01-12", "WeekEndDate": "2026-01-18",
+    "Datas": {
+      "0001E610000000KO20VW": {"ZZZZTotalNum": 131000, "ZZZZCPNum": 900, "ZZCPRate": 0.69, "ZZWorkHours": 4350, "ZZEfficiency": 86.1, "ZZUtilizationRate": 93, "FZRSTotalWeight": 90500, "FZRSFXCount": 10, "FZRSCPNum": 300, "FZFJRSRate": 0.33, "FZFJTotalNum": 124000, "FZFJCPNum_ZZ": 720, "FZFJCPRate": 0.58, "FZFZTotalNum": 118000, "FZFZCPNum": 480, "FZFQCRate": 0.41, "FZFZRate": 89, "FZFZWorkHours": 5850, "FZBZNum": 114000, "FZBZOutNum": 103000},
+      "0001E610000000KWHO9D": {"ZZZZTotalNum": 98000, "ZZZZCPNum": 730, "ZZCPRate": 0.74, "ZZWorkHours": 3200, "ZZEfficiency": 82, "ZZUtilizationRate": 91, "FZRSTotalWeight": 54000, "FZRSFXCount": 9, "FZFJTotalNum": 92000, "FZFZTotalNum": 84000, "FZFZCPNum": 320, "FZFQCRate": 0.38, "FZFZRate": 86, "FZFZWorkHours": 4250, "FZBZNum": 80000, "FZBZOutNum": 73000}
+    }
+  },
+  {
+    "WeekYear": 2026, "WeekNum": 3,
+    "WeekStartDate": "2026-01-19", "WeekEndDate": "2026-01-25",
+    "Datas": {
+      "0001E610000000KO20VW": {"ZZZZTotalNum": 128000, "ZZZZCPNum": 880, "ZZCPRate": 0.69, "ZZWorkHours": 4280, "ZZEfficiency": 85.8, "ZZUtilizationRate": 92.6, "FZRSTotalWeight": 88000, "FZRSFXCount": 11, "FZRSCPNum": 310, "FZFJRSRate": 0.35, "FZFJTotalNum": 121000, "FZFJCPNum_ZZ": 710, "FZFJCPRate": 0.59, "FZFZTotalNum": 115000, "FZFZCPNum": 460, "FZFQCRate": 0.4, "FZFZRate": 88.6, "FZFZWorkHours": 5720, "FZBZNum": 111000, "FZBZOutNum": 101000},
+      "0001E610000000KTWQDG": {"ZZZZTotalNum": 71000, "ZZZZCPNum": 540, "ZZCPRate": 0.76, "ZZWorkHours": 2380, "ZZEfficiency": 80.5, "ZZUtilizationRate": 88.8, "FZFZTotalNum": 54000, "FZFZCPNum": 270, "FZFQCRate": 0.5, "FZFZRate": 83, "FZFZWorkHours": 3000, "FZBZNum": 52000, "FZBZOutNum": 48000},
+      "0001E610000000KWHO9D": {"ZZZZTotalNum": 96000, "ZZZZCPNum": 710, "ZZCPRate": 0.74, "ZZWorkHours": 3150, "ZZEfficiency": 81.6, "ZZUtilizationRate": 90.8, "FZRSTotalWeight": 53000, "FZRSFXCount": 8, "FZFJTotalNum": 90000, "FZFZTotalNum": 82000, "FZFZCPNum": 310, "FZFQCRate": 0.38, "FZFZRate": 85.5, "FZFZWorkHours": 4180, "FZBZNum": 78000, "FZBZOutNum": 71000}
+    }
+  }
+]

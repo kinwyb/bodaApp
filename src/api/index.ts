@@ -51,6 +51,10 @@ export {
 export {
     configApi
 } from './modules/config';
+export {biApi} from './modules/bi';
+export type {BIList, BIQueryArg, BIData} from './modules/bi';
+export type {ProductionWeekData} from './schemas/bi/productionWeekData';
+export type {UserOrg} from './schemas/login/userOrgs';
 export type {
     MisScheduleEmployee,
     MisAppletsQRCodeData,
