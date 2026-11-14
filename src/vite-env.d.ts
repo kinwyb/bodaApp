@@ -22,6 +22,18 @@ interface ImportMetaEnv {
    * 生产环境留空即用推导出的绝对地址（需要后端放行跨域）。
    */
   readonly VITE_AGENT_FILES_URL?: string;
+  /**
+   * 统一登录平台（SSO）的登录地址。仅 release 构建生效，dev 始终账号密码登录。
+   * 配置后未登录自动跳平台，平台回调后端、后端 302 回前端并带 #sso_token=<token>；
+   * 不配置则保持账号密码登录。支持 {returnUrl} 占位符，没有时自动追加 ?returnUrl=。
+   * 桌面壳（mygo://）不走统一登录。详见 docs/统一登录SSO.md。
+   */
+  readonly VITE_SSO_LOGIN_URL?: string;
+  /**
+   * 统一登录平台的登出地址（可选）。配置后「退出登录」会顺带跳转它清平台会话，
+   * 避免退出后再点登录被平台静默放行；不配置则退出后停留在本系统登录页。
+   */
+  readonly VITE_SSO_LOGOUT_URL?: string;
 }
 
 interface ImportMeta {

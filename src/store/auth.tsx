@@ -10,6 +10,7 @@ import {
   type UserInfo,
 } from '../api';
 import { AuthContext, type AuthContextType, type AuthStatus } from './auth-context';
+import { getSsoLogoutUrl, isSsoEnabled, markSsoManualLogout } from '../utils/sso';
 
 /**
  * 用户信息缓存键：凭据有效时先用它渲染，避免首屏空白。
@@ -122,6 +123,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     void loginApi.logout().catch(() => undefined);
     bootstrapUserInfoRequest = null;
     clearSession();
+    if (isSsoEnabled) {
+      // 停在登录页等用户主动再登：平台会话可能还在，自动跳会被静默放行。
+      markSsoManualLogout();
+      // 配了平台登出地址就顺带清平台会话，否则「退出」后再点登录仍是秒回
+      const logoutUrl = getSsoLogoutUrl();
+      if (logoutUrl) window.location.assign(logoutUrl);
+    }
   }, [clearSession]);
 
   /**

@@ -1,5 +1,5 @@
-import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import React, { useEffect } from 'react';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { App as AntdApp, Spin } from 'antd';
 import { XProvider } from '@ant-design/x';
 import zhCN from 'antd/locale/zh_CN';
@@ -10,6 +10,13 @@ import 'dayjs/locale/zh-cn';
 import { AuthProvider } from './store/auth';
 import { useAuth } from './store/auth-context';
 import { PermissionProvider } from './store/permission';
+import {
+  clearSsoRedirectGuard,
+  isSsoEnabled,
+  isSsoManualLogout,
+  isSsoRedirectGuardBlocked,
+  redirectToSsoLogin,
+} from './utils/sso';
 import LoginPage from './pages/LoginPage';
 import MainLayout from './layouts/MainLayout';
 import WorkbenchLayout from './layouts/WorkbenchLayout';
@@ -43,10 +50,31 @@ const CenteredSpin: React.FC = () => (
  */
 const Protected: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { status, isAuthenticated } = useAuth();
+  const location = useLocation();
+
+  // 未登录且启用统一登录：直接跳平台，当前路径作为 returnUrl 带过去，
+  // 登录回来还能落在原来要去的页面。手动登出后不自动跳 ——
+  // 平台会话还在，自动跳会被静默放行、瞬间回登（见 utils/sso.ts）。
+  // 「待跳转」直接从守卫状态推导；被守卫拦下时回落到本地登录页。
+  const ssoPending =
+    status === 'unauthenticated' &&
+    isSsoEnabled &&
+    !isSsoManualLogout() &&
+    !isSsoRedirectGuardBlocked();
+
+  useEffect(() => {
+    if (ssoPending) redirectToSsoLogin(location.pathname + location.search);
+  }, [ssoPending, location.pathname, location.search]);
+
+  // 后端确认登录成功后复位跳转守卫，之后的合法跳转不被旧时间戳误拦
+  useEffect(() => {
+    if (isAuthenticated) clearSsoRedirectGuard();
+  }, [isAuthenticated]);
 
   // 正在用本地 token 向后端确认登录态：先挡住路由。
   // 否则这一瞬间 isAuthenticated 还是 false，会先闪一下登录页再跳回来。
-  if (status === 'checking') return <CenteredSpin />;
+  // ssoPending：即将整页跳转平台，同样用 Spin 顶住，避免闪登录页。
+  if (status === 'checking' || ssoPending) return <CenteredSpin />;
   if (!isAuthenticated) return <Navigate to="/login" replace />;
 
   return <PermissionProvider>{children}</PermissionProvider>;
