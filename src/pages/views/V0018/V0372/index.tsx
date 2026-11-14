@@ -22,11 +22,10 @@ import {PageBreadcrumb} from '@/components/PageBreadcrumb';
 import {FilterTable, type FilterTableApi, type GridTableCellInfo} from '@/components/grid-table';
 import {biApi} from '@/api';
 import {ErrorMessage} from '@/api/request';
-import {useServiceOrg} from '@/store/service-org';
 import {formatDate, isBlank, now, toDayjs} from '@/utils';
 import {useUIBridgeHost} from '@/pages/agent/ui-bridge';
 import {PRODUCTION_ORGS, buildProductionRows, buildSummaryFromColumns, monthPeriodName} from '../productionShared';
-import {useProductionOrgs} from '../productionOrgs';
+import {useCurrentOrg, useProductionOrgs} from '../productionOrgs';
 import {buildMonthProductionColumns} from './columns';
 import {createMonthProductionBridge, type MonthProductionBridgeContext, type MonthProductionQuery} from './bridged';
 import {ZZMonthDetailModal} from './models/zzDetail';
@@ -49,7 +48,7 @@ const MonthProductionPage: React.FC<ViewPageProps> = ({view, trail}) => {
     const {message} = App.useApp();
     const [form] = Form.useForm<SearchValues>();
     const tableRef = useRef<FilterTableApi | null>(null);
-    const serviceOrg = useServiceOrg();
+    const currentOrg = useCurrentOrg();
     const {orgs} = useProductionOrgs();
 
     /** 组织候选：用户组织列表（旧客户端 QuickBIOrg 拿 OrgID.orgs 全量展示） */
@@ -60,17 +59,17 @@ const MonthProductionPage: React.FC<ViewPageProps> = ({view, trail}) => {
         [orgs],
     );
 
-    /** 选中的组织；默认当前服务组织单选（旧客户端 initOrgCombox(config.OrgID)） */
-    const [orgIds, setOrgIds] = useState<string[]>(() => [serviceOrg || PRODUCTION_ORGS[0].id]);
+    /** 选中的组织；默认当前系统组织单选（store 取，旧客户端 initOrgCombox(config.OrgID)） */
+    const [orgIds, setOrgIds] = useState<string[]>(() => [currentOrg || PRODUCTION_ORGS[0].id]);
     const [query, setQuery] = useState<{year: number}>({year: now().year()});
     const [rows, setRows] = useState<Array<Record<string, unknown>>>([]);
     const [loading, setLoading] = useState(false);
     const [detail, setDetail] = useState<ZZDetailTarget | null>(null);
 
-    /** OrgChanged：全局组织切换时重置为该组织单选（旧客户端 initOrgCombox(newOrgID)） */
+    /** OrgChanged：当前系统组织变化时重置为该组织单选（旧客户端 initOrgCombox(newOrgID)） */
     useEffect(() => {
-        if (serviceOrg) setOrgIds([serviceOrg]);
-    }, [serviceOrg]);
+        if (currentOrg) setOrgIds([currentOrg]);
+    }, [currentOrg]);
 
     const pendingQueryRef = useRef<(() => void) | null>(null);
     const settleQuery = useCallback(() => {
@@ -175,7 +174,8 @@ const MonthProductionPage: React.FC<ViewPageProps> = ({view, trail}) => {
                             </span>
                         )}
                         options={orgOptions}
-                        value={orgIds}
+                        // 候选未加载时不显示原始 GUID 标签；加载后正常回显选中组织
+                        value={orgIds.filter((id) => orgOptions.some((option) => option.value === id))}
                         onChange={(value: string[]) => setOrgIds(value)}
                         placeholder="选择组织"
                     />

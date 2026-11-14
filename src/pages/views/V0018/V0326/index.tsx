@@ -21,11 +21,10 @@ import {PageBreadcrumb} from '@/components/PageBreadcrumb';
 import {FilterTable, type FilterTableApi, type GridTableCellInfo} from '@/components/grid-table';
 import {biApi} from '@/api';
 import {ErrorMessage} from '@/api/request';
-import {useServiceOrg} from '@/store/service-org';
 import {formatDate, now, toDayjs} from '@/utils';
 import {useUIBridgeHost} from '@/pages/agent/ui-bridge';
 import {PRODUCTION_ORGS, buildProductionRows, buildSummaryFromColumns, weekPeriodName} from '../productionShared';
-import {useProductionOrgs} from '../productionOrgs';
+import {useCurrentOrg, useProductionOrgs} from '../productionOrgs';
 import {buildWeekProductionColumns} from './columns';
 import {createWeekProductionBridge, type WeekProductionBridgeContext, type WeekProductionQuery} from './bridged';
 import {ZZDetailModal} from './models/zzDetail';
@@ -46,7 +45,7 @@ const WeekProductionPage: React.FC<ViewPageProps> = ({view, trail}) => {
     const {message} = App.useApp();
     const [form] = Form.useForm<SearchValues>();
     const tableRef = useRef<FilterTableApi | null>(null);
-    const serviceOrg = useServiceOrg();
+    const currentOrg = useCurrentOrg();
     const {orgs} = useProductionOrgs();
 
     /** 组织候选：只保留义乌/越南（山西已按需求排除），两地齐全时插入「全部」 */
@@ -59,19 +58,19 @@ const WeekProductionPage: React.FC<ViewPageProps> = ({view, trail}) => {
         return options;
     }, [orgs]);
 
-    /** 当前展示的组织；空串 = 全部。默认当前服务组织（旧客户端 Common.config.OrgID） */
-    const [orgId, setOrgId] = useState<string>(() => serviceOrg || PRODUCTION_ORGS[0].id);
+    /** 当前展示的组织；空串 = 全部。默认当前系统组织（store 取，旧客户端 Common.config.OrgID） */
+    const [orgId, setOrgId] = useState<string>(() => currentOrg || PRODUCTION_ORGS[0].id);
     const [query, setQuery] = useState<{year: number}>({year: now().year()});
     const [rows, setRows] = useState<Array<Record<string, unknown>>>([]);
     const [loading, setLoading] = useState(false);
     const [detail, setDetail] = useState<ZZDetailTarget | null>(null);
 
-    /** OrgChanged：全局组织切换且新组织在候选里时跟随（旧客户端同名通知） */
+    /** OrgChanged：当前系统组织变化且新组织在候选里时跟随（旧客户端同名通知） */
     useEffect(() => {
-        if (serviceOrg && orgOptions.some((option) => option.value === serviceOrg)) {
-            setOrgId(serviceOrg);
+        if (currentOrg && orgOptions.some((option) => option.value === currentOrg)) {
+            setOrgId(currentOrg);
         }
-    }, [serviceOrg, orgOptions]);
+    }, [currentOrg, orgOptions]);
 
     /** 界面桥 query.set 的等待者：请求落地（含失败）才放行 */
     const pendingQueryRef = useRef<(() => void) | null>(null);
@@ -164,7 +163,9 @@ const WeekProductionPage: React.FC<ViewPageProps> = ({view, trail}) => {
                     <Select
                         style={{width: 120}}
                         options={orgOptions}
-                        value={orgId}
+                        placeholder="选择组织"
+                        // 候选未加载或当前组织不在候选里时不显示原始 GUID（旧客户端组合框为空）
+                        value={orgOptions.some((option) => option.value === orgId) ? orgId : undefined}
                         onChange={(value: string) => setOrgId(value)}
                     />
                 </Form.Item>

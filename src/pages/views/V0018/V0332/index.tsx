@@ -16,11 +16,10 @@ import type {ViewPageProps} from '@/pages/types';
 import {PageBreadcrumb} from '@/components/PageBreadcrumb';
 import {FilterTable, type FilterTableApi} from '@/components/grid-table';
 import {ErrorMessage} from '@/api/request';
-import {useServiceOrg} from '@/store/service-org';
 import {now, toDayjs} from '@/utils';
 import {useUIBridgeHost} from '@/pages/agent/ui-bridge';
 import {PRODUCTION_ORGS, buildSummaryFromColumns} from '../productionShared';
-import {useProductionOrgs} from '../productionOrgs';
+import {useCurrentOrg, useProductionOrgs} from '../productionOrgs';
 import {buildMachineWeekColumns, type MachineCounts} from './columns';
 import {loadMachineWeek} from './machineWeekData';
 import {createMachineWeekBridge, type MachineWeekBridgeContext, type MachineWeekQuery} from './bridged';
@@ -35,7 +34,7 @@ const MachineWeekPage: React.FC<ViewPageProps> = ({view, trail}) => {
     const {message} = App.useApp();
     const [form] = Form.useForm<SearchValues>();
     const tableRef = useRef<FilterTableApi | null>(null);
-    const serviceOrg = useServiceOrg();
+    const currentOrg = useCurrentOrg();
     const {orgs} = useProductionOrgs();
 
     /** 组织候选：只保留义乌/越南（山西已按需求排除），两地齐全时插入「全部」 */
@@ -48,18 +47,19 @@ const MachineWeekPage: React.FC<ViewPageProps> = ({view, trail}) => {
         return options;
     }, [orgs]);
 
-    const [orgId, setOrgId] = useState<string>(() => serviceOrg || PRODUCTION_ORGS[0].id);
+    /** 默认当前系统组织（store 取）；空串 = 全部 */
+    const [orgId, setOrgId] = useState<string>(() => currentOrg || PRODUCTION_ORGS[0].id);
     const [query, setQuery] = useState<{year: number}>({year: now().year()});
     const [rows, setRows] = useState<Array<Record<string, unknown>>>([]);
     const [counts, setCounts] = useState<MachineCounts>({});
     const [loading, setLoading] = useState(false);
 
-    /** OrgChanged：全局组织切换且新组织在候选里时跟随 */
+    /** OrgChanged：当前系统组织变化且新组织在候选里时跟随 */
     useEffect(() => {
-        if (serviceOrg && orgOptions.some((option) => option.value === serviceOrg)) {
-            setOrgId(serviceOrg);
+        if (currentOrg && orgOptions.some((option) => option.value === currentOrg)) {
+            setOrgId(currentOrg);
         }
-    }, [serviceOrg, orgOptions]);
+    }, [currentOrg, orgOptions]);
 
     const pendingQueryRef = useRef<(() => void) | null>(null);
     const settleQuery = useCallback(() => {
@@ -138,7 +138,9 @@ const MachineWeekPage: React.FC<ViewPageProps> = ({view, trail}) => {
                     <Select
                         style={{width: 120}}
                         options={orgOptions}
-                        value={orgId}
+                        placeholder="选择组织"
+                        // 候选未加载或当前组织不在候选里时不显示原始 GUID（旧客户端组合框为空）
+                        value={orgOptions.some((option) => option.value === orgId) ? orgId : undefined}
                         onChange={(value: string) => setOrgId(value)}
                     />
                 </Form.Item>
