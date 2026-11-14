@@ -40,7 +40,11 @@ function toRow(row: ProductionMonitorQueryRes): ProductionMonitorRow {
     const cycle = toNumberOrZero(row.Cycle);
     const audit = toNumberOrZero(row.Flag) === 1 ? '审核' : '';
     const adjust = toNumberOrZero(row.Flag2) === 1 ? '调整' : '';
-    return {...row, ZPTime: cycle * pieces / 3600, Status: `${audit}${adjust}`};
+    let status = audit;
+    if (adjust) {
+        status = status ? status + "," + adjust : adjust;
+    }
+    return {...row, ZPTime: cycle * pieces / 3600, Status: status};
 }
 
 const ProductionMonitorPage: React.FC<ViewPageProps> = ({view, trail}) => {

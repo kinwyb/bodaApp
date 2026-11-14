@@ -14,7 +14,6 @@ export const PRODUCTION_MONITOR_COLUMNS: AppColumnDef[] = [
         tagMap: {
             审核: {label: '审核', color: '#cf1322'},
             调整: {label: '调整', color: '#389e0d'},
-            审核调整: {label: '审核调整', color: '#d46b08'},
         },
     },
     {field: 'DateStartShift', title: '开始时间', width: 105, dataType: 'date', sortable: true, filterType: 'date'},

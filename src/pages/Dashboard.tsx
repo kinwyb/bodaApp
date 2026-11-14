@@ -10,7 +10,7 @@ const Dashboard: React.FC = () => {
     return (
         <div style={{padding: 0}}>
             {isDebugEnv &&
-                <Row gutter={[16, 16]}>
+                <Row gutter={[16, 16]} style={{marginBottom: 16}}>
                     <Col xs={24} sm={12} lg={6}>
                         <Card
                             hoverable
@@ -59,7 +59,7 @@ const Dashboard: React.FC = () => {
                     </Col>
                 </Row>
             }
-            <Card title="系统公告" style={{marginTop: 16}}>
+            <Card title="系统公告">
                 <p>欢迎使用</p>
                 <p>本系统内嵌一个AI Agent用于辅助用户使用系统功能。</p>
             </Card>

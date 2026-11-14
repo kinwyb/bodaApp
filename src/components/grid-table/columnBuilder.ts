@@ -2,6 +2,10 @@ import type { ColumnsDefine, TextColumnDefine, TYPES } from '@visactor/vtable';
 import { formatDate, formatDateTime } from '@/utils';
 import type { GroupAggregate, GroupAggregateType } from './group';
 import type { GridTableSortState } from './sorting';
+import { formatTagValue, type ColumnTagItemLike } from './tag';
+import { createTagCustomLayout } from './tagLayout';
+
+export type { ColumnTagItem, ColumnTagItemLike } from './tag';
 
 /** 列的数据类型：决定渲染成什么控件以及对齐/格式 */
 export type ColumnDataType =
@@ -11,7 +15,7 @@ export type ColumnDataType =
   | 'date' // 日期，只显示到日（YYYY-MM-DD）
   | 'datetime' // 日期时间，显示到秒（YYYY-MM-DD HH:mm:ss）
   | 'boolean' // 1 / 0，渲染成只读复选框
-  | 'tag'; // 枚举，按值映射文案与颜色
+  | 'tag'; // 枚举，逗号分隔多值，按值映射文案与颜色并渲染成标签
 
 /**
  * 输入过滤类型：配了 `filterType` 的列会出现在 FilterTable 的筛选面板里，
@@ -29,19 +33,6 @@ export type FilterType = 'enum' | 'date' | 'number' | 'text';
  * - `'asc'` / `'desc'`：开启排序，**并作为表格的初始排序方向**（多列都配时取列顺序最前的一列）
  */
 export type SortableOption = boolean | 'asc' | 'desc';
-
-export interface ColumnTagItem {
-  label: string;
-  /** 文字颜色，不传则沿用单元格默认文字色（随主题，与底色自然一致） */
-  color?: string;
-}
-
-/**
- * tag 映射项：
- * - 字符串简写：只给文案，不指定颜色 —— `{ 1: '苹果' }`
- * - 对象写法：需要指定颜色时用 —— `{ 1: { label: '苹果', color: '#d85a30' } }`
- */
-export type ColumnTagItemLike = string | ColumnTagItem;
 
 /** 单元格显示值：函数形式自定义，或 `{ get, set }`（@visactor/vtable 的 FieldFormat） */
 export type AppColumnFieldFormat = NonNullable<TextColumnDefine['fieldFormat']>;
@@ -99,7 +90,7 @@ export type AppColumnLeafDef = AppColumnCommonDef & {
   dataType?: ColumnDataType;
   /** double：小数位，默认 2（int 始终 0 位小数，忽略此项） */
   precision?: number;
-  /** tag：值 -> 文案（字符串简写）或 {label, color}（要指定颜色时） */
+  /** tag：值按逗号拆分后逐项匹配 -> 文案（字符串简写）或 {label, color, bgColor, borderColor} */
   tagMap?: Record<string, ColumnTagItemLike>;
   /** boolean：勾选框右侧的文字（选中 / 未选中），不传则只显示勾选框 */
   booleanText?: [string, string];
@@ -249,7 +240,7 @@ function toStyleResolver(style: AppColumnStyle): StyleResolver {
 /**
  * 默认样式打底、自定义样式覆盖：
  * - 都是对象 -> 浅合并
- * - 有一边是函数 -> 包成函数，先算默认再叠自定义（tag 列的按值上色不会被一行 style 顶掉）
+ * - 有一边是函数 -> 包成函数，先算默认再叠自定义
  */
 function mergeStyle(base: AppColumnStyle | undefined, override: AppColumnStyle): AppColumnStyle {
   if (!base) return override;
@@ -348,21 +339,9 @@ export function buildColumns(defs: AppColumnDef[]): ColumnsDefine {
 
       case 'tag': {
         const map = def.tagMap ?? {};
-        // 字符串简写等价于「只有文案、不指定颜色」
-        const itemOf = (value: unknown): ColumnTagItem | undefined => {
-          const raw = map[String(value ?? '')];
-          if (raw === undefined || raw === null) return undefined;
-          return typeof raw === 'string' ? { label: raw } : raw;
-        };
-        typeFieldFormat = (record: Record<string, unknown>) => {
-          const value = String(record[field] ?? '');
-          return itemOf(value)?.label ?? value;
-        };
-        // 没配颜色的项不返回 color，文字沿用默认色（与底色一致，跟随主题）
-        typeStyle = (args: { dataValue?: unknown }) => {
-          const color = itemOf(args.dataValue)?.color;
-          return color ? { color } : {};
-        };
+        // 文本口径保留给复制 / 筛选 / 导出；视觉上走 VTable Tag 图元。
+        typeFieldFormat = (record: Record<string, unknown>) => formatTagValue(record[field], map);
+        base.customLayout = createTagCustomLayout(map);
         break;
       }
 
