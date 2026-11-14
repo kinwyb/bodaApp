@@ -2,16 +2,17 @@
  * V0018_V0372 生产看板 > 月生产数据
  *
  * 与旧客户端（`Views/V0018/V0372.cs`）逐项对应：
- * - 查询区：年份（2025 起）→ 组织（多选，旧客户端 QuickBIOrg 勾选窗）→ 查询；
+ * - 查询区：年份（2025 起）→ 组织（义乌/越南单选 + 全部，与 V0326/V0332 同款短名）→ 查询；
  * - 数据：与周生产数据同一个接口（monthData=true），月名 = WeekNum-60；
- * - 表格：固定月/月开始/月结束 + 21 指标 × 所选组织；多选时按指标分组，
+ * - 表格：固定月/月开始/月结束 + 21 指标 × 所选组织；选全部时按指标分组，
  *   列头始终「指标(组织)」；组织切换只改列不重查；
  * - 双击**越南**的织造列打开「织造明细」弹窗（存储过程 Query_BJZZMachineTypeData）；
  * - 导出走 exportName；刷新不迁（查询按钮即重查）。
  *
  * 两处**有意修正**（与 V0326 同源）：
  * - 旧客户端双击判断 Substring(3) 差一位，这里按意图实现为全部织造（ZZ*）列；
- * - 组织多选由勾选弹窗改为查询条上的多选 Select，语义不变（候选 = 用户组织列表）。
+ * - 旧客户端 QuickBIOrg 勾选窗改为与另两页一致的组织单选（义乌/越南/全部）：
+ *   只剩两个生产组织后，单选 + 全部已覆盖原多选的全部组合，且不再显示组织全名。
  */
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {App, Button, DatePicker, Form, Select, Space} from 'antd';
@@ -22,7 +23,7 @@ import {PageBreadcrumb} from '@/components/PageBreadcrumb';
 import {FilterTable, type FilterTableApi, type GridTableCellInfo} from '@/components/grid-table';
 import {biApi} from '@/api';
 import {ErrorMessage} from '@/api/request';
-import {formatDate, isBlank, now, toDayjs} from '@/utils';
+import {formatDate, now, toDayjs} from '@/utils';
 import {useUIBridgeHost} from '@/pages/agent/ui-bridge';
 import {PRODUCTION_ORGS, buildProductionRows, buildSummaryFromColumns, monthPeriodName} from '../productionShared';
 import {useCurrentOrg, useProductionOrgs} from '../productionOrgs';
@@ -51,25 +52,29 @@ const MonthProductionPage: React.FC<ViewPageProps> = ({view, trail}) => {
     const currentOrg = useCurrentOrg();
     const {orgs} = useProductionOrgs();
 
-    /** 组织候选：用户组织列表（旧客户端 QuickBIOrg 拿 OrgID.orgs 全量展示） */
-    const orgOptions = useMemo(
-        () => orgs
-            .filter((item) => !isBlank(item.OrgID))
-            .map((item) => ({value: item.OrgID ?? '', label: item.OrgName ?? item.OrgID ?? ''})),
-        [orgs],
-    );
+    /** 组织候选：仍来自接口组织列表，按 OrgID 映射成义乌/越南短名（与 V0326/V0332 一致），两地齐全时插入「全部」 */
+    const orgOptions = useMemo(() => {
+        const available = PRODUCTION_ORGS.filter((org) => orgs.some((item) => item.OrgID === org.id));
+        const options = available.map((org) => ({value: org.id, label: org.name}));
+        if (available.length === PRODUCTION_ORGS.length) {
+            options.unshift({value: '', label: '全部'});
+        }
+        return options;
+    }, [orgs]);
 
-    /** 选中的组织；默认当前系统组织单选（store 取，旧客户端 initOrgCombox(config.OrgID)） */
-    const [orgIds, setOrgIds] = useState<string[]>(() => [currentOrg || PRODUCTION_ORGS[0].id]);
+    /** 当前展示的组织；空串 = 全部。默认当前系统组织（store 取） */
+    const [orgId, setOrgId] = useState<string>(() => currentOrg || PRODUCTION_ORGS[0].id);
     const [query, setQuery] = useState<{year: number}>({year: now().year()});
     const [rows, setRows] = useState<Array<Record<string, unknown>>>([]);
     const [loading, setLoading] = useState(false);
     const [detail, setDetail] = useState<ZZDetailTarget | null>(null);
 
-    /** OrgChanged：当前系统组织变化时重置为该组织单选（旧客户端 initOrgCombox(newOrgID)） */
+    /** OrgChanged：当前系统组织变化且新组织在候选里时跟随（与另两页一致） */
     useEffect(() => {
-        if (currentOrg) setOrgIds([currentOrg]);
-    }, [currentOrg]);
+        if (currentOrg && orgOptions.some((option) => option.value === currentOrg)) {
+            setOrgId(currentOrg);
+        }
+    }, [currentOrg, orgOptions]);
 
     const pendingQueryRef = useRef<(() => void) | null>(null);
     const settleQuery = useCallback(() => {
@@ -99,7 +104,7 @@ const MonthProductionPage: React.FC<ViewPageProps> = ({view, trail}) => {
         new Promise<void>((resolve) => {
             pendingQueryRef.current = resolve;
             form.setFieldsValue({year: toDayjs(`${next.year}-01-01`)});
-            setOrgIds(next.orgIds);
+            setOrgId(next.orgId);
             setQuery({year: next.year});
             window.setTimeout(() => {
                 if (pendingQueryRef.current !== resolve) return;
@@ -108,7 +113,7 @@ const MonthProductionPage: React.FC<ViewPageProps> = ({view, trail}) => {
             }, 12000);
         }), [form]);
 
-    const columns = useMemo(() => buildMonthProductionColumns(orgIds), [orgIds]);
+    const columns = useMemo(() => buildMonthProductionColumns(orgId), [orgId]);
     /** 统计行按旧客户端口径：比率取平均且忽略缺值 */
     const summary = useMemo(() => buildSummaryFromColumns(columns), [columns]);
 
@@ -124,7 +129,7 @@ const MonthProductionPage: React.FC<ViewPageProps> = ({view, trail}) => {
         setDetail({startDate, endDate});
     }, []);
 
-    const bridgeQuery = useMemo<MonthProductionQuery>(() => ({year: query.year, orgIds}), [query.year, orgIds]);
+    const bridgeQuery = useMemo<MonthProductionQuery>(() => ({year: query.year, orgId}), [query.year, orgId]);
     const bridgeContext = useMemo<MonthProductionBridgeContext>(() => ({
         view,
         query: bridgeQuery,
@@ -157,27 +162,12 @@ const MonthProductionPage: React.FC<ViewPageProps> = ({view, trail}) => {
                 </Form.Item>
                 <Form.Item label="组织">
                     <Select
-                        mode="multiple"
-                        /*
-                         * 固定宽度：responsive 折叠会按容器宽度测量要显示几个标签，
-                         * 若宽度随内容自适应（只给 minWidth），「显示内容 →  intrinsic 宽 →
-                         * 容器宽 → 重新测量」会互相反馈，长组织名下不停折叠/展开抖动。
-                         * 固定宽度切断这条反馈链，折叠结果稳定。
-                         */
-                        style={{width: 320}}
-                        maxTagCount="responsive"
-                        maxTagPlaceholder={(omitted) => (
-                            // 原生 title：Select 折叠项会拦截鼠标事件，antd Tooltip 弹不出来，
-                            // 浏览器级 title 提示不受影响，悬停即可看到被折叠的组织名
-                            <span title={omitted.map((item) => String(item.label)).join('、')}>
-                                +{omitted.length}...
-                            </span>
-                        )}
+                        style={{width: 120}}
                         options={orgOptions}
-                        // 候选未加载时不显示原始 GUID 标签；加载后正常回显选中组织
-                        value={orgIds.filter((id) => orgOptions.some((option) => option.value === id))}
-                        onChange={(value: string[]) => setOrgIds(value)}
                         placeholder="选择组织"
+                        // 候选未加载或当前组织不在候选里时不显示原始 GUID（与另两页一致）
+                        value={orgOptions.some((option) => option.value === orgId) ? orgId : undefined}
+                        onChange={(value: string) => setOrgId(value)}
                     />
                 </Form.Item>
                 <Form.Item>
