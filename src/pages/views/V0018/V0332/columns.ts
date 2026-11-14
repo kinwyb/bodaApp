@@ -7,7 +7,7 @@
  * 组织切换只影响叶子列的显隐（全部 = 两地都显示）。
  */
 import type {AppColumnDef} from '@/components/grid-table/columnBuilder';
-import {PRODUCTION_ORGS, buildPeriodColumns, productionFieldFormat} from '../productionShared';
+import {buildPeriodColumns, PRODUCTION_ORGS, productionFieldFormat} from '../productionShared';
 
 /** 行主键：隐藏字段，值 = 周名（不用可见列 WeekName，避免统计行泄漏 __summary__） */
 export const MACHINE_WEEK_ROW_KEY = '_rowKey';
@@ -16,7 +16,7 @@ export const MACHINE_WEEK_ROW_KEY = '_rowKey';
 export const MACHINE_SIZES: readonly string[] = ['12', '13', '14', '15', '16', '17', '18', '19', '20', '21'];
 
 /** 每个机型下的两个指标（都是比率类：百分数显示、汇总取平均） */
-const MACHINE_METRICS: ReadonlyArray<{field: string; title: string}> = [
+const MACHINE_METRICS: ReadonlyArray<{ field: string; title: string }> = [
     {field: 'MZEfficiency', title: '产出效率'},
     {field: 'MZUtilizationRate', title: '机台利用率'},
 ];
@@ -49,7 +49,6 @@ export function buildMachineWeekColumns(orgId: string, counts: MachineCounts): A
                         minWidth: 80,
                         dataType: 'double' as const,
                         sortable: true,
-                        filterType: 'number' as const,
                         aggregate: 'avg' as const,
                         fieldFormat: productionFieldFormat(field, 'percent', MACHINE_WEEK_ROW_KEY),
                     };

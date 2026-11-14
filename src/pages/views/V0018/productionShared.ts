@@ -166,8 +166,24 @@ export function buildPeriodColumns(kind: 'week' | 'month', grouped: boolean): Ap
         kind === 'week' ? ['周', '周开始', '周结束'] : ['月', '月开始', '月结束'];
     const leaves: AppColumnDef[] = [
         {field: 'WeekName', title: nameTitle, width: 110, minWidth: 90, sortable: true, filterType: 'text'},
-        {field: 'WeekStartDate', title: startTitle, width: 100, minWidth: 90, dataType: 'date', sortable: true, filterType: 'date'},
-        {field: 'WeekEndDate', title: endTitle, width: 100, minWidth: 90, dataType: 'date', sortable: true, filterType: 'date'},
+        {
+            field: 'WeekStartDate',
+            title: startTitle,
+            width: 100,
+            minWidth: 90,
+            dataType: 'date',
+            sortable: true,
+            filterType: 'date'
+        },
+        {
+            field: 'WeekEndDate',
+            title: endTitle,
+            width: 100,
+            minWidth: 90,
+            dataType: 'date',
+            sortable: true,
+            filterType: 'date'
+        },
     ];
     return grouped ? [{title: '日期', children: leaves}] : leaves;
 }
@@ -189,7 +205,6 @@ export function buildMetricLeaf(
         minWidth: 80,
         dataType: metric.dataType,
         sortable: true,
-        filterType: 'number',
         aggregate: metric.percent ? 'avg' : 'sum',
         fieldFormat: productionFieldFormat(field, kind, rowKey),
     };
@@ -237,7 +252,7 @@ export function trimmedDoubleFormat(field: string): (record: Record<string, unkn
 export function buildSummaryFromColumns(
     columns: AppColumnDef[],
 ): (records: Array<Record<string, unknown>>) => Record<string, unknown> {
-    const leaves: Array<{field: string; type: 'sum' | 'avg'}> = [];
+    const leaves: Array<{ field: string; type: 'sum' | 'avg' }> = [];
     const walk = (defs: AppColumnDef[]): void => {
         for (const def of defs) {
             if ('children' in def) {
