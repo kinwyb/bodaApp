@@ -345,6 +345,20 @@
   padding: 20px 24px 16px;
 }
 
+/*
+ * x 的 Bubble.List 给每行气泡硬塞了 15% 的侧向留白
+ * （助手行 padding-inline-end、用户行 padding-inline-start），
+ * 宽屏下右侧会空出一大块。这里压成固定 30px：面板拉宽时留白不再跟着涨。
+ * 选择器叠两个类把优先级抬到 (0,5,0)，盖过库里的 (0,4,0)，不依赖样式注入顺序。
+ */
+.agent-bubble-list.ant-bubble-list .ant-bubble-start:not(.ant-bubble-divider):not(.ant-bubble-system) {
+  padding-inline-end: 30px;
+}
+
+.agent-bubble-list.ant-bubble-list .ant-bubble-end:not(.ant-bubble-divider):not(.ant-bubble-system) {
+  padding-inline-start: 30px;
+}
+
 /* 消息头像：助手用品牌蓝青渐变，用户用暖橙渐变，避免默认灰白头像混在气泡里 */
 .agent-bubble-list .agent-avatar {
   flex: 0 0 auto;
@@ -365,7 +379,7 @@
   background: linear-gradient(135deg, #fa8c16 0%, #ffc53d 100%);
 }
 
-/* 助手回答：白底 + 淡边框的轻容器，比灰底更清爽；宽度由气泡角色配置给（跟随内容，最多 80%） */
+/* 助手回答：白底 + 淡边框的轻容器，比灰底更清爽；宽度由气泡角色配置给（跟随内容，最多撑满） */
 .agent-answer {
   display: flex;
   flex-direction: column;
@@ -877,8 +891,8 @@ body .ant-modal-root.agent-approval-modal-root .ant-modal {
 }
 
 .agent-suggestion {
-  /* 和助手气泡同一比例，两边宽度看起来是一条线 */
-  width: 80%;
+  /* 和助手气泡同一比例（撑满对话区），两边宽度看起来是一条线 */
+  width: 100%;
   max-width: 100%;
   margin: 0 auto;
 }

@@ -16,7 +16,6 @@ import {
   AppstoreOutlined,
   PaperClipOutlined,
   ReloadOutlined,
-  StopOutlined,
 } from '@ant-design/icons';
 import { Attachments, Sender, Suggestion } from '@ant-design/x';
 import type {
@@ -489,6 +488,7 @@ export const AgentComposer = React.forwardRef<AgentComposerApi, AgentComposerPro
               return onKeyDown(event);
             }}
             onSubmit={handleSubmit}
+            onCancel={onAbort}
             placeholder={
               streaming
                 ? compact
@@ -556,21 +556,21 @@ export const AgentComposer = React.forwardRef<AgentComposerApi, AgentComposerPro
             suffix={(_original, { components }) => (
               <span className="agent-sender-actions">
                 {voice.allowSpeech ? <components.SpeechButton /> : null}
-                {streaming ? (
+                {/*
+                 * 生成中只保留一个主按钮：输入框为空时发送键原位变成停止键，
+                 * 一旦开始输入引导又变回发送（/steer），不再并排多出一个图标。
+                 * 注意不能给 Sender 传 loading：那会拦掉 Enter 提交，引导就发不出去了。
+                 * LoadingButton 默认随 loading 禁用，这里显式解禁并交给 onCancel 中断。
+                 */}
+                {streaming && !inputValue.trim() ? (
                   <Tooltip title="停止生成">
-                    <Button
-                      type="text"
-                      danger
-                      shape="circle"
-                      icon={<StopOutlined />}
-                      aria-label="停止生成"
-                      onClick={onAbort}
-                    />
+                    <components.LoadingButton disabled={false} aria-label="停止生成" />
                   </Tooltip>
-                ) : null}
-                <Tooltip title={streaming ? '发送引导 /steer' : '发送'}>
-                  <components.SendButton />
-                </Tooltip>
+                ) : (
+                  <Tooltip title={streaming ? '发送引导 /steer' : '发送'}>
+                    <components.SendButton />
+                  </Tooltip>
+                )}
               </span>
             )}
             footer={

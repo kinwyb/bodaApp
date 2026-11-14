@@ -50,15 +50,15 @@ function createBubbleRoles(
       typing: false as const,
       avatar: ASSISTANT_AVATAR,
       /*
-       * 宽度：内容少时跟着内容走，内容多（表格/长文）最多到对话区 80%。
+       * 宽度：内容少时跟着内容走，内容多（表格/长文）撑满对话区，右侧不再留大片空白。
        * x 的结构是 root(flex) > body(按内容收缩) > content，
-       * 必须先把 body 撑开（flex:1），80% 这个上限才有参照；
+       * 必须先把 body 撑开（flex:1），100% 这个上限才有参照；
        * body 是 column flex，默认 stretch 会把 content 拉满，所以 content 要 alignSelf:flex-start。
        */
       styles: {
         root: { width: '100%' },
         body: { flex: 1, minWidth: 0 },
-        content: { width: 'fit-content', maxWidth: '80%', alignSelf: 'flex-start' },
+        content: { width: 'fit-content', maxWidth: '100%', alignSelf: 'flex-start' },
       },
       contentRender: (content: unknown, info: { status?: string }) => (
         <AgentAnswer
