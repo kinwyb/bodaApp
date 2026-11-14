@@ -27,7 +27,7 @@ import type {
   AgentTokenUsage,
 } from '../types';
 import { CONNECTION_META } from '../constants';
-import { AGENT_STEER_COMMAND, steerGuidanceOf } from '../commands';
+import { AGENT_STEER_COMMAND, isSteerMessage, steerGuidanceOf } from '../commands';
 import { deleteAgentFile, fileErrorMessage, uploadAgentFile } from '../files';
 import { useVoiceInput } from '../hooks/use-voice-input';
 import { AgentTokenMeter } from './AgentTokenMeter';
@@ -138,7 +138,12 @@ export const AgentComposer = React.forwardRef<AgentComposerApi, AgentComposerPro
 
   const focusComposer = useCallback(() => {
     requestAnimationFrame(() => {
-      composerRef.current?.querySelector('textarea')?.focus();
+      const textarea = composerRef.current?.querySelector('textarea');
+      if (!textarea) return;
+      textarea.focus();
+      // 选中命令/技能后把光标放到末尾，接着输入的内容才不会插到 `/steer` 中间
+      const end = textarea.value.length;
+      textarea.setSelectionRange(end, end);
     });
   }, []);
 
@@ -165,7 +170,7 @@ export const AgentComposer = React.forwardRef<AgentComposerApi, AgentComposerPro
     (token: string) => {
       setInputValue((current) => {
         const trimmed = current.trimStart();
-        const steering = /^\/steer(?:\s+|$)/i.test(trimmed);
+        const steering = isSteerMessage(trimmed);
         const body = stripSkillToken(steering ? steerGuidanceOf(trimmed) : trimmed);
         const next = body ? `${token} ${body}` : `${token} `;
         return steering ? `${AGENT_STEER_COMMAND} ${next}` : next;
@@ -473,7 +478,16 @@ export const AgentComposer = React.forwardRef<AgentComposerApi, AgentComposerPro
               if (suggestionOpen) onTrigger(false);
               setSuggestionKind(null);
             }}
-            onKeyDown={onKeyDown}
+            onKeyDown={(event) => {
+              // Suggestion 外层是 antd Cascader，其根节点会把空格键 preventDefault 掉
+              // （combobox 语义里空格是“打开下拉”），导致这个输入框永远打不出空格，
+              // `/steer` 只能和正文紧挨在一起。在空格冒泡到 Cascader 之前拦住它，
+              // 让空格正常输入；其余按键仍交给建议浮层（返回值决定是否拦截 Enter 提交）。
+              if (event.key === ' ') {
+                event.stopPropagation();
+              }
+              return onKeyDown(event);
+            }}
             onSubmit={handleSubmit}
             placeholder={
               streaming
