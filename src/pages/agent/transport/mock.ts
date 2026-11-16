@@ -90,6 +90,8 @@ export function createMockTransport(): AgentTransport {
   let cancelled = false;
   /** 演示审批阻塞点：play 推到审批帧后挂起，等 approve() 送来决定再继续 */
   let approvalResolve: ((decision: 'accept' | 'decline') => void) | null = null;
+  /** 演示提问阻塞点：play 推到提问帧后挂起，等 answerUserInput() 送来答案再继续 */
+  let userInputResolve: ((answers: Record<string, string[]>) => void) | null = null;
   /** 演示用的累计用量（真实后端由 DB 落库，这里按文本长度估） */
   let usedInput = 0;
   let usedOutput = 0;
@@ -214,6 +216,37 @@ export function createMockTransport(): AgentTransport {
       approvalResolve = null;
       if (cancelled) return;
       finalText = decision === 'accept' ? script.approval.acceptText : script.approval.declineText;
+    }
+
+    // 提问演示：推一帧 user_input 后阻塞这一轮，等用户作答 / 跳过。
+    // 与真实后端一致 —— agent 被提问卡住，不作答就不会有后续帧。
+    if (script.userInput) {
+      if (cancelled) return;
+      const requestId = `mock-user-input-${Date.now().toString(36)}`;
+      push(AGENT_EVENT.userInput, {
+        event: AGENT_EVENT.userInput,
+        role: 'system',
+        delta: false,
+        userInput: {
+          id: requestId,
+          questions: script.userInput.questions,
+          autoResolutionMs: script.userInput.autoResolutionMs,
+        },
+      });
+      const answers = await new Promise<Record<string, string[]>>((resolve) => {
+        userInputResolve = resolve;
+      });
+      userInputResolve = null;
+      if (cancelled) return;
+      // 上游落定后会发 serverRequest/resolved，这里走同一条解析路径
+      push(AGENT_EVENT.requestResolved, { event: AGENT_EVENT.requestResolved }, requestId);
+      const answered = Object.keys(answers).length > 0;
+      if (answered) {
+        const summary = Object.values(answers).flat().join('、');
+        finalText = `已收到你的回答：${summary}。\n\n${script.userInput.answeredText}`;
+      } else {
+        finalText = script.userInput.skippedText;
+      }
     }
 
     if (cancelled) return;
@@ -360,6 +393,12 @@ export function createMockTransport(): AgentTransport {
         approvalResolve = null;
         resolve('decline');
       }
+      // 提问挂起时中断：放行一次「跳过」让 play 能退出
+      if (userInputResolve) {
+        const resolve = userInputResolve;
+        userInputResolve = null;
+        resolve({});
+      }
     },
 
     approve(query) {
@@ -368,6 +407,15 @@ export function createMockTransport(): AgentTransport {
         const resolve = approvalResolve;
         approvalResolve = null;
         resolve(query.decision);
+      }
+    },
+
+    answerUserInput(query) {
+      // 答案已由状态层乐观地记进时间线；这里只负责把阻塞的演示轮放行。
+      if (userInputResolve) {
+        const resolve = userInputResolve;
+        userInputResolve = null;
+        resolve(query.answers);
       }
     },
 

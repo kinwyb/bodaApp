@@ -103,6 +103,18 @@ export type AgentChatAction =
     }
   /** 审批回传失败：把这条审批退回 pending，让用户能重试 */
   | { type: 'approvalError'; conversationKey: string; approvalId: string }
+  | { type: 'setUserInput'; conversationKey: string; userInput: AgentAssistantContent['userInput'] }
+  /** 用户提交了作答 / 跳过：乐观地记进时间线，回传失败再退回 */
+  | {
+      type: 'userInputAnswer';
+      conversationKey: string;
+      requestId: string;
+      answers: Record<string, string[]>;
+    }
+  /** 作答回传失败：把这条提问退回 pending，让用户能重试 */
+  | { type: 'userInputError'; conversationKey: string; requestId: string }
+  /** 上游通知请求已落定：把仍是 pending 的审批 / 提问置为 expired */
+  | { type: 'requestResolved'; conversationKey: string; requestId: string }
   | { type: 'setMedia'; conversationKey: string; media: AgentMedia[] }
   | { type: 'setSources'; conversationKey: string; sources: AgentSource[] }
   /**

@@ -19,6 +19,7 @@ import {
   UI_TYPE,
   buildAgentSkills,
   buildChatApproval,
+  buildChatUserInput,
   buildChatCancel,
   buildChatSend,
   buildPing,
@@ -45,7 +46,7 @@ import type { AgentHello, AgentTransport, AgentUIRequest } from './types';
 import { installFrameTrace, traceIncoming, traceUplink } from './frame-trace';
 
 /** 上行请求的类别：决定响应回来时用哪种方式解析 */
-type PendingKind = 'chat' | 'history' | 'replay' | 'sessions' | 'skills' | 'delete' | 'approval';
+type PendingKind = 'chat' | 'history' | 'replay' | 'sessions' | 'skills' | 'delete' | 'approval' | 'user-input';
 
 /**
  * 重连退避：1s → 2s → 4s → 8s → 15s（封顶），最多自动重试 AGENT_MAX_AUTO_RETRY 次。
@@ -123,6 +124,7 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
       threadId?: string;
       agent?: string;
       approvalId?: string;
+      requestId?: string;
     }
   >();
   /** sessionID → 会话 key */
@@ -192,6 +194,7 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
       threadId?: string;
       agent?: string;
       approvalId?: string;
+      requestId?: string;
     },
   ) => {
     if (related) {
@@ -202,6 +205,7 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
         threadId: related.threadId,
         agent: related.agent,
         approvalId: related.approvalId,
+        requestId: related.requestId,
       });
     }
     rawPost(JSON.stringify(envelope));
@@ -288,6 +292,13 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
               conversationId: request.conversationId,
               approvalId: request.approvalId ?? '',
               message: data.message || '审批回传未被受理',
+            });
+          } else if (request.kind === 'user-input') {
+            emit({
+              type: 'user-input-error',
+              conversationId: request.conversationId,
+              requestId: request.requestId ?? '',
+              message: data.message || '作答回传未被受理',
             });
           } else {
             emit({
@@ -404,6 +415,15 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
             type: 'approval-error',
             conversationId: request.conversationId,
             approvalId: request.approvalId ?? '',
+            message: data.message,
+          });
+          break;
+        }
+        if (request?.kind === 'user-input') {
+          emit({
+            type: 'user-input-error',
+            conversationId: request.conversationId,
+            requestId: request.requestId ?? '',
             message: data.message,
           });
           break;
@@ -743,6 +763,19 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
           decision: query.decision,
         }),
         { conversationId: query.conversationId, kind: 'approval', approvalId: query.approvalId },
+      );
+    },
+
+    answerUserInput(query) {
+      const sessionID = query.sessionId || sessionIdOf(query.conversationId);
+      postEnvelope(
+        buildChatUserInput({
+          chatID: sessionID ? undefined : query.conversationId,
+          sessionID,
+          requestID: query.requestId,
+          answers: query.answers,
+        }),
+        { conversationId: query.conversationId, kind: 'user-input', requestId: query.requestId },
       );
     },
 

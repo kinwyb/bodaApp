@@ -30,6 +30,22 @@ export type MockApproval = {
   declineText: string;
 };
 
+/** 演示用的一次结构化提问：推帧后阻塞演示轮，等用户作答 / 跳过再继续 */
+export type MockUserInput = {
+  questions: Array<{
+    id: string;
+    header?: string;
+    question: string;
+    options?: Array<{ label: string; description?: string }>;
+  }>;
+  /** 非零时卡片显示倒计时（毫秒），与上游 autoResolutionMs 一致 */
+  autoResolutionMs?: number;
+  /** 用户作答后继续输出的正文 */
+  answeredText: string;
+  /** 用户跳过后输出的正文 */
+  skippedText: string;
+};
+
 export type MockScript = {
   /** 思考过程，按 reasoning_delta 分块下发 */
   reasoning: string;
@@ -37,6 +53,8 @@ export type MockScript = {
   text: string;
   /** 可选审批步骤：有它就在正文前插入一次审批并阻塞等待决定 */
   approval?: MockApproval;
+  /** 可选提问步骤：有它就在正文前插入一次结构化提问并阻塞等待作答 */
+  userInput?: MockUserInput;
 };
 
 export const DELIVERY_SCRIPT: MockScript = {
@@ -178,9 +196,51 @@ export const APPROVAL_SCRIPT: MockScript = {
   },
 };
 
+/** 提问演示：问「调整生产计划 / 提问 / 澄清」触发，作答或跳过后走不同结尾 */
+export const USER_INPUT_SCRIPT: MockScript = {
+  reasoning:
+    '用户要调整下周的生产计划，但没说调整范围和排产取向。这两个信息会直接影响排产结果，先向用户发起结构化提问，拿到答案后再给出调整方案。',
+  tools: [],
+  text: '',
+  userInput: {
+    autoResolutionMs: 60000,
+    questions: [
+      {
+        id: 'workshop',
+        header: '调整范围',
+        question: '要调整哪个车间的生产计划？',
+        options: [
+          { label: '机加工车间', description: 'CNC 产线，当前负荷 132%' },
+          { label: '热处理车间', description: '单产线，插单空间小' },
+          { label: '装配车间', description: '负荷 78%，仍有富余' },
+        ],
+      },
+      {
+        id: 'strategy',
+        header: '排产策略',
+        question: '排产时优先保证什么？',
+        options: [
+          { label: '交付日期优先', description: '按期交付，可能增加换型次数' },
+          { label: '设备利用率优先', description: '减少换型，部分订单可能顺延' },
+        ],
+      },
+      {
+        id: 'constraints',
+        header: '补充约束',
+        question: '还有其他约束需要纳入吗？（如物料齐套、人员班次，没有可跳过）',
+      },
+    ],
+    answeredText:
+      '已按你的选择生成调整方案：重排了下周对应车间的工单顺序，优先保住承诺交付日期，并把换型集中在夜班低谷时段。预计负荷率下降 **9 个百分点**，两张风险预订单（YD-20261026-018 / YD-20261025-042）可回到交付日前完成。方案已写入排产草稿，确认后才会下发到车间。',
+    skippedText:
+      '好的，先不做调整。我按当前计划继续跟踪，如果之后想改，可以直接告诉我车间和排产取向，或让我先给出一版默认方案供你对比。',
+  },
+};
+
 /** 按关键词挑一段示例回答 */
 export function buildMockScript(question: string): MockScript {
   if (/审批|删除|清理|授权/.test(question)) return APPROVAL_SCRIPT;
+  if (/调整.*计划|生产计划|提问|澄清/.test(question)) return USER_INPUT_SCRIPT;
   if (/预订单|订单|交付|延期/.test(question)) return DELIVERY_SCRIPT;
   if (/产能|工时|瓶颈|负荷|效率/.test(question)) return CAPACITY_SCRIPT;
   if (/日报|报表|统计|汇总/.test(question)) return REPORT_SCRIPT;

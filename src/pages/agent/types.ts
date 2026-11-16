@@ -90,6 +90,39 @@ export type AgentApproval = {
   extra?: AgentApprovalExtra;
 };
 
+/**
+ * 结构化提问的处理状态。
+ *
+ * - `pending`：等待用户作答，agent 这一轮正被它阻塞；
+ * - `answered` / `skipped`：已提交作答 / 已跳过，回传已发出；
+ * - `expired`：这一轮已结束、超时被自动落空、或来自历史回放。
+ */
+export type AgentUserInputStatus = 'pending' | 'answered' | 'skipped' | 'expired';
+
+/** 提问候选项，对应后端 types.UserInputOption */
+export type AgentUserInputOption = { label: string; description?: string };
+
+/** 单个问题，对应后端 types.UserInputQuestion；options 为空表示纯自由文本 */
+export type AgentUserInputQuestion = {
+  id: string;
+  header?: string;
+  question: string;
+  options?: AgentUserInputOption[];
+};
+
+/** 结构化提问，对应后端 data.userInput */
+export type AgentUserInput = {
+  /** 请求标识，回传 chat.user_input 时作为 requestID 带回 */
+  id: string;
+  questions: AgentUserInputQuestion[];
+  /** 非零时上游超时后会自动以空答案落掉该请求（毫秒） */
+  autoResolutionMs?: number;
+  /** 缺省按 pending 处理 */
+  status?: AgentUserInputStatus;
+  /** 已回传的答案，按问题 ID 组织 */
+  answers?: Record<string, string[]>;
+};
+
 /** 附件的上传状态：选完文件就开始传，发送只认 done 的那些 */
 export type AgentAttachmentStatus = 'uploading' | 'done' | 'error';
 
@@ -131,6 +164,7 @@ export type AgentTimelineItem =
   | { kind: 'text'; key: string; eventId?: string; text: string; done: boolean }
   | { kind: 'tool'; key: string; step: AgentToolStep }
   | { kind: 'approval'; key: string; approval: AgentApproval }
+  | { kind: 'user-input'; key: string; userInput: AgentUserInput }
   | { kind: 'error'; key: string; message: string };
 
 /** 助手消息的完整内容：时间线 + 派生汇总 + 媒体/引用 */
@@ -146,6 +180,7 @@ export type AgentAssistantContent = {
   reasoning?: string;
   steps?: AgentToolStep[];
   approval?: AgentApproval;
+  userInput?: AgentUserInput;
   media?: AgentMedia[];
   sources?: AgentSource[];
   /**

@@ -45,6 +45,8 @@ export const CLIENT_TYPE = {
   chatCancel: 'chat.cancel',
   /** 回传审批决定（允许 / 拒绝），approvalID 取下行 approval.id */
   chatApproval: 'chat.approval',
+  /** 回传结构化提问的作答，requestID 取下行 userInput.id */
+  chatUserInput: 'chat.user_input',
   sessionHistory: 'session.history',
   /** 拉取对话列表（一条对应一个 thread） */
   sessionList: 'session.list',
@@ -108,6 +110,10 @@ export const AGENT_EVENT = {
   tokenUsage: 'token_usage',
   error: 'error',
   approval: 'approval',
+  /** 结构化提问：data.userInput 带问题列表，等待用户作答 */
+  userInput: 'user_input',
+  /** 挂起的请求（审批 / 提问）已落定：eventID 为请求 ID，据此收起交互卡片 */
+  requestResolved: 'request_resolved',
   finished: 'finished',
 } as const;
 

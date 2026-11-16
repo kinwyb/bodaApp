@@ -12,6 +12,7 @@ import type {
   AgentSource,
   AgentTokenUsage,
   AgentToolStep,
+  AgentUserInput,
 } from '../types';
 
 export type AgentStreamEvent =
@@ -47,6 +48,15 @@ export type AgentStreamEvent =
    * 让用户能重试；具体原因交给全局错误提示。
    */
   | { type: 'approval-error'; conversationId: string; approvalId: string; message: string }
+  /** 结构化提问到达（user_input 帧）：渲染问题列表，等待用户作答 */
+  | { type: 'user-input'; conversationId: string; userInput: AgentUserInput }
+  /** 作答回传失败：把这条提问退回 pending 让用户能重试 */
+  | { type: 'user-input-error'; conversationId: string; requestId: string; message: string }
+  /**
+   * 挂起的请求已落定（request_resolved 帧）：已作答 / 超时自动落空 / turn 中断。
+   * requestId 匹配审批或提问，把仍是 pending 的那条置为 expired。
+   */
+  | { type: 'request-resolved'; conversationId: string; requestId: string }
   | { type: 'media'; conversationId: string; media: AgentMedia[] }
   | { type: 'sources'; conversationId: string; sources: AgentSource[] }
   /**

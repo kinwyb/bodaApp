@@ -134,6 +134,8 @@ export type AgentChatApi = {
   abort: () => void;
   /** 回传审批决定（允许 / 拒绝）；先乐观记进时间线，回传失败会退回 pending */
   respondApproval: (approvalId: string, decision: 'accept' | 'decline') => void;
+  /** 回传结构化提问的作答；空 answers 表示跳过。先乐观记录，回传失败退回 pending */
+  respondUserInput: (requestId: string, answers: Record<string, string[]>) => void;
   retry: (messageKey: string) => void;
 };
 
@@ -321,6 +323,28 @@ export function useAgentChat(): AgentChatApi {
             approvalId: event.approvalId,
           });
           setLastError(event.message);
+          break;
+        case 'user-input':
+          dispatch({
+            type: 'setUserInput',
+            conversationKey: event.conversationId,
+            userInput: event.userInput,
+          });
+          break;
+        case 'user-input-error':
+          dispatch({
+            type: 'userInputError',
+            conversationKey: event.conversationId,
+            requestId: event.requestId,
+          });
+          setLastError(event.message);
+          break;
+        case 'request-resolved':
+          dispatch({
+            type: 'requestResolved',
+            conversationKey: event.conversationId,
+            requestId: event.requestId,
+          });
           break;
         case 'media':
           dispatch({
@@ -697,6 +721,25 @@ export function useAgentChat(): AgentChatApi {
     });
   }, []);
 
+  /**
+   * 提问作答：与审批表态同一套乐观策略 —— 先把答案记进时间线（界面立刻收起
+   * 输入控件），再经 chat.user_input 回传。服务端拒绝时 user-input-error 会把它
+   * 退回 pending 并提示原因；上游超时 / 中断则由 request-resolved 置为 expired。
+   */
+  const respondUserInput = useCallback((requestId: string, answers: Record<string, string[]>) => {
+    if (!requestId) return;
+    const { activeKey, conversations } = stateRef.current;
+    const conversation = conversations.find((item) => item.key === activeKey);
+    if (!conversation) return;
+    dispatch({ type: 'userInputAnswer', conversationKey: activeKey, requestId, answers });
+    transportRef.current?.answerUserInput({
+      conversationId: activeKey,
+      sessionId: conversation.sessionId,
+      requestId,
+      answers,
+    });
+  }, []);
+
   /** 重跑某条助手回答：拿它前面最近的一条用户消息重新发一遍 */
   const retry = useCallback((messageKey: string) => {
     const { activeKey, conversations } = stateRef.current;
@@ -929,6 +972,7 @@ export function useAgentChat(): AgentChatApi {
     steer,
     abort,
     respondApproval,
+    respondUserInput,
     retry,
   };
 }

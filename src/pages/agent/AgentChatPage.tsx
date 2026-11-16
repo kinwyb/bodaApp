@@ -42,6 +42,7 @@ const USER_AVATAR = <Avatar className="agent-avatar agent-avatar-user" icon={<Us
 function createBubbleRoles(
   onApproval?: (approvalId: string, decision: 'accept' | 'decline') => void,
   onShowApproval?: (approvalId: string) => void,
+  onUserInput?: (requestId: string, answers: Record<string, string[]>) => void,
 ) {
   return {
     assistant: {
@@ -66,6 +67,7 @@ function createBubbleRoles(
           streaming={info.status === 'loading'}
           onApproval={onApproval}
           onShowApproval={onShowApproval}
+          onUserInput={onUserInput}
         />
       ),
     },
@@ -147,7 +149,7 @@ const AgentChatPage: React.FC<AgentChatPageProps> = ({ embedded = false }) => {
   /** 抽出来单独持有：下面的 useMemo 只依赖它，不必依赖整个 chat 对象 */
   const { clearError, replayTurn } = chat;
 
-  const { respondApproval } = chat;
+  const { respondApproval, respondUserInput } = chat;
   /**
    * 当前待处理审批：从最近的消息往回找第一条 pending。
    * 审批会阻塞 agent 这一轮，正常只有一个；历史 / 已表态的都不算。
@@ -181,8 +183,8 @@ const AgentChatPage: React.FC<AgentChatPageProps> = ({ embedded = false }) => {
 
   /** roles 引用要稳定，审批回调都是 useCallback，这里随其变化才重建 */
   const bubbleRoles = useMemo(
-    () => createBubbleRoles(respondApproval, showApproval),
-    [respondApproval, showApproval],
+    () => createBubbleRoles(respondApproval, showApproval, respondUserInput),
+    [respondApproval, showApproval, respondUserInput],
   );
 
   // 连接级错误（投不到具体会话的那种）用全局提示，避免悄悄失败

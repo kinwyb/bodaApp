@@ -9,13 +9,16 @@ import { DEFAULT_LABEL, createConversation, nextMessageKey } from './actions';
 import { contentFromFrames, groupFramesByReq, historyMessagesOf, isTruncatedContent } from './frames';
 import {
   appendTimelineText,
+  expirePendingRequest,
   finishStreamingReply,
   mapStreamingReply,
   mergeTokenUsage,
   setConversationApprovalStatus,
+  setConversationUserInputStatus,
   upsertTimelineApproval,
   upsertTimelineError,
   upsertTimelineTool,
+  upsertTimelineUserInput,
   withConversation,
   withTimeline,
 } from './helpers';
@@ -329,6 +332,37 @@ export function chatReducer(state: AgentChatState, action: AgentChatAction): Age
     case 'approvalError':
       return withConversation(state, action.conversationKey, (conversation) =>
         setConversationApprovalStatus(conversation, action.approvalId, 'pending'),
+      );
+
+    case 'setUserInput':
+      return withConversation(state, action.conversationKey, (conversation) =>
+        mapStreamingReply(conversation, (content) => {
+          if (!action.userInput) return content;
+          return {
+            ...withTimeline(content, upsertTimelineUserInput(timelineOf(content), action.userInput)),
+            userInput: action.userInput,
+          };
+        }),
+      );
+
+    case 'userInputAnswer':
+      return withConversation(state, action.conversationKey, (conversation) =>
+        setConversationUserInputStatus(
+          conversation,
+          action.requestId,
+          Object.keys(action.answers).length > 0 ? 'answered' : 'skipped',
+          action.answers,
+        ),
+      );
+
+    case 'userInputError':
+      return withConversation(state, action.conversationKey, (conversation) =>
+        setConversationUserInputStatus(conversation, action.requestId, 'pending'),
+      );
+
+    case 'requestResolved':
+      return withConversation(state, action.conversationKey, (conversation) =>
+        expirePendingRequest(conversation, action.requestId),
       );
 
     case 'setMedia':

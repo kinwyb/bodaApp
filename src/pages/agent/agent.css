@@ -512,6 +512,84 @@
   color: rgba(0, 0, 0, 0.45);
 }
 
+/* ---------------- 结构化提问卡片 ---------------- */
+
+.agent-user-input {
+  margin: 2px 0;
+}
+
+.agent-user-input-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.agent-user-input-question {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.agent-user-input-question-text {
+  font-size: 13px;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.agent-user-input-header {
+  margin-inline-end: 6px;
+}
+
+.agent-user-input-control {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* 选项主文案 + 次级说明两行排布 */
+.agent-user-input-option {
+  display: inline-flex;
+  flex-direction: column;
+}
+
+.agent-user-input-option-desc {
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.agent-user-input-custom {
+  max-width: 420px;
+}
+
+/* 「其他」下的自由输入与单选文案左对齐（单选圆点 16px + 间距 8px） */
+.agent-user-input-control .agent-user-input-custom {
+  margin-left: 24px;
+  max-width: 396px;
+}
+
+.agent-user-input-answer {
+  font-size: 13px;
+  color: rgba(0, 0, 0, 0.65);
+  word-break: break-word;
+}
+
+.agent-user-input-actions {
+  margin-top: 2px;
+}
+
+.agent-user-input-countdown,
+.agent-user-input-hint {
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+/* 已作答 / 跳过 / 失效的提问弱化显示，不再抢视觉 */
+.agent-user-input-answered,
+.agent-user-input-skipped,
+.agent-user-input-expired {
+  opacity: 0.85;
+}
+
 /* ---------------- 审批确认弹窗 ---------------- */
 
 /*

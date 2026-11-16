@@ -17,7 +17,9 @@ import { mapApprovalEvent } from './approval';
 import { mapLifecycleEvent } from './lifecycle';
 import { mapMessageEvent } from './message';
 import { mapReasoningEvent } from './reasoning';
+import { mapRequestResolvedEvent } from './request-resolved';
 import { mapToolEvent } from './tool';
+import { mapUserInputEvent } from './user-input';
 import { mapUsageEvent } from './usage';
 
 const handlers: AgentEventHandler[] = [
@@ -25,6 +27,8 @@ const handlers: AgentEventHandler[] = [
   mapReasoningEvent,
   mapToolEvent,
   mapApprovalEvent,
+  mapUserInputEvent,
+  mapRequestResolvedEvent,
   mapUsageEvent,
   mapLifecycleEvent,
 ];

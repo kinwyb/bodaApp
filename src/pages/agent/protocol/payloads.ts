@@ -41,6 +41,8 @@ export type AgentEventData = {
   toolCalls?: AgentToolCall[];
   media?: AgentMedia[];
   approval?: { id?: string; content?: string; extra?: Record<string, unknown> };
+  /** 结构化提问，仅 user_input 事件携带 */
+  userInput?: UserInputData;
   /** token 用量，仅 token_usage 事件携带；同一轮会多次推送，按帧覆盖即可 */
   usage?: TokenUsageData;
   error?: { code?: string; message?: string; detail?: string };
@@ -55,6 +57,28 @@ export type AgentToolCall = {
   params?: string;
   result?: string;
   extra?: Record<string, unknown>;
+};
+
+/** protocol.UserInputData：结构化提问（下行） */
+export type UserInputData = {
+  id?: string;
+  questions?: Array<{
+    id?: string;
+    header?: string;
+    question?: string;
+    options?: Array<{ label?: string; description?: string }>;
+  }>;
+  autoResolutionMs?: number;
+};
+
+/** protocol.ChatUserInputData（上行：回传结构化提问的作答） */
+export type ChatUserInputData = {
+  sessionID?: string;
+  chatID?: string;
+  /** 下行 userInput.id，即上游请求标识 */
+  requestID: string;
+  /** 按问题 ID 组织的答案；空对象表示跳过全部问题 */
+  answers: Record<string, string[]>;
 };
 
 /** protocol.HelloData */

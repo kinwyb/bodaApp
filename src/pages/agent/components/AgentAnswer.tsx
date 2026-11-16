@@ -16,11 +16,13 @@ import type {
   AgentAssistantContent,
   AgentTimelineItem,
   AgentToolStep,
+  AgentUserInput,
 } from '../types';
 import { timelineOf } from '../types';
 import { resolveAgentFileUrl } from '../files';
 import { AgentApprovalCard } from './AgentApproval';
 import { AgentStepChain } from './AgentStepChain';
+import { AgentUserInputCard } from './AgentUserInput';
 
 /** 后端 media 只给 url 时，从末段取个文件名 */
 function fileNameOf(url?: string): string | undefined {
@@ -59,6 +61,7 @@ type TimelineBlock =
   | { kind: 'text'; key: string; item: Extract<AgentTimelineItem, { kind: 'text' }> }
   | { kind: 'tools'; key: string; steps: AgentToolStep[] }
   | { kind: 'approval'; key: string; approval: AgentApproval }
+  | { kind: 'user-input'; key: string; userInput: AgentUserInput }
   | { kind: 'error'; key: string; message: string };
 
 function blocksOf(items: AgentTimelineItem[]): TimelineBlock[] {
@@ -84,6 +87,9 @@ function blocksOf(items: AgentTimelineItem[]): TimelineBlock[] {
         return;
       case 'approval':
         blocks.push({ kind: 'approval', key: item.key, approval: item.approval });
+        return;
+      case 'user-input':
+        blocks.push({ kind: 'user-input', key: item.key, userInput: item.userInput });
         return;
       case 'error':
         blocks.push({ kind: 'error', key: item.key, message: item.message });
@@ -139,7 +145,9 @@ export const AgentAnswer: React.FC<{
   onApproval?: (approvalId: string, decision: 'accept' | 'decline') => void;
   /** 打开审批详情弹窗 */
   onShowApproval?: (approvalId: string) => void;
-}> = ({ content, streaming, onApproval, onShowApproval }) => {
+  /** 提问作答；不传则提问只读（历史渲染） */
+  onUserInput?: (requestId: string, answers: Record<string, string[]>) => void;
+}> = ({ content, streaming, onApproval, onShowApproval, onUserInput }) => {
   const blocks = blocksOf(timelineOf(content));
 
   return (
@@ -160,6 +168,10 @@ export const AgentAnswer: React.FC<{
               onShow={onShowApproval}
             />
           );
+        }
+
+        if (block.kind === 'user-input') {
+          return <AgentUserInputCard key={block.key} userInput={block.userInput} onRespond={onUserInput} />;
         }
 
         if (block.kind === 'error') {

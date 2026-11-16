@@ -24,6 +24,7 @@ import { uiEventStepOf } from './ui-event-buffer';
 import {
   appendTimelineText,
   upsertTimelineApproval,
+  upsertTimelineUserInput,
   upsertTimelineError,
   upsertTimelineTool,
   withTimeline,
@@ -102,6 +103,10 @@ export function contentFromFrames(frames: AgentEnvelope[]): AgentAssistantConten
         else if (event.type === 'approval') {
           // 历史 / 回放里的审批那一轮早已结束，置为 expired，界面不再给可点的按钮
           timeline = upsertTimelineApproval(timeline, { ...event.approval, status: 'expired' });
+        }
+        else if (event.type === 'user-input') {
+          // 历史 / 回放里的提问同样只读展示，不再提供作答
+          timeline = upsertTimelineUserInput(timeline, { ...event.userInput, status: 'expired' });
         }
         else if (event.type === 'error') {
           timeline = upsertTimelineError(timeline, event.message);

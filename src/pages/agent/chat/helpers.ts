@@ -18,6 +18,8 @@ import type {
   AgentTokenDetail,
   AgentTokenUsage,
   AgentToolStep,
+  AgentUserInput,
+  AgentUserInputStatus,
 } from '../types';
 import { assistantContentOf, EMPTY_TOKEN_DETAIL, isEmptyTokenDetail } from '../types';
 import type { AgentChatState } from './actions';
@@ -271,6 +273,119 @@ export function setConversationApprovalStatus(
   return conversation;
 }
 
+/** 结构化提问：同 id 覆盖，否则追加 */
+export function upsertTimelineUserInput(
+  timeline: AgentTimelineItem[] | undefined,
+  userInput: AgentUserInput,
+): AgentTimelineItem[] {
+  const list = timeline ? [...timeline] : [];
+  const index = list.findIndex((item) => item.kind === 'user-input' && item.userInput.id === userInput.id);
+  if (index >= 0) {
+    list[index] = { kind: 'user-input', key: list[index].key, userInput };
+    return list;
+  }
+  list.push({ kind: 'user-input', key: nextItemKey('user-input'), userInput });
+  return list;
+}
+
+/**
+ * 在整个会话里定位某条提问并改它的状态 / 答案（时间线 + 汇总字段一起改）。
+ * 与审批同理：回传回执到达时这一轮可能刚好收尾，按 id 找真正承载它的那条消息。
+ */
+export function setConversationUserInputStatus(
+  conversation: AgentConversation,
+  requestId: string,
+  status: AgentUserInputStatus,
+  answers?: Record<string, string[]>,
+): AgentConversation {
+  for (let index = conversation.messages.length - 1; index >= 0; index -= 1) {
+    const message = conversation.messages[index];
+    if (message.role !== 'assistant') continue;
+    const content = assistantContentOf(message);
+    const timeline = content.timeline;
+    const itemIndex = (timeline ?? []).findIndex(
+      (item) => item.kind === 'user-input' && item.userInput.id === requestId,
+    );
+    const summaryMatch = content.userInput?.id === requestId;
+    if (itemIndex < 0 && !summaryMatch) continue;
+    const patch = (userInput: AgentUserInput): AgentUserInput => ({
+      ...userInput,
+      status,
+      answers: answers ?? userInput.answers,
+    });
+    let nextTimeline = timeline;
+    if (timeline && itemIndex >= 0) {
+      const item = timeline[itemIndex];
+      if (item.kind === 'user-input') {
+        nextTimeline = [...timeline];
+        nextTimeline[itemIndex] = { ...item, userInput: patch(item.userInput) };
+      }
+    }
+    const messages = [...conversation.messages];
+    messages[index] = {
+      ...message,
+      content: {
+        ...content,
+        timeline: nextTimeline,
+        userInput: summaryMatch ? patch(content.userInput!) : content.userInput,
+      },
+    };
+    return { ...conversation, messages };
+  }
+  return conversation;
+}
+
+/**
+ * 上游「请求已落定」通知：把仍是 pending 的审批或提问置为 expired。
+ * 已表态的不受影响（用户答案优先于超时通知）。
+ */
+export function expirePendingRequest(
+  conversation: AgentConversation,
+  requestId: string,
+): AgentConversation {
+  for (let index = conversation.messages.length - 1; index >= 0; index -= 1) {
+    const message = conversation.messages[index];
+    if (message.role !== 'assistant') continue;
+    const content = assistantContentOf(message);
+    const timeline = content.timeline ?? [];
+    const itemIndex = timeline.findIndex((item) => {
+      if (item.kind === 'approval') {
+        return item.approval.id === requestId && (item.approval.status ?? 'pending') === 'pending';
+      }
+      if (item.kind === 'user-input') {
+        return item.userInput.id === requestId && (item.userInput.status ?? 'pending') === 'pending';
+      }
+      return false;
+    });
+    if (itemIndex < 0) continue;
+    const item = timeline[itemIndex];
+    const nextTimeline = [...timeline];
+    if (item.kind === 'approval') {
+      nextTimeline[itemIndex] = { ...item, approval: { ...item.approval, status: 'expired' } };
+    } else if (item.kind === 'user-input') {
+      nextTimeline[itemIndex] = { ...item, userInput: { ...item.userInput, status: 'expired' } };
+    }
+    const messages = [...conversation.messages];
+    messages[index] = {
+      ...message,
+      content: {
+        ...content,
+        timeline: nextTimeline,
+        approval:
+          content.approval?.id === requestId && (content.approval.status ?? 'pending') === 'pending'
+            ? { ...content.approval, status: 'expired' }
+            : content.approval,
+        userInput:
+          content.userInput?.id === requestId && (content.userInput.status ?? 'pending') === 'pending'
+            ? { ...content.userInput, status: 'expired' }
+            : content.userInput,
+      },
+    };
+    return { ...conversation, messages };
+  }
+  return conversation;
+}
+
 /** 错误：一条回答里通常只有一个，重复的覆盖 */
 export function upsertTimelineError(
   timeline: AgentTimelineItem[] | undefined,
@@ -296,6 +411,9 @@ export function completeTimeline(timeline: AgentTimelineItem[] | undefined): Age
     if (isTextItem(item) && !item.done) return { ...item, done: true };
     if (item.kind === 'approval' && (item.approval.status ?? 'pending') === 'pending') {
       return { ...item, approval: { ...item.approval, status: 'expired' } };
+    }
+    if (item.kind === 'user-input' && (item.userInput.status ?? 'pending') === 'pending') {
+      return { ...item, userInput: { ...item.userInput, status: 'expired' } };
     }
     return item;
   });

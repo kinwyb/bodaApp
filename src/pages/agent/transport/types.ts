@@ -90,6 +90,16 @@ export type AgentApprovalQuery = {
   decision: 'accept' | 'decline';
 };
 
+/** 回传一次结构化提问的作答；requestId 取下行 userInput.id */
+export type AgentUserInputQuery = {
+  conversationId: string;
+  /** 已落库会话的 sessionID（传了它就不传 chatID） */
+  sessionId?: string;
+  requestId: string;
+  /** 按问题 ID 组织的答案；空对象表示跳过全部问题 */
+  answers: Record<string, string[]>;
+};
+
 /** hello 握手信息 */
 export type AgentHello = HelloInfo;
 
@@ -128,6 +138,8 @@ export type AgentTransport = {
   abort(conversationId: string, sessionId?: string): void;
   /** 回传审批决定（chat.approval）；结果经 ack / approval-error 事件回到状态层 */
   approve(query: AgentApprovalQuery): void;
+  /** 回传结构化提问的作答（chat.user_input）；结果经 ack / user-input-error 事件回到状态层 */
+  answerUserInput(query: AgentUserInputQuery): void;
   onEvent(listener: (event: AgentStreamEvent) => void): () => void;
   onStatusChange(listener: (status: AgentConnectionStatus) => void): () => void;
   onHello(listener: (hello: AgentHello) => void): () => void;
