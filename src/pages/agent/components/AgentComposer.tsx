@@ -10,7 +10,7 @@
  */
 
 import React, { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
-import { App as AntdApp, Button, Dropdown, Switch, Tooltip } from 'antd';
+import { App as AntdApp, Button, Switch, Tooltip } from 'antd';
 import type { UploadFile } from 'antd';
 import {
   AppstoreOutlined,
@@ -50,6 +50,18 @@ function descriptionOf(file: ComposerFile): string | undefined {
 /** 切换技能时先去掉正文开头已有的 `$xxx`，避免叠成 `$ui $other` */
 function stripSkillToken(text: string): string {
   return text.replace(/^\$[^\s]*\s*/, '').trimStart();
+}
+
+type SkillOption = { key: string; token: string; label: string; description: string };
+
+/** 技能建议项：`$` 触发与图标点击共用同一份渲染，两个浮层看起来完全一致 */
+function toSkillSuggestionItem(option: SkillOption) {
+  return {
+    value: option.token,
+    label: <span className="agent-suggestion-label">{option.label}</span>,
+    description: option.description,
+    extra: <code className="agent-suggestion-token">{option.token}</code>,
+  };
 }
 
 type AgentComposerProps = {
@@ -100,16 +112,17 @@ export const AgentComposer = React.forwardRef<AgentComposerApi, AgentComposerPro
   const [fileList, setFileList] = useState<ComposerFile[]>([]);
   const [suggestionKind, setSuggestionKind] = useState<'command' | 'skill' | null>(null);
   const [suggestionOpen, setSuggestionOpen] = useState(false);
+  /** 技能浮层由图标点开：展示全部技能，不按正文过滤 */
+  const [suggestionFromIcon, setSuggestionFromIcon] = useState(false);
+  /** 技能按钮的 tooltip 只跟随鼠标：弹窗关闭后焦点回到按钮时不该再弹提示 */
+  const [skillTipHover, setSkillTipHover] = useState(false);
   const composerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   /** 上传中的请求：移除附件时要能中断，否则删了列表请求还在跑 */
   const uploadsRef = useRef(new Map<string, AbortController>());
   const skillOptions = useMemo(
     () => {
-      const unique = new Map<
-        string,
-        { key: string; token: string; label: string; description: string }
-      >();
+      const unique = new Map<string, SkillOption>();
       skills.forEach((skill) => {
         const name = skill.name.trim();
         if (!name || unique.has(name)) return;
@@ -154,6 +167,7 @@ export const AgentComposer = React.forwardRef<AgentComposerApi, AgentComposerPro
         setInputValue(text);
         setSuggestionOpen(false);
         setSuggestionKind(null);
+        setSuggestionFromIcon(false);
         requestAnimationFrame(() => {
           const textarea = composerRef.current?.querySelector('textarea');
           if (!textarea) return;
@@ -176,6 +190,7 @@ export const AgentComposer = React.forwardRef<AgentComposerApi, AgentComposerPro
       });
       setSuggestionOpen(false);
       setSuggestionKind(null);
+      setSuggestionFromIcon(false);
       focusComposer();
     },
     [focusComposer],
@@ -198,7 +213,23 @@ export const AgentComposer = React.forwardRef<AgentComposerApi, AgentComposerPro
   const suggestionItems = useMemo(
     () => {
       if (suggestionKind === 'skill') {
-        const query = inputValue.trimStart().replace(/^\$/, '').toLowerCase();
+        // 图标点开时没有 `$` 查询词，直接给全量；空态/加载中用禁用项占位
+        if (skillOptions.length === 0) {
+          return [
+            {
+              value: '__skills-empty',
+              disabled: true,
+              label: (
+                <span className="agent-suggestion-label">
+                  {skillsLoading ? '正在从 agent 读取技能…' : '当前 agent 没有可用技能'}
+                </span>
+              ),
+            },
+          ];
+        }
+        const query = suggestionFromIcon
+          ? ''
+          : inputValue.trimStart().replace(/^\$/, '').toLowerCase();
         const matched = query
           ? skillOptions.filter((option) =>
               [option.key, option.label, option.description].some((value) =>
@@ -207,12 +238,7 @@ export const AgentComposer = React.forwardRef<AgentComposerApi, AgentComposerPro
             )
           : skillOptions;
 
-        return matched.map((option) => ({
-            value: option.token,
-            label: <span className="agent-suggestion-label">{option.label}</span>,
-            description: option.description,
-            extra: <code className="agent-suggestion-token">{option.token}</code>,
-          }));
+        return matched.map(toSkillSuggestionItem);
       }
 
       return [
@@ -224,34 +250,7 @@ export const AgentComposer = React.forwardRef<AgentComposerApi, AgentComposerPro
         },
       ];
     },
-    [inputValue, skillOptions, suggestionKind],
-  );
-
-  const skillMenu = useMemo(
-    () => ({
-      items:
-        skillOptions.length > 0
-          ? skillOptions.map((option) => ({
-              key: option.token,
-              label: (
-                <div className="agent-skill-option">
-                  <span>{option.label}</span>
-                  <code>{option.token}</code>
-                </div>
-              ),
-            }))
-          : [
-              {
-                key: '__skills-empty',
-                disabled: true,
-                label: skillsLoading ? '正在从 agent 读取技能…' : '当前 agent 没有可用技能',
-              },
-            ],
-      onClick: ({ key }: { key: string }) => {
-        if (key.startsWith('$')) applySkill(key);
-      },
-    }),
-    [applySkill, skillOptions, skillsLoading],
+    [inputValue, skillOptions, skillsLoading, suggestionFromIcon, suggestionKind],
   );
 
   // 卸载时中断所有在途上传：组件都没了，传完也没人接
@@ -445,7 +444,10 @@ export const AgentComposer = React.forwardRef<AgentComposerApi, AgentComposerPro
         }}
         onOpenChange={(open) => {
           setSuggestionOpen(open);
-          if (!open) setSuggestionKind(null);
+          if (!open) {
+            setSuggestionKind(null);
+            setSuggestionFromIcon(false);
+          }
         }}
         onSelect={applySuggestion}
       >
@@ -467,6 +469,7 @@ export const AgentComposer = React.forwardRef<AgentComposerApi, AgentComposerPro
               }
 
               if (nextKind) {
+                setSuggestionFromIcon(false);
                 if (!suggestionOpen || suggestionKind !== nextKind) {
                   setSuggestionKind(nextKind);
                   onTrigger({ kind: nextKind });
@@ -544,12 +547,31 @@ export const AgentComposer = React.forwardRef<AgentComposerApi, AgentComposerPro
                     onClick={() => fileInputRef.current?.click()}
                   />
                 </Tooltip>
-                <Tooltip title="选择技能">
-                  <span>
-                    <Dropdown menu={skillMenu} trigger={['click']}>
-                      <Button type="text" icon={<AppstoreOutlined />} aria-label="选择技能" />
-                    </Dropdown>
-                  </span>
+                <Tooltip
+                  title="选择技能"
+                  open={
+                    skillTipHover &&
+                    !(suggestionOpen && suggestionKind === 'skill' && suggestionFromIcon)
+                  }
+                >
+                  <Button
+                    type="text"
+                    icon={<AppstoreOutlined />}
+                    aria-label="选择技能"
+                    onKeyDown={onKeyDown}
+                    onMouseEnter={() => setSkillTipHover(true)}
+                    onMouseLeave={() => setSkillTipHover(false)}
+                    onClick={() => {
+                      // 与 `$` 共用同一个浮层：位置固定在输入框上方，渲染完全一致
+                      if (suggestionOpen && suggestionKind === 'skill' && suggestionFromIcon) {
+                        onTrigger(false);
+                        return;
+                      }
+                      setSuggestionKind('skill');
+                      setSuggestionFromIcon(true);
+                      onTrigger({ kind: 'skill' });
+                    }}
+                  />
                 </Tooltip>
               </span>
             }
