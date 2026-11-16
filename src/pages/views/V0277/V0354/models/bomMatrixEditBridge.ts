@@ -1358,7 +1358,7 @@ export function createBomMatrixEditBridge(read: () => BomMatrixEditBridgeContext
                     writableFields: writableFieldsOf(section, ctx.matrix),
                     rows: picked,
                     note:
-                        '空值不出现（省略即未填，不是 0）；rowId 是明细主键，三张表按它对应同一行；' +
+                        'rowId 是明细主键，三张表按它对应同一行；' +
                         'VRowNo 是业务行号（行号 10 = 产成品那一行）。改动用 matrix.update / add / remove，' +
                         '**但保存接口还没接** —— 改完只在界面上，不会入库',
                 };

@@ -921,6 +921,10 @@ export function createTableBridge(options: TableBridgeOptions): TableBridge {
         rows.push(picked);
       }
 
+      /*
+       * 不回固定说明：显示值格式、空值省略、截断与 row/fields 用法是全局约定，
+       * 已在 ui-operation 技能里写清；每条 page 都重复一遍纯属浪费 token。
+       */
       return {
         name,
         offset,
@@ -931,9 +935,6 @@ export function createTableBridge(options: TableBridgeOptions): TableBridge {
         sorts: info.sorts,
         /** 这次真给了哪些列：默认只有关键列，模型据此决定要不要再点几个列或传 "*" */
         fields,
-        note:
-          `值与界面显示一致（日期 YYYY-MM-DD 等）；空值不出现（省略即未填，不是 0）；` +
-          `文本超 ${maxCellChars} 字截断；原始值或完整内容用 ${rowCmd}；全部列用 ${pageCmd} 的 fields="*"`,
         rows,
       };
     },

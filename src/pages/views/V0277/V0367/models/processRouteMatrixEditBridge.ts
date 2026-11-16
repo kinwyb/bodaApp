@@ -1115,7 +1115,7 @@ export function createProcessRouteEditBridge(read: () => ProcessRouteEditBridgeC
                     writableFields: ITEM_WRITABLE_FIELDS,
                     rows: picked,
                     note:
-                        '空值不出现（省略即未填，不是 0）；rowId 是明细主键，不是行号；' +
+                        'rowId 是明细主键，不是行号；' +
                         'hasProcess=false 的行是末尾那行「等输入」的空行，不算明细、保存时会被滤掉；' +
                         '改动用 items.update / add / remove，**不点保存就不入库**',
                 };
