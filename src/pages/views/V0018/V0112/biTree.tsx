@@ -13,6 +13,8 @@ export interface biTreeProps {
      * 打开报表
      */
     open: (node: treeNode) => void;
+    /** 目录加载完成后上报给页面（界面桥的 reports.find 用它做报表检索） */
+    onLoaded?: (nodes: BIList[]) => void;
 }
 
 const treeNodeDictoryCheck = (node: treeNode) => {
@@ -60,7 +62,7 @@ const filterNodes = (nodes: treeNode[], keyword: string): treeNode[] => {
     return result;
 };
 
-export const BITree: React.FC<biTreeProps> = ({open}) => {
+export const BITree: React.FC<biTreeProps> = ({open, onLoaded}) => {
 
     const {token} = theme.useToken();
     const [treeData, setTreeData] = useState<treeNode[]>([]);
@@ -73,6 +75,7 @@ export const BITree: React.FC<biTreeProps> = ({open}) => {
         const apiResult = await biApi.list();
         if (!apiResult.data || apiResult.data.length < 1) {
             setTreeData([]);
+            onLoaded?.([]);
             return;
         }
         const nodes = apiResult.data.map((item): treeNode => {
@@ -83,7 +86,8 @@ export const BITree: React.FC<biTreeProps> = ({open}) => {
         })
         setTreeData(nodes);
         setExpandedKeys(collectKeys(nodes));
-    }, [])
+        onLoaded?.(nodes);
+    }, [onLoaded])
 
     useEffect(() => {
         void loadTreeData();

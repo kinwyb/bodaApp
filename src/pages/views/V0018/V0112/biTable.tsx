@@ -7,12 +7,17 @@ import {DataTable} from "@/services/sql.ts";
 import {buildColumns} from "@/components/grid-table/columnBuilder.ts";
 import {toNumberOrZero} from "@/utils";
 import {Empty, Typography} from "antd";
+import {BI_REPORT_ROW_KEY} from "./bridged";
 
 export interface BITableProps {
-    node?: BIList
+    node?: BIList;
+    /** 页面持有的表格实例引用（界面桥按显示行号取数用）；不传则组件内部自持 */
+    apiRef?: React.RefObject<GridTableApi | null>;
+    /** 列目录与加载态上报给页面（界面桥的快照结构随报表变化） */
+    onStateChange?: (state: {columns: ColumnsDefine; loading: boolean}) => void;
 }
 
-export const BITable: React.FC<BITableProps> = ({node}) => {
+export const BITable: React.FC<BITableProps> = ({node, apiRef, onStateChange}) => {
 
     const [columns, setColumns] = useState<ColumnsDefine>([]);
     const [datas, setDatas] = useState<Record<string, unknown>[]>([]);
@@ -22,7 +27,8 @@ export const BITable: React.FC<BITableProps> = ({node}) => {
      * （node 刚变到 effect 真正发起请求之间还隔着一帧，那一帧要靠它顶住 loading）
      */
     const [loadedNode, setLoadedNode] = useState<BIList>();
-    const tableRef = useRef<GridTableApi | null>(null);
+    const innerRef = useRef<GridTableApi | null>(null);
+    const tableRef = apiRef ?? innerRef;
     const [summaryColumns, setSummaryColumns] = useState<string[]>([]);
 
     const loadData = useCallback(async () => {
@@ -36,7 +42,8 @@ export const BITable: React.FC<BITableProps> = ({node}) => {
             let summaryCols = dataTable.columns.filter(col => col.dataType === 'int' || col.dataType === 'double').map(col => col.field);
             setSummaryColumns(summaryCols);
             setColumns(buildColumns(dataTable.columns))
-            setDatas(dataTable.datas);
+            // 报表行没有业务主键：注入本次查询结果的序号作为行主键（界面桥 rowId 与选中都靠它）
+            setDatas(dataTable.datas.map((row, index) => ({...row, [BI_REPORT_ROW_KEY]: String(index + 1)})));
         } finally {
             // 查询失败也要复位，否则会一直卡在「加载中」
             setLoading(false);
@@ -51,6 +58,14 @@ export const BITable: React.FC<BITableProps> = ({node}) => {
     useEffect(() => {
         void loadData();
     }, [node])
+
+    // node 变了但这一轮还没查完：立刻显示加载态，别让上一张表的空壳闪一下
+    const pending = !!node && node !== loadedNode;
+
+    // 把列目录与有效加载态同步给页面（界面桥据此重建列目录 / 标记读不到）
+    useEffect(() => {
+        onStateChange?.({columns, loading: loading || pending});
+    }, [columns, loading, pending, onStateChange]);
 
     // 根据过滤后的数据计算汇总
     const resolvedSummary = useMemo(() => {
@@ -90,12 +105,9 @@ export const BITable: React.FC<BITableProps> = ({node}) => {
         );
     }
 
-    // node 变了但这一轮还没查完：立刻显示加载态，别让上一张表的空壳闪一下
-    const pending = node !== loadedNode;
-
     return (
         <>
-            <GridTable ref={tableRef} columns={columns} records={datas} loading={loading || pending}
+            <GridTable ref={tableRef} rowKey={BI_REPORT_ROW_KEY} columns={columns} records={datas} loading={loading || pending}
                     summary={resolvedSummary}/>
         </>
     )
