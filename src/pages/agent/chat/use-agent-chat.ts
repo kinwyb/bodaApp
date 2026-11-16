@@ -253,8 +253,6 @@ export function useAgentChat(): AgentChatApi {
       if (connectionRef.current !== 'connected') return;
       const conversation = activeConversationNow();
       if (!conversation) return;
-      // 所有发送路径（阈值批量与 waitConfirm 终态）都受同一个手动开关约束。
-      if (!conversation.uiFollow) return;
       const hasHumanMessage = conversation.messages.some((message) => message.role === 'user');
       if (!hasHumanMessage) return;
 
@@ -265,12 +263,21 @@ export function useAgentChat(): AgentChatApi {
         (Array.isArray(waitConfirmFor)
           ? waitConfirmFor.includes(actionId)
           : waitConfirmFor === actionId);
-      if (expectsAction && actionId && consumeWaitConfirm(notice.view, actionId)) {
-        // 确认终态只发这一条，不占用也不清空普通事件缓冲。
-        sendUIEventBatch([notice], conversation);
-        return;
+      if (expectsAction && actionId) {
+        const pending = consumeWaitConfirm(notice.view, actionId);
+        if (pending) {
+          // 确认终态只发这一条，不占用也不清空普通事件缓冲。
+          // 声明了 autoFollow 的终态自带一次性联动：用户没开界面联动也上报；
+          // 其余终态仍受手动开关约束。
+          if (pending.autoFollow || conversation.uiFollow) {
+            sendUIEventBatch([notice], conversation);
+          }
+          return;
+        }
       }
 
+      // 普通事件（含用户手动点同一按钮产生的终态）仍受手动开关约束。
+      if (!conversation.uiFollow) return;
       uiEventBufferRef.current = mergeUIEvent(uiEventBufferRef.current, notice, definition);
       flushAutoBatch();
     });

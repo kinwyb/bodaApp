@@ -41,6 +41,7 @@ import {
   setAnchor,
   withUIEventSuppression,
   getWorkbenchHost,
+  waitConfirmAutoFollow,
 } from './store';
 import type { RevContext } from './store';
 import type { UIBridgeHost, UIDialogHost, UIWorkbenchHost } from './types';
@@ -719,7 +720,7 @@ async function runAction(
   // agent 自己触发的界面变化不能反过来再唤醒 agent；确认框后续的用户终态不受这里影响。
   const value = await withUIEventSuppression(() => run(payload.params ?? {}));
   if (action.waitConfirm) {
-    rememberWaitConfirm(view, action.id, requestId);
+    rememberWaitConfirm(view, action.id, requestId, waitConfirmAutoFollow(view, action.id));
   }
   // 这里只把命令**自己声明的**档位带出去（可能是 undefined = 交给桥 diff），
   // 真正决定回什么在 decideReceipt —— 别在这里补默认值，一补就又把 diff 变成摆设。

@@ -37,7 +37,10 @@ const dialogHosts = new Map<string, () => UIDialogHost | null>();
 /** 会话层注册的事件接收器；页面只发通知，不直接依赖 chat hook */
 type UIEventSink = (notice: UIEventNotice, definition: UIEventDefinition) => void;
 let eventSink: UIEventSink | null = null;
-/** 会话层把“用户已手动开启且有真实消息”同步到这里，waitConfirm 登记也遵守该门槛 */
+/**
+ * 会话层把“用户已手动开启且有真实消息”同步到这里，waitConfirm 登记也遵守该门槛。
+ * 例外：事件声明了 autoFollow 的确认终态自带一次性联动，不受此门槛约束。
+ */
 let eventCaptureEnabled = false;
 
 /** ui_act 执行期间暂停采集事件，防止 agent 自己改页面后反向唤醒自己 */
@@ -49,6 +52,8 @@ export type PendingUIConfirm = {
   actionId: string;
   requestId: string;
   expiresAt: number;
+  /** 终态事件声明了 autoFollow：不受手动联动开关约束，只上报这一条终态 */
+  autoFollow: boolean;
 };
 
 const CONFIRM_TTL_MS = 5 * 60 * 1000;
@@ -155,13 +160,29 @@ export function registerUIEventSink(sink: UIEventSink): () => void {
 /** 更新当前会话是否允许记录界面事件 */
 export function setUIEventCaptureEnabled(enabled: boolean): void {
   eventCaptureEnabled = enabled;
-  if (!enabled) clearWaitConfirms();
+  // 普通确认上下文随手动开关清掉；autoFollow 的终态是 agent 命令建立的一次性联动，
+  // 不受开关影响，只按 TTL / 会话重置 / 页面卸载过期。
+  if (!enabled) {
+    for (const [key, item] of pendingConfirms) {
+      if (!item.autoFollow) pendingConfirms.delete(key);
+    }
+  }
 }
 
 /** 当前弹窗优先、页面兜底，查找事件声明 */
 export function getUIEventDefinition(view: string, event: string): UIEventDefinition | null {
   const host = getDialogHost(view) ?? getPageHost(view);
   return host?.events?.find((item) => item.id === event) ?? null;
+}
+
+/** 这条 waitConfirm 命令的终态事件是否声明了自动联动（当前弹窗优先、页面兜底） */
+export function waitConfirmAutoFollow(view: string, actionId: string): boolean {
+  const host = getDialogHost(view) ?? getPageHost(view);
+  return (host?.events ?? []).some((item) => {
+    if (item.delivery !== 'immediate' || item.autoFollow !== true) return false;
+    const targets = item.waitConfirmFor;
+    return Array.isArray(targets) ? targets.includes(actionId) : targets === actionId;
+  });
 }
 
 function validatePayload(
@@ -233,12 +254,18 @@ export async function withUIEventSuppression<T>(run: () => T | Promise<T>): Prom
 }
 
 /** 记录一次 agent 发起的 waitConfirm，供确认框终态事件认领 */
-export function rememberWaitConfirm(view: string, actionId: string, requestId: string): void {
-  if (!eventCaptureEnabled) return;
+export function rememberWaitConfirm(
+  view: string,
+  actionId: string,
+  requestId: string,
+  autoFollow = false,
+): void {
+  if (!eventCaptureEnabled && !autoFollow) return;
   pendingConfirms.set(confirmKey(view, actionId), {
     view,
     actionId,
     requestId,
+    autoFollow,
     expiresAt: Date.now() + CONFIRM_TTL_MS,
   });
 }

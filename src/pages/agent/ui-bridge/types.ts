@@ -26,6 +26,13 @@ export type UIEventDefinition = {
    * 支持一个终态事件覆盖多条需要确认的命令。
    */
   waitConfirmFor?: string | string[];
+  /**
+   * 该 waitConfirm 的终态自动建立一次性界面联动：即使用户没有手动开启联动，
+   * agent 发起的确认上下文也会被登记，终态照常即时上报（只发这一条）。
+   * 普通事件与未声明它的确认命令仍受手动开关约束。
+   * 适用于「必须等用户终态才能继续」的确认（如报表查询确认）；高频命令慎用。
+   */
+  autoFollow?: boolean;
   /** 普通批量事件的合并对象；默认按事件类型合并 */
   mergeBy?: string[];
 };
