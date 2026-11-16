@@ -620,7 +620,7 @@ const MainLayout: React.FC = () => {
                         flex: '0 0 auto',
                     }}
                 >
-                    {collapsed ? 'BW' : 'BodaWay'}
+                    {collapsed ? 'AM' : 'AI MES'}
                 </div>
                 <div className="main-sider-menu">
                     {menuLoading ? (

@@ -21,7 +21,7 @@ export type ProductionMonitorBridgeContext = {
 };
 
 const GUIDE: UIGuide = {
-    summary: '织造产量差异调整：按日期、订单、机台与厂别查询织造产量，调整正品产量并批量审核',
+    summary: '织造产量差异调整：按日期、订单、机台与厂别查询织造实际产量，调整正品产量并批量审核。根据机器的原始生产记录人工核验修改实际产量并审核确认',
     steps: [
         '首屏不自动查询：先用 query.set 设置开始/结束日期（YYYY-MM-DD），再读 data.page',
         '批量审核先用 data.select 选中多行（首列勾选框会同步），审核只提交选中且尚未审核的记录',

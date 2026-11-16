@@ -15,8 +15,8 @@ import {
 import {formatDate, toDayjs, toNumberOrZero, toStringOrEmpty} from '@/utils';
 import {SCHEDULE_COLUMNS} from './columns';
 import {
-    EMPLOYEE_FIELDS,
     EMPLOYEE_FIELD_META,
+    EMPLOYEE_FIELDS,
     type EmployeeField,
     type ScheduleMutationResult,
     type ScheduleQuery,
@@ -44,7 +44,7 @@ export type ScheduleMaintenanceBridgeContext = {
 };
 
 const GUIDE: UIGuide = {
-    summary: '织造按日期维护织造排班，给每条班次记录选择挡车工、踩毛边工、毛坯全检工和机修工，并同步查看每台机台的三个班次安排',
+    summary: '按日期维护查看织造排班，给每条班次记录选择挡车工、踩毛边工、毛坯全检工和机修工，并同步查看每台机台的三个班次安排',
     steps: [
         '换日期用 query.set，格式 YYYY-MM-DD；它会重新请求后端并等待新数据落地',
         '先用 schedule.select 按 rowId 选中一条班次记录，再执行 edit 进入编辑态',

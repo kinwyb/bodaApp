@@ -51,7 +51,7 @@ export type OrderInfoBridgeContext = {
 };
 
 const GUIDE: UIGuide = {
-    summary: '织造班次订单信息补充：按日期、订单号与机台查询织造下机记录，补充派工单号与下机时间，并对新增原因记录调整开始时间、班次和机台',
+    summary: '织造机器班次生产订单信息补充：按日期、订单号与机台查询织造下机的原始记录，补充派工单号与下机时间，并对新增原因记录调整开始时间、班次和机台',
     steps: [
         '换查询条件用 query.set，日期格式 YYYY-MM-DD；它会重新请求后端并清空未保存改动',
         '数据行不在快照里：用 data.page 按显示行号取行，再用 data.select 选中要操作的那一行',
