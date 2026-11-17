@@ -29,9 +29,11 @@
   var q = new URLSearchParams(location.search);
   var from = q.get('from') || '';
   var name = q.get('name') || 'file';
+  var options = q.get('options') || '';
   var inner = document.getElementById('v');
   inner.src = './iframe.html?from=' + encodeURIComponent(location.origin) +
-    '&name=' + encodeURIComponent(name);
+    '&name=' + encodeURIComponent(name) +
+    (options ? '&options=' + encodeURIComponent(options) : '');
 
   var ready = false;
   function announce() {

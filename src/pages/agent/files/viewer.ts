@@ -24,6 +24,9 @@ export function fileViewerBaseUrl(): string {
  */
 export function fileViewerFrameUrl(name: string): string {
   const params = new URLSearchParams({ from: window.location.origin, name });
+  // 代码/文本长行自动换行：面板宽度有限，单行大 JSON 不换行会整行溢出视口。
+  // options 是 demo 支持的查询参数（qs 解析后并入 viewerOptions）。
+  params.set('options', JSON.stringify({ text: { wrapLongLines: true } }));
   return `${fileViewerBaseUrl()}/boda-bridge.html?${params.toString()}`;
 }
 
