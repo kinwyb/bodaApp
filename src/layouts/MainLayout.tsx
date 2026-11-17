@@ -11,6 +11,7 @@ import {
     DeploymentUnitOutlined,
     DesktopOutlined,
     FileOutlined,
+    FolderOpenOutlined,
     FolderOutlined,
     FundOutlined,
     HomeOutlined,
@@ -24,6 +25,7 @@ import {
     ToolOutlined,
     UserOutlined,
 } from '@ant-design/icons';
+import {Tooltip} from 'antd';
 import {useNavigate} from 'react-router-dom';
 import {useAuth} from '../store/auth-context';
 import {usePermission} from '../store/permission-context';
@@ -31,6 +33,8 @@ import {useOrgEpoch, useServiceOrg} from '../store/service-org';
 import {ORG_NAME} from '../store/orgs';
 import {type TabsApi, TabsContext} from '../store/tabs';
 import ContextTabs, {type ContextTabsHandle} from '../components/context-tabs';
+import WorkbenchFilePanel from './WorkbenchFilePanel';
+import {useFilesDock} from '../store/files-dock-context';
 import {buildTabKey, instanceOfParams, sameParams} from '../store/tab-key';
 import {TabTitleContext, type TabTitleScope} from '../store/tab-title-context';
 import type {DesktopMenu} from '../api';
@@ -80,6 +84,8 @@ function displayTitle(meta: TabMeta): string {
 }
 
 const HOME_TAB: TabMeta = {key: 'dashboard', view: '', label: '工作台', trail: []};
+/** 文件浏览：主界面内置页签（不在菜单树里）；可被工作台固定到右栏 */
+const FILES_TAB: TabMeta = {key: 'files', view: '__files__', label: '文件浏览', trail: []};
 
 
 const iconByMenuName: Record<string, React.ReactNode> = {
@@ -158,7 +164,11 @@ function collectSubmenuKeys(nodes: DesktopMenu[], keys: string[] = []): string[]
     return keys;
 }
 
-const MainLayout: React.FC = () => {
+const MainLayout: React.FC<{
+    /** 把页签能力交给外层（工作台用它打开文件浏览页签） */
+    onTabsApi?: (api: TabsApi) => void;
+}> = ({onTabsApi}) => {
+    const filesDock = useFilesDock();
     const navigate = useNavigate();
     const {userInfo, logout} = useAuth();
     const {token: {colorBgContainer}} = theme.useToken();
@@ -181,6 +191,12 @@ const MainLayout: React.FC = () => {
         setActiveTab(active);
     }, []);
 
+    // 停靠期间文件页签整块去右栏：主界面页签栏隐藏它（状态保留，取消固定原样回来）
+    const filesHiddenKeys = useMemo(
+        () => (filesDock.docked ? [FILES_TAB.key] : []),
+        [filesDock.docked],
+    );
+
     /**
      * 发布菜单只留下已经有页面目录的叶子；调试环境保持后端菜单原样。
      * 父级节点只负责分组，是否存在 index 不影响它保留可见子项。
@@ -198,7 +214,7 @@ const MainLayout: React.FC = () => {
     useEffect(() => {
         if (orgEpoch === prevOrgEpoch.current) return;
         prevOrgEpoch.current = orgEpoch;
-        tabsRef.current?.reset([HOME_TAB], HOME_TAB.key);
+        tabsRef.current?.reset([HOME_TAB, FILES_TAB], HOME_TAB.key);
         setOpenKeys([]);
     }, [orgEpoch]);
 
@@ -328,9 +344,14 @@ const MainLayout: React.FC = () => {
                     params,
                 });
             },
+            openFiles: () => openTab(FILES_TAB),
         }),
         [openTab, menuMetaMap],
     );
+
+    useEffect(() => {
+        onTabsApi?.(tabsApi);
+    }, [onTabsApi, tabsApi]);
 
     /*
      * 界面桥（工作台级）：把「你在哪、能去哪」交给 agent。
@@ -407,6 +428,12 @@ const MainLayout: React.FC = () => {
         (meta: TabMeta) => {
             // keep-alive 缓存由 ContextTabs 按 key 持有，这里只负责纯渲染
             if (meta.key === HOME_TAB.key) return <Dashboard/>;
+            if (meta.key === FILES_TAB.key) {
+                // 面板上下文（agent / 附件 / 页签存档）走 useFilesDock，
+                // 保证 keep-alive 缓存元素也能读到最新值；
+                // 主页签不可关闭（与工作台同级），面板不显示关闭按钮，只留固定入口
+                return <WorkbenchFilePanel />;
+            }
             // 页面组件按 **view** 解析（页签 key 可能带 `::实例标识` 后缀，不是 View 路径）
             const PageComponent = resolveView(meta.view);
             // 作用域绑定到「本页签自己的 key」：页面改标题时只改自己那个页签，不会串到别的页签
@@ -544,6 +571,9 @@ const MainLayout: React.FC = () => {
                             onClick={() => setCollapsed(!collapsed)}
                         />
                         <Button type="text" icon={<HomeOutlined/>} onClick={() => openTab(HOME_TAB)}/>
+                        <Tooltip title="文件浏览">
+                            <Button type="text" icon={<FolderOpenOutlined/>} onClick={() => openTab(FILES_TAB)}/>
+                        </Tooltip>
                     </div>
                     <div style={{display: 'flex', alignItems: 'center', gap: 12}}>
                         {serviceOrg && (
@@ -570,9 +600,10 @@ const MainLayout: React.FC = () => {
                             <ContextTabs
                                 ref={tabsRef}
                                 className="main-tabs"
-                                initialTabs={[HOME_TAB]}
+                                initialTabs={[HOME_TAB, FILES_TAB]}
                                 initialActiveKey={HOME_TAB.key}
-                                isClosable={(tab) => tab.key !== HOME_TAB.key}
+                                isClosable={(tab) => tab.key !== HOME_TAB.key && tab.key !== FILES_TAB.key}
+                                hiddenKeys={filesHiddenKeys}
                                 renderLabel={displayTitle}
                                 renderContent={renderTabContent}
                                 onChange={handleTabsChange}

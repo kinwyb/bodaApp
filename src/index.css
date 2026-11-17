@@ -105,6 +105,11 @@ body {
   display: block;
 }
 
+/* 文件浏览页签固定在页签栏右端（与左侧业务页签分开），和工作台一样不可关闭 */
+.main-tabs .ant-tabs-tab[data-node-key='files'] {
+  margin-left: auto;
+}
+
 .main-tabs > .ant-tabs-body-holder {
   flex: 1;
   min-height: 0;

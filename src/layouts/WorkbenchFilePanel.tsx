@@ -27,10 +27,13 @@ import {
   DownloadOutlined,
   FileOutlined,
   FolderOutlined,
+  PushpinFilled,
+  PushpinOutlined,
   ReloadOutlined,
 } from '@ant-design/icons';
 
 import ContextTabs, { type ContextTabsHandle } from '../components/context-tabs';
+import { useFilesDock, type FileTab } from '../store/files-dock-context';
 import {
   AgentFileError,
   fetchWorkspaceFile,
@@ -42,24 +45,13 @@ import {
   resolveAgentFileUrl,
   workspaceFileUrl,
 } from '../pages/agent/files';
-import type { AgentFilePreviewTarget, WorkspaceAgent, WorkspaceEntry } from '../pages/agent/files';
+import type { WorkspaceAgent, WorkspaceEntry } from '../pages/agent/files';
 import { agentTransportMode } from '../pages/agent/transport';
 
 /** 目录树节点：key 就是容器路径，entry/root 用来区分文件、目录与根 */
 type FileTreeNode = TreeDataNode & {
   entry?: WorkspaceEntry;
   isRoot?: boolean;
-};
-
-/** 一个预览页签；blob 异步到达，未到之前页签内显示加载态 */
-type FileTab = {
-  key: string;
-  name: string;
-  blob?: Blob;
-  error?: { message: string; fallbackUrl?: string };
-  downloadUrl?: string;
-  /** 工作区来源的容器路径：切页签时同步目录树选中 */
-  workspacePath?: string;
 };
 
 /**
@@ -181,12 +173,21 @@ function attachChildren(
 }
 
 const WorkbenchFilePanel: React.FC<{
-  /** 对话当前选中的 agent（顶栏切换时同步过来） */
-  agent: string;
-  /** 对话里点开的附件；null 表示还没点过 */
-  attachment: AgentFilePreviewTarget | null;
-  onClose: () => void;
-}> = ({ agent, attachment, onClose }) => {
+  /** 右栏宿主：取消固定；主页签宿主不传（页签与工作台同级不可关闭，不显示关闭按钮） */
+  onClose?: () => void;
+}> = ({ onClose }) => {
+  // agent / 附件 / 停靠态 / 页签存档都走 context：keep-alive 缓存的元素身份不变，
+  // props 传值会让异步到达的附件/_blob 更新不进子树，context 能穿透缓存
+  const {
+    agent,
+    attachment,
+    docked,
+    canDock,
+    setDocked,
+    tabs: storedTabs,
+    active: storedActive,
+    onTabsChange,
+  } = useFilesDock();
   const mock = agentTransportMode() === 'mock';
 
   const [agents, setAgents] = useState<WorkspaceAgent[]>([]);
@@ -200,7 +201,10 @@ const WorkbenchFilePanel: React.FC<{
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
 
   const tabsRef = useRef<ContextTabsHandle<FileTab>>(null);
-  const [mirror, setMirror] = useState<{ tabs: FileTab[]; active: string }>({ tabs: [], active: '' });
+  const [mirror, setMirror] = useState<{ tabs: FileTab[]; active: string }>({
+    tabs: storedTabs,
+    active: storedActive,
+  });
   const agentRef = useRef(selectedAgent);
   useEffect(() => {
     agentRef.current = selectedAgent;
@@ -268,11 +272,16 @@ const WorkbenchFilePanel: React.FC<{
   }, [rootNodes, resetTree]);
 
   /** 页签镜像：下载按钮 / 空态 / 目录树选中都从这里读 */
-  const handleTabsChange = useCallback((tabs: FileTab[], active: string) => {
-    setMirror({ tabs, active });
-    const current = tabs.find((tab) => tab.key === active);
-    setSelectedKeys(current?.workspacePath ? [current.workspacePath] : []);
-  }, []);
+  const handleTabsChange = useCallback(
+    (tabs: FileTab[], active: string) => {
+      setMirror({ tabs, active });
+      // 存档提升到工作台：面板在主页面 / 右栏之间换宿主重挂载时恢复页签
+      onTabsChange(tabs, active);
+      const current = tabs.find((tab) => tab.key === active);
+      setSelectedKeys(current?.workspacePath ? [current.workspacePath] : []);
+    },
+    [onTabsChange],
+  );
 
   /** 异步取内容写回页签；页签可能已被关掉，updateTab 对不存在的 key 自动忽略 */
   const loadIntoTab = useCallback(
@@ -392,6 +401,16 @@ const WorkbenchFilePanel: React.FC<{
           disabled={mock || agents.length === 0}
         />
         <span className="workbench-files-spacer" />
+        {canDock ? (
+          <Tooltip title={docked ? '取消固定，返回主界面' : '固定到右侧'}>
+            <Button
+              type="text"
+              size="small"
+              icon={docked ? <PushpinFilled /> : <PushpinOutlined />}
+              onClick={() => setDocked(!docked)}
+            />
+          </Tooltip>
+        ) : null}
         <Tooltip title="刷新目录">
           <Button type="text" size="small" icon={<ReloadOutlined />} onClick={handleRefresh} />
         </Tooltip>
@@ -406,9 +425,11 @@ const WorkbenchFilePanel: React.FC<{
             rel="noopener noreferrer"
           />
         </Tooltip>
-        <Tooltip title="收起面板">
-          <Button type="text" size="small" icon={<CloseOutlined />} onClick={onClose} />
-        </Tooltip>
+        {onClose ? (
+          <Tooltip title="取消固定">
+            <Button type="text" size="small" icon={<CloseOutlined />} onClick={onClose} />
+          </Tooltip>
+        ) : null}
       </div>
 
       <div className="workbench-files-body">
@@ -444,7 +465,8 @@ const WorkbenchFilePanel: React.FC<{
             <ContextTabs
               ref={tabsRef}
               className={`workbench-files-tabs${mirror.tabs.length === 0 ? ' workbench-files-tabs-empty' : ''}`}
-              initialTabs={[]}
+              initialTabs={storedTabs}
+              initialActiveKey={storedActive || undefined}
               renderLabel={renderTabLabel}
               renderContent={renderTabContent}
               onChange={handleTabsChange}

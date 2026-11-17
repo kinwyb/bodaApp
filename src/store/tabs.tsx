@@ -40,6 +40,8 @@ export interface TabsApi {
     params?: Record<string, unknown>,
     options?: OpenViewOptions,
   ) => void;
+  /** 打开（或激活）「文件浏览」页签：主界面内置页，不在菜单树里 */
+  openFiles: () => void;
 }
 
 export const TabsContext = createContext<TabsApi | null>(null);

@@ -48,6 +48,8 @@ type ContextTabsProps<T extends ContextTabMeta> = {
   initialActiveKey?: string;
   /** 不可关闭的页签（主界面的工作台）；默认全部可关闭 */
   isClosable?: (tab: T) => boolean;
+  /** 暂时隐藏的页签 key（状态与内容缓存保留，只是不渲染）；激活页被隐藏时落到最后一个可见页 */
+  hiddenKeys?: string[];
   renderLabel: (tab: T) => React.ReactNode;
   renderContent: (tab: T) => React.ReactNode;
   /** 页签集合 / 激活项变化后的镜像，供外部渲染周边界面 */
@@ -60,6 +62,7 @@ function ContextTabsInner<T extends ContextTabMeta>(
     initialTabs,
     initialActiveKey,
     isClosable,
+    hiddenKeys,
     renderLabel,
     renderContent,
     onChange,
@@ -75,11 +78,18 @@ function ContextTabsInner<T extends ContextTabMeta>(
   const activeRef = useRef(activeKey);
   const instances = useRef<Map<string, React.ReactNode>>(new Map());
 
+  const hidden = useMemo(() => new Set(hiddenKeys ?? []), [hiddenKeys]);
+  const visibleTabs = useMemo(() => tabs.filter((tab) => !hidden.has(tab.key)), [tabs, hidden]);
+  /** 激活页被隐藏时（如文件页签停靠到右栏）主界面落到最后一个可见页 */
+  const effectiveActive = hidden.has(activeKey)
+    ? (visibleTabs[visibleTabs.length - 1]?.key ?? '')
+    : activeKey;
+
   useEffect(() => {
     tabsRef.current = tabs;
     activeRef.current = activeKey;
-    onChange?.(tabs, activeKey);
-  }, [tabs, activeKey, onChange]);
+    onChange?.(visibleTabs, effectiveActive);
+  }, [tabs, activeKey, visibleTabs, effectiveActive, onChange]);
 
   const closable = useCallback((tab: T) => (isClosable ? isClosable(tab) : true), [isClosable]);
 
@@ -96,15 +106,16 @@ function ContextTabsInner<T extends ContextTabMeta>(
       setTabs(next);
       const currentActive = activeRef.current;
       if (closing.has(currentActive)) {
-        const survived = fallbackKey ? next.find((tab) => tab.key === fallbackKey) : undefined;
+        const visibleNext = next.filter((tab) => !hidden.has(tab.key));
+        const survived = fallbackKey ? visibleNext.find((tab) => tab.key === fallbackKey) : undefined;
         const index = prev.findIndex((tab) => tab.key === currentActive);
-        const neighbor = next[Math.min(index, next.length - 1)];
-        const pick = (survived ?? neighbor ?? next[0])?.key ?? '';
+        const neighbor = visibleNext[Math.min(index, visibleNext.length - 1)];
+        const pick = (survived ?? neighbor ?? visibleNext[0])?.key ?? '';
         activeRef.current = pick;
         setActiveKey(pick);
       }
     },
-    [closable],
+    [closable, hidden],
   );
 
   const openTab = useCallback((meta: T, options?: { rebuild?: boolean }) => {
@@ -235,7 +246,7 @@ function ContextTabsInner<T extends ContextTabMeta>(
 
   const items = useMemo(
     () =>
-      tabs.map((meta) => {
+      visibleTabs.map((meta) => {
         let node = instances.current.get(meta.key);
         if (!node) {
           node = renderContent(meta);
@@ -252,7 +263,7 @@ function ContextTabsInner<T extends ContextTabMeta>(
           children: node,
         };
       }),
-    [tabs, renderContent, renderLabel, contextMenu, closable],
+    [visibleTabs, renderContent, renderLabel, contextMenu, closable],
   );
 
   return (
@@ -260,7 +271,7 @@ function ContextTabsInner<T extends ContextTabMeta>(
       className={className}
       type="editable-card"
       hideAdd
-      activeKey={activeKey}
+      activeKey={effectiveActive}
       onChange={handleChange}
       onEdit={handleEdit}
       items={items}
