@@ -183,6 +183,15 @@ export interface GridTableApi {
    */
   selectRowsByKeys: (keys: string[]) => number;
   /**
+   * 按**行主键 + 列字段**选中单个单元格（编程式定位：明细联动、外部「聚焦到某格」等）。
+   *
+   * 与 selectRowsByKeys 的分工：那个选整行、可多选；这个只选一格（单元格选中天然单格）。
+   * 内部把主键换成显示行号、字段换成列号，再调原生 selectCell —— 行号随排序 / 分组现算，
+   * 列号含序号 / 勾选列偏移，调用方不用关心坐标。选中会滚进视口并触发 onSelectedChange。
+   * 返回是否命中：主键不在当前显示数据里、或字段不是 body 列时返回 false。
+   */
+  selectCellByField: (rowKey: string, field: string) => boolean;
+  /**
    * 导出 Excel（走 @visactor/vtable-plugins 的 TableExportPlugin，默认直接下载文件）。
    * 传 fileName 会覆盖 exportOptions 里配的文件名；返回插件的原始结果（配了 downloadFile: false 时是文件内容）。
    */
@@ -2035,6 +2044,47 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
     [hasGroup, rowKey, selection],
   );
 
+  /**
+   * 按行主键 + 列字段选中单个单元格（见 GridTableApi.selectCellByField）。
+   * 行号反查与 selectRowsByKeys 同一套（跟随排序 / 分组）；列号逐列问 body 定义按字段匹配。
+   */
+  const selectCellByField = useCallback(
+    (key: string, field: string): boolean => {
+      const table = tableRef.current;
+      if (!table) return false;
+      const wanted = String(key ?? '');
+      const wantedField = String(field ?? '');
+      if (!wanted || !wantedField) return false;
+      const headerLevel = table.columnHeaderLevelCount;
+      let targetRow = -1;
+      if (hasGroup) {
+        for (let row = headerLevel; row < table.rowCount; row += 1) {
+          const record = table.getCellOriginRecord(0, row) as Record<string, unknown> | undefined;
+          if (record && String(record[rowKey] ?? '') === wanted) {
+            targetRow = row;
+            break;
+          }
+        }
+      } else {
+        const index = rowKeyByIndexRef.current.indexOf(wanted);
+        if (index >= 0) targetRow = index + headerLevel;
+      }
+      if (targetRow < 0) return false;
+      let targetCol = -1;
+      for (let col = 0; col < table.colCount; col += 1) {
+        const define = table.getBodyColumnDefine(col, targetRow) as { field?: unknown } | undefined;
+        if (define && String(define.field ?? '') === wantedField) {
+          targetCol = col;
+          break;
+        }
+      }
+      if (targetCol < 0) return false;
+      table.selectCell(targetCol, targetRow);
+      return true;
+    },
+    [hasGroup, rowKey],
+  );
+
   useImperativeHandle(
     ref,
     () => ({
@@ -2051,6 +2101,7 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
       exportCsv,
       clearSelection: selection.clearSelection,
       selectRowsByKeys,
+      selectCellByField,
       // 行展开的编程式入口（按行主键操作，行号会随排序 / 筛选变化，主键不会）
       expandRow: rowExpander.expand,
       collapseRow: rowExpander.collapse,
@@ -2068,6 +2119,7 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
       exportExcel,
       exportCsv,
       selectRowsByKeys,
+      selectCellByField,
     ],
   );
 

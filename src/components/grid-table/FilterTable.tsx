@@ -566,6 +566,9 @@ export const FilterTable = React.forwardRef<FilterTableApi, FilterTableProps>(
                     // 表格还没建好时返回 0 —— 形状与 GridTable 一致，satisfies 会盯住返回值
                     selectRowsByKeys: (keys: string[]) =>
                         tableRef.current?.selectRowsByKeys(keys) ?? 0,
+                    // 单格选中（按行主键 + 列字段）；表格还没建好时返回 false，形状与 GridTable 一致
+                    selectCellByField: (rowKey: string, field: string) =>
+                        tableRef.current?.selectCellByField(rowKey, field) ?? false,
                     // 行展开：透传到 GridTable（没配 expandable 时这些方法是空转）
                     expandRow: (rowKey: string) => tableRef.current?.expandRow(rowKey),
                     collapseRow: (rowKey: string) => tableRef.current?.collapseRow(rowKey),

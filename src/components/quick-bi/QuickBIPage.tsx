@@ -242,6 +242,15 @@ export const QuickBIPage: React.FC<QuickBIPageProps> = ({view, trail, config}) =
         }
     }, [query, empID, config, message]);
 
+    /**
+     * 明细与主表来源联动：把触发明细的那个单元格选中。
+     * 用户点击时原生已会选中，这里再选一次无副作用；桥 detail.open 没有点击动作，
+     * 靠这一步让主表高亮与明细来源始终对得上。单元格地址按字段 + 记录下标定位，跟随排序。
+     */
+    const selectSourceCell = useCallback((record: KpiRecord, field: string) => {
+        tableRef.current?.selectCellByField(toStringOrEmpty(record[KPI_ROW_KEY]), field);
+    }, []);
+
     /** 点单元格展开明细（C# dataView1_Click）：key 变了重建标签页，没变则当前页按新列重查 */
     const openDetail = useCallback(async (record: KpiRecord, field: string, tag?: string) => {
         const kpi = toStringOrEmpty(record['指标']);
@@ -277,8 +286,9 @@ export const QuickBIPage: React.FC<QuickBIPageProps> = ({view, trail, config}) =
         const target = {kpi, field};
         detailTargetRef.current = target;
         setDetailTarget(target);
+        selectSourceCell(record, field);
         await loadDetail(configs, tabIndex, target);
-    }, [config, query.orgPK, loadDetail]);
+    }, [config, query.orgPK, loadDetail, selectSourceCell]);
 
     const handleCellClick = useCallback((info: GridTableCellInfo) => {
         if (info.isSummaryRow || info.isGroupRow || !info.record || !info.field) return;
