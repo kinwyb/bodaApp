@@ -150,6 +150,13 @@ export type AgentAttachment = {
   percent?: number;
   /** 服务端给的可访问地址（相对 /ws/files/<id>），点开预览时用 */
   url?: string;
+  /**
+   * 历史回放附件的容器路径（user_message 帧 media.url，如 /tmp/xxx）。
+   * 历史没有 fileID 地址，渲染层结合 agent 换成工作区文件 URL 打开。
+   */
+  filePath?: string;
+  /** 历史回放附件所属 agent，与 filePath 一起用于工作区寻址 */
+  agent?: string;
 };
 
 /**

@@ -18,7 +18,7 @@ import { formatFileSize } from '@/utils';
 import type { AgentAssistantContent, AgentComposerApi, AgentConnectionStatus } from './types';
 import { assistantContentOf, hasRenderableContent, timelineOf } from './types';
 import { AGENT_MAX_AUTO_RETRY } from './constants';
-import { resolveAgentFileUrl, useAgentFilePreview } from './files';
+import { resolveAgentFileUrl, useAgentFilePreview, workspaceFileUrl } from './files';
 import { useAgentChat } from './chat/use-agent-chat';
 import { AgentAnswer } from './components/AgentAnswer';
 import { AgentApprovalModal } from './components/AgentApproval';
@@ -225,8 +225,13 @@ const AgentChatPage: React.FC<AgentChatPageProps> = ({ embedded = false, onOpenF
           base.header = (
             <div className="agent-user-files">
               {item.attachments.map((file) => {
-                // 上传成功的附件能被点开（地址由文件服务提供，服务端决定内联还是下载）
-                const href = file.url ? resolveAgentFileUrl(file.url) : undefined;
+                // 实时附件用文件服务地址；历史附件只有容器路径 + agent，换工作区 URL 打开
+                const href =
+                  resolveAgentFileUrl(file.url) ??
+                  (file.filePath && file.agent
+                    ? workspaceFileUrl(file.agent, file.filePath)
+                    : undefined);
+                const openUrl = file.url ?? href;
                 return (
                   <Tag
                     key={file.uid}
@@ -241,10 +246,10 @@ const AgentChatPage: React.FC<AgentChatPageProps> = ({ embedded = false, onOpenF
                         target="_blank"
                         rel="noopener noreferrer"
                         onClick={
-                          preview && file.url
+                          preview && openUrl
                             ? (event) => {
                                 event.preventDefault();
-                                preview.openFile({ url: file.url!, name: file.name });
+                                preview.openFile({ url: openUrl, name: file.name });
                               }
                             : undefined
                         }

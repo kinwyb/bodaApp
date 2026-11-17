@@ -101,6 +101,8 @@ export {
   parsePong,
   parseSessionList,
   readSources,
+  sendFileMediaOf,
+  SEND_FILE_TOOL,
   toHistoryEvent,
   toReplayEvent,
   toToolStep,

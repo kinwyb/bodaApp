@@ -9,7 +9,7 @@
     "prebuild": "npm run menu:descriptions",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "test": "node --test --experimental-strip-types src/components/grid-table/tag.test.ts",
+    "test": "node --test --experimental-strip-types src/components/grid-table/tag.test.ts src/pages/agent/protocol/downlink/attachments.test.ts",
     "menu:descriptions": "node scripts/sync-menu-descriptions.mjs",
     "menu:descriptions:check": "node scripts/sync-menu-descriptions.mjs --check",
     "preview": "vite preview",

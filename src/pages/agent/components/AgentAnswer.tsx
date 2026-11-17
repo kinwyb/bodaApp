@@ -19,7 +19,7 @@ import type {
   AgentUserInput,
 } from '../types';
 import { timelineOf } from '../types';
-import { resolveAgentFileUrl, useAgentFilePreview } from '../files';
+import { resolveAgentFileUrl, useAgentFilePreview, workspaceFileUrl } from '../files';
 import { AgentApprovalCard } from './AgentApproval';
 import { AgentStepChain } from './AgentStepChain';
 import { AgentUserInputCard } from './AgentUserInput';
@@ -211,17 +211,28 @@ export const AgentAnswer: React.FC<{
              * 不加 ?download=1：让服务端按 MIME 决定内联还是下载（图片/PDF 直接看，
              * 其余类型它本来就会带 attachment 头）。
              */
-            const href = resolveAgentFileUrl(media.url);
-            const name = media.name || fileNameOf(media.url) || `附件 ${index + 1}`;
+            // 历史 send_file 没有 fileID 地址，只有入参的容器路径 + agent：换成工作区
+            // 文件 URL 并入 href，之后与实时附件走同一条 FileCard / 预览面板链路
+            const filePath = typeof media.metadata?.filePath === 'string' ? media.metadata.filePath : '';
+            const fileAgent = typeof media.metadata?.agent === 'string' ? media.metadata.agent : '';
+            const href =
+              resolveAgentFileUrl(media.url) ??
+              (filePath && fileAgent ? workspaceFileUrl(fileAgent, filePath) : undefined);
+            // 交给面板的地址：实时用原始相对地址（面板负责补 token / download），
+            // 历史没有相对地址，直接用解析好的工作区 URL
+            const openUrl = media.url ?? href;
+            const name =
+              media.name || fileNameOf(media.url) || fileNameOf(filePath) || `附件 ${index + 1}`;
             return {
               key: `${media.url ?? media.name ?? 'media'}-${index}`,
               name,
-              type: fileCardType(media.type),
+              // 无地址（老数据缺 agent）时不做 image/video/audio 预览，退化为图标+文件名避免破图
+              type: href ? fileCardType(media.type) : 'file',
               // byte 是字节数，卡片自己格式化成 KB/MB
               byte: media.size,
               src: href,
-              onClick: preview && media.url
-                ? () => preview.openFile({ url: media.url!, name })
+              onClick: preview && openUrl
+                ? () => preview.openFile({ url: openUrl, name })
                 : href
                   ? () => window.open(href, '_blank', 'noopener,noreferrer')
                   : undefined,

@@ -477,7 +477,7 @@ export function chatReducer(state: AgentChatState, action: AgentChatAction): Age
     case 'replayTurn': {
       const { conversationKey, turnId, frames, truncated } = action;
       return withConversation(state, conversationKey, (conversation) => {
-        const content = contentFromFrames(frames);
+        const content = contentFromFrames(frames, conversation.agent);
         // 只有思考的那轮也要能换出完整过程：判据漏掉片段类型就会让按钮点了没反应
         if (!hasRenderableContent(content)) return conversation;
 
