@@ -1,17 +1,25 @@
 /**
- * 工作台右侧的「文件浏览」面板：agent 工作区目录树 + file-viewer 预览 iframe。
+ * 工作台右侧的「文件浏览」面板：agent 工作区目录树 + 多文件页签预览。
  *
  * 预览引擎是独立部署的 file-viewer 官方静态站（零依赖 iframe 集成，见
  * scripts/setup-file-viewer.mjs），本面板只做三件事：
  * 1. 目录树：GET /ws/agents 系列接口懒加载（只读，不提供任何写入口）；
  * 2. 取内容：带 token 把文件拉成 Blob（附件与目录树文件同一条路）；
- * 3. 投递：iframe.html?from=<origin>&name=<文件名> 加载后 postMessage(Blob)。
+ * 3. 投递：桥接页 boda-bridge.html 回 ready 后 postMessage(Blob)，见 files/viewer.ts。
  *
- * 为什么走 Blob 而不是 ?url=：后端 ws 服务不处理 CORS，viewer 服务跨源拉
- * 文件会被浏览器拦；工作台同源代理取好再递过去，鉴权与跨域一并解决。
+ * 每个打开的文件是一个页签（ContextTabs，与主界面同一套右键批量关闭 / keep-alive），
+ * 切页签不卸载 iframe，滚动位置与渲染状态保留；关闭即释放。
  */
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { Alert, Button, Empty, Select, Spin, Tag, Tooltip, Tree } from 'antd';
 import type { TreeDataNode } from 'antd';
 import {
@@ -22,6 +30,7 @@ import {
   ReloadOutlined,
 } from '@ant-design/icons';
 
+import ContextTabs, { type ContextTabsHandle } from '../components/context-tabs';
 import {
   AgentFileError,
   fetchWorkspaceFile,
@@ -42,18 +51,94 @@ type FileTreeNode = TreeDataNode & {
   isRoot?: boolean;
 };
 
-/** 当前预览的文件；seq 驱动 iframe 重挂载（换文件必须重新走 load → postMessage） */
-type CurrentFile = {
-  seq: number;
+/** 一个预览页签；blob 异步到达，未到之前页签内显示加载态 */
+type FileTab = {
+  key: string;
   name: string;
-  blob: Blob;
+  blob?: Blob;
+  error?: { message: string; fallbackUrl?: string };
   downloadUrl?: string;
+  /** 工作区来源的容器路径：切页签时同步目录树选中 */
+  workspacePath?: string;
 };
 
-type FileLoadError = {
-  message: string;
-  /** 拉取失败（如外网附件跨域）时保留原链接，用户仍可新窗口打开 */
-  fallbackUrl?: string;
+/**
+ * 页签内容通过 context 读「当下」的 meta：ContextTabs 的 keep-alive 缓存持有
+ * 元素身份不变，props 传 meta 会让 blob 异步到达后子树不更新；context 变化
+ * 能穿透缓存元素触发消费方重渲染。
+ */
+const FileTabsContext = createContext<{ tabs: FileTab[]; active: string }>({ tabs: [], active: '' });
+
+/** 单个页签的内容：加载态 / 错误态 / 预览 iframe（ready 后投一次 Blob） */
+const FileTabFrame: React.FC<{ tabKey: string }> = ({ tabKey }) => {
+  const { tabs } = useContext(FileTabsContext);
+  const tab = tabs.find((item) => item.key === tabKey);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const blob = tab?.blob;
+
+  useEffect(() => {
+    if (!blob) return;
+    const target = fileViewerOrigin();
+    let posted = false;
+    const post = () => {
+      if (posted) return;
+      posted = true;
+      iframeRef.current?.contentWindow?.postMessage(blob, target);
+    };
+    const onMessage = (event: MessageEvent) => {
+      if (event.origin !== target) return;
+      // 多页签同时挂载：只认自己这个 iframe 里桥接页发回的 ready
+      if (event.source !== iframeRef.current?.contentWindow) return;
+      const data = event.data as { type?: string } | null;
+      if (data && data.type === 'boda-viewer-ready') post();
+    };
+    window.addEventListener('message', onMessage);
+    // 桥接页自身 15s 必回 ready；兜底只防信号丢失
+    const fallback = window.setTimeout(post, 16000);
+    return () => {
+      window.removeEventListener('message', onMessage);
+      window.clearTimeout(fallback);
+    };
+  }, [blob]);
+
+  if (!tab) return null;
+  if (tab.error) {
+    return (
+      <div className="workbench-files-preview-status">
+        <Alert
+          type="error"
+          showIcon
+          message={tab.error.message}
+          action={
+            tab.error.fallbackUrl ? (
+              <Button
+                size="small"
+                onClick={() => window.open(tab.error!.fallbackUrl, '_blank', 'noopener,noreferrer')}
+              >
+                新窗口打开
+              </Button>
+            ) : undefined
+          }
+        />
+      </div>
+    );
+  }
+  if (!blob) {
+    return (
+      <div className="workbench-files-preview-status">
+        <Spin />
+        <span className="workbench-files-preview-status-text">读取文件…</span>
+      </div>
+    );
+  }
+  return (
+    <iframe
+      ref={iframeRef}
+      className="workbench-files-frame"
+      title={`预览：${tab.name}`}
+      src={fileViewerFrameUrl(tab.name)}
+    />
+  );
 };
 
 /** 目录在前、同类按名字排（后端已排过，这里兜底保证一致观感） */
@@ -114,13 +199,8 @@ const WorkbenchFilePanel: React.FC<{
   const [loadedKeys, setLoadedKeys] = useState<React.Key[]>([]);
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
 
-  const [current, setCurrent] = useState<CurrentFile | null>(null);
-  const [fileLoading, setFileLoading] = useState(false);
-  const [fileError, setFileError] = useState<FileLoadError | null>(null);
-
-  const iframeRef = useRef<HTMLIFrameElement>(null);
-  /** 请求序号：切 agent / 连点文件时丢弃过期响应 */
-  const fileSeqRef = useRef(0);
+  const tabsRef = useRef<ContextTabsHandle<FileTab>>(null);
+  const [mirror, setMirror] = useState<{ tabs: FileTab[]; active: string }>({ tabs: [], active: '' });
   const agentRef = useRef(selectedAgent);
   useEffect(() => {
     agentRef.current = selectedAgent;
@@ -187,67 +267,72 @@ const WorkbenchFilePanel: React.FC<{
     resetTree(rootNodes);
   }, [rootNodes, resetTree]);
 
-  /**
-   * 统一展示一份新文件（附件与目录树共用）。
-   * seq 用调用方持有的请求序号：这里不能再自增，否则调用方 finally 里的
-   * 「仍是最新请求」判断永远不成立，loading 就收不掉了。
-   */
-  const showFile = useCallback((seq: number, name: string, blob: Blob, downloadUrl?: string) => {
-    setCurrent({ seq, name, blob, downloadUrl });
-    setFileError(null);
+  /** 页签镜像：下载按钮 / 空态 / 目录树选中都从这里读 */
+  const handleTabsChange = useCallback((tabs: FileTab[], active: string) => {
+    setMirror({ tabs, active });
+    const current = tabs.find((tab) => tab.key === active);
+    setSelectedKeys(current?.workspacePath ? [current.workspacePath] : []);
   }, []);
 
-  // 对话附件：父层每次点击都给新对象，这里跟着取内容
-  useEffect(() => {
-    if (!attachment) return;
-    const resolved = resolveAgentFileUrl(attachment.url);
-    if (!resolved) return;
-    const seq = ++fileSeqRef.current;
-    setFileLoading(true);
-    setFileError(null);
-    setSelectedKeys([]);
-    fetch(resolved)
-      .then(async (response) => {
-        if (!response.ok) throw new AgentFileError(`文件服务返回 ${response.status}`, `http_${response.status}`);
-        return response.blob();
-      })
-      .then((blob) => {
-        if (seq !== fileSeqRef.current) return;
-        const name = attachment.name || resolved.split('?')[0].split('/').pop() || '附件';
-        showFile(seq, name, blob, resolveAgentFileUrl(attachment.url, { download: true }));
-      })
-      .catch((error: unknown) => {
-        if (seq !== fileSeqRef.current) return;
-        setFileError({
-          message: error instanceof Error ? error.message : '附件读取失败',
-          fallbackUrl: resolved,
+  /** 异步取内容写回页签；页签可能已被关掉，updateTab 对不存在的 key 自动忽略 */
+  const loadIntoTab = useCallback(
+    (key: string, load: () => Promise<{ blob: Blob; downloadUrl?: string }>, fallbackUrl?: string) => {
+      load()
+        .then(({ blob, downloadUrl }) => {
+          tabsRef.current?.updateTab(key, { blob, downloadUrl, error: undefined });
+        })
+        .catch((error: unknown) => {
+          tabsRef.current?.updateTab(key, {
+            error: { message: fileErrorMessage(error), fallbackUrl },
+          });
         });
-      })
-      .finally(() => {
-        if (seq === fileSeqRef.current) setFileLoading(false);
-      });
-  }, [attachment, showFile]);
-
-  /** 目录树懒加载 */
-  const loadTreeData = useCallback(
-    async (node: FileTreeNode) => {
-      const owner = agentRef.current;
-      if (!owner) return;
-      try {
-        const dir = await listWorkspaceDir(owner, String(node.key));
-        // 加载期间切了 agent：丢弃，避免把上一个 agent 的目录挂进来
-        if (owner !== agentRef.current) return;
-        setTreeData((prev) => attachChildren(prev, node.key, sortEntries(dir.items).map(entryToNode)));
-      } catch (error) {
-        setFileError({ message: fileErrorMessage(error) });
-        // 标记已加载，防止 antd 对同一节点反复重试
-        setLoadedKeys((prev) => [...prev, node.key]);
-      }
     },
     [],
   );
 
-  /** 点文件 → 取内容预览；点目录/根 → 展开收起（整行可点，不只小箭头） */
+  // 对话附件：父层每次点击都给新对象；同一附件重复点只激活已有页签
+  useEffect(() => {
+    if (!attachment) return;
+    const resolved = resolveAgentFileUrl(attachment.url);
+    const handle = tabsRef.current;
+    if (!resolved || !handle) return;
+    const key = `att:${attachment.url}`;
+    const name = attachment.name || resolved.split('?')[0].split('/').pop() || '附件';
+    if (handle.getTabs().some((tab) => tab.key === key)) handle.setActive(key);
+    else handle.openTab({ key, name });
+    loadIntoTab(
+      key,
+      async () => {
+        const response = await fetch(resolved);
+        if (!response.ok) {
+          throw new AgentFileError(`文件服务返回 ${response.status}`, `http_${response.status}`);
+        }
+        return {
+          blob: await response.blob(),
+          downloadUrl: resolveAgentFileUrl(attachment.url, { download: true }),
+        };
+      },
+      resolved,
+    );
+  }, [attachment, loadIntoTab]);
+
+  /** 目录树懒加载 */
+  const loadTreeData = useCallback(async (node: FileTreeNode) => {
+    const owner = agentRef.current;
+    if (!owner) return;
+    try {
+      const dir = await listWorkspaceDir(owner, String(node.key));
+      // 加载期间切了 agent：丢弃，避免把上一个 agent 的目录挂进来
+      if (owner !== agentRef.current) return;
+      setTreeData((prev) => attachChildren(prev, node.key, sortEntries(dir.items).map(entryToNode)));
+    } catch (error) {
+      setAgentsError(fileErrorMessage(error));
+      // 标记已加载，防止 antd 对同一节点反复重试
+      setLoadedKeys((prev) => [...prev, node.key]);
+    }
+  }, []);
+
+  /** 点文件 → 开页签预览；点目录/根 → 展开收起（整行可点，不只小箭头） */
   const handleSelect = useCallback(
     (_keys: React.Key[], info: { node: FileTreeNode }) => {
       const node = info.node;
@@ -261,24 +346,20 @@ const WorkbenchFilePanel: React.FC<{
       }
       if (entry.symlink) return;
       const owner = agentRef.current;
-      const seq = ++fileSeqRef.current;
-      setSelectedKeys([node.key]);
-      setFileLoading(true);
-      setFileError(null);
-      fetchWorkspaceFile(owner, entry.path)
-        .then((blob) => {
-          if (seq !== fileSeqRef.current) return;
-          showFile(seq, entry.name, blob, workspaceFileUrl(owner, entry.path, { download: true }));
-        })
-        .catch((error: unknown) => {
-          if (seq !== fileSeqRef.current) return;
-          setFileError({ message: fileErrorMessage(error) });
-        })
-        .finally(() => {
-          if (seq === fileSeqRef.current) setFileLoading(false);
-        });
+      const handle = tabsRef.current;
+      if (!handle) return;
+      const key = `ws:${owner}:${entry.path}`;
+      if (handle.getTabs().some((tab) => tab.key === key)) {
+        handle.setActive(key);
+        return;
+      }
+      handle.openTab({ key, name: entry.name, workspacePath: entry.path });
+      loadIntoTab(key, async () => ({
+        blob: await fetchWorkspaceFile(owner, entry.path),
+        downloadUrl: workspaceFileUrl(owner, entry.path, { download: true }),
+      }));
     },
-    [showFile],
+    [loadIntoTab],
   );
 
   const handleRefresh = useCallback(() => {
@@ -286,45 +367,14 @@ const WorkbenchFilePanel: React.FC<{
     resetTree(rootNodes);
   }, [loadAgents, resetTree, rootNodes]);
 
-  const handleAgentChange = useCallback((name: string) => {
-    setSelectedAgent(name);
-  }, []);
-
-  /**
-   * Blob 投递：等桥接页的 ready 信号再投，且只投一次。
-   *
-   * 不能在 iframe load 事件投：demo 的消息监听器在 App 异步挂载后才注册，
-   * load 时投出去会丢（表现为壳加载成功但内容空白）。桥接页与 demo 同源、
-   * 轮询 DOM 判定挂载完成后回 boda-viewer-ready，这里收到才投。
-   * 16s 兜底投一次（桥接页自身 15s 必回 ready；兜底只防信号丢失）。
-   */
-  useEffect(() => {
-    if (!current) return;
-    const target = fileViewerOrigin();
-    const blob = current.blob;
-    let posted = false;
-    const post = () => {
-      if (posted) return;
-      posted = true;
-      iframeRef.current?.contentWindow?.postMessage(blob, target);
-    };
-    const onMessage = (event: MessageEvent) => {
-      if (event.origin !== target) return;
-      const data = event.data as { type?: string } | null;
-      if (data && data.type === 'boda-viewer-ready') post();
-    };
-    window.addEventListener('message', onMessage);
-    const fallback = window.setTimeout(post, 16000);
-    return () => {
-      window.removeEventListener('message', onMessage);
-      window.clearTimeout(fallback);
-    };
-  }, [current]);
+  const renderTabContent = useCallback((tab: FileTab) => <FileTabFrame tabKey={tab.key} />, []);
+  const renderTabLabel = useCallback((tab: FileTab) => tab.name, []);
 
   const agentOptions = useMemo(
     () => agents.map((item) => ({ value: item.name, label: item.name })),
     [agents],
   );
+  const activeTab = mirror.tabs.find((tab) => tab.key === mirror.active);
 
   return (
     <div className="workbench-files-panel">
@@ -335,7 +385,7 @@ const WorkbenchFilePanel: React.FC<{
           size="small"
           className="workbench-files-agent"
           value={selectedAgent || undefined}
-          onChange={handleAgentChange}
+          onChange={setSelectedAgent}
           options={agentOptions}
           placeholder="选择 agent"
           popupMatchSelectWidth={200}
@@ -350,8 +400,8 @@ const WorkbenchFilePanel: React.FC<{
             type="text"
             size="small"
             icon={<DownloadOutlined />}
-            disabled={!current?.downloadUrl}
-            href={current?.downloadUrl}
+            disabled={!activeTab?.downloadUrl}
+            href={activeTab?.downloadUrl}
             target="_blank"
             rel="noopener noreferrer"
           />
@@ -390,45 +440,24 @@ const WorkbenchFilePanel: React.FC<{
         </div>
 
         <div className="workbench-files-preview">
-          {fileLoading ? (
-            <div className="workbench-files-preview-status">
-              <Spin />
-              <span className="workbench-files-preview-status-text">读取文件…</span>
-            </div>
-          ) : fileError ? (
-            <div className="workbench-files-preview-status">
-              <Alert
-                type="error"
-                showIcon
-                message={fileError.message}
-                action={
-                  fileError.fallbackUrl ? (
-                    <Button
-                      size="small"
-                      onClick={() => window.open(fileError.fallbackUrl, '_blank', 'noopener,noreferrer')}
-                    >
-                      新窗口打开
-                    </Button>
-                  ) : undefined
-                }
-              />
-            </div>
-          ) : current ? (
-            <iframe
-              key={current.seq}
-              ref={iframeRef}
-              className="workbench-files-frame"
-              title={`预览：${current.name}`}
-              src={fileViewerFrameUrl(current.name)}
+          <FileTabsContext.Provider value={mirror}>
+            <ContextTabs
+              ref={tabsRef}
+              className={`workbench-files-tabs${mirror.tabs.length === 0 ? ' workbench-files-tabs-empty' : ''}`}
+              initialTabs={[]}
+              renderLabel={renderTabLabel}
+              renderContent={renderTabContent}
+              onChange={handleTabsChange}
             />
-          ) : (
-            <div className="workbench-files-preview-status">
+          </FileTabsContext.Provider>
+          {mirror.tabs.length === 0 ? (
+            <div className="workbench-files-empty">
               <Empty
                 image={Empty.PRESENTED_IMAGE_SIMPLE}
                 description="从左侧目录或对话附件选择文件"
               />
             </div>
-          )}
+          ) : null}
         </div>
       </div>
     </div>

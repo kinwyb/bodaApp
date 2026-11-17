@@ -1,6 +1,6 @@
 import React, {Suspense, useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import type {MenuProps} from 'antd';
-import {Avatar, Button, Dropdown, Input, Layout, Menu, Spin, Tabs, Tag, theme, Typography} from 'antd';
+import {Avatar, Button, Dropdown, Input, Layout, Menu, Spin, Tag, theme, Typography} from 'antd';
 import {
     ApiOutlined,
     AppstoreOutlined,
@@ -30,6 +30,7 @@ import {usePermission} from '../store/permission-context';
 import {useOrgEpoch, useServiceOrg} from '../store/service-org';
 import {ORG_NAME} from '../store/orgs';
 import {type TabsApi, TabsContext} from '../store/tabs';
+import ContextTabs, {type ContextTabsHandle} from '../components/context-tabs';
 import {buildTabKey, instanceOfParams, sameParams} from '../store/tab-key';
 import {TabTitleContext, type TabTitleScope} from '../store/tab-title-context';
 import type {DesktopMenu} from '../api';
@@ -170,19 +171,15 @@ const MainLayout: React.FC = () => {
     const [menuKeyword, setMenuKeyword] = useState('');
     const [searchOpen, setSearchOpen] = useState(false);
     const [openKeys, setOpenKeys] = useState<string[]>([]);
+    // 页签状态由 ContextTabs 持有（右键关闭、keep-alive 都在里面）；
+    // 这里只留镜像供菜单高亮 / 窗口标题等周边界面渲染，写操作一律走 ref。
     const [openTabs, setOpenTabs] = useState<TabMeta[]>([HOME_TAB]);
     const [activeTab, setActiveTab] = useState(HOME_TAB.key);
-
-    const tabInstances = useRef<Map<string, React.ReactNode>>(new Map());
-
-    // 关闭页签时读「当下」的页签与激活项：右键菜单的 onClick 被层层 memo 缓存，
-    // 直接闭包 activeTab/openTabs 会拿到旧值；用 ref 同步最新值，关闭逻辑永远基于现状。
-    const openTabsRef = useRef(openTabs);
-    const activeTabRef = useRef(activeTab);
-    useEffect(() => {
-        openTabsRef.current = openTabs;
-        activeTabRef.current = activeTab;
-    }, [openTabs, activeTab]);
+    const tabsRef = useRef<ContextTabsHandle<TabMeta>>(null);
+    const handleTabsChange = useCallback((tabs: TabMeta[], active: string) => {
+        setOpenTabs(tabs);
+        setActiveTab(active);
+    }, []);
 
     /**
      * 发布菜单只留下已经有页面目录的叶子；调试环境保持后端菜单原样。
@@ -201,9 +198,7 @@ const MainLayout: React.FC = () => {
     useEffect(() => {
         if (orgEpoch === prevOrgEpoch.current) return;
         prevOrgEpoch.current = orgEpoch;
-        tabInstances.current.clear();
-        setOpenTabs([HOME_TAB]);
-        setActiveTab(HOME_TAB.key);
+        tabsRef.current?.reset([HOME_TAB], HOME_TAB.key);
         setOpenKeys([]);
     }, [orgEpoch]);
 
@@ -282,32 +277,24 @@ const MainLayout: React.FC = () => {
     const openTab = useCallback(
         (meta: TabMeta) => {
             isDebugEnv && console.log("打开页面", meta.label, meta.view);
-            setOpenTabs((prev) => {
-                const index = prev.findIndex((tab) => tab.key === meta.key);
-                if (index < 0) return [...prev, meta];
-                const current = prev[index];
-                if (sameParams(current.params, meta.params)) {
-                    // 显式传了标题就以它为准；没传则保留页面自己设的标题
-                    if (meta.customTitle === undefined || meta.customTitle === current.customTitle) {
-                        return prev;
-                    }
-                    const next = [...prev];
-                    next[index] = {...current, customTitle: meta.customTitle};
-                    return next;
+            const handle = tabsRef.current;
+            if (!handle) return;
+            const current = handle.getTabs().find((tab) => tab.key === meta.key);
+            if (!current) {
+                handle.openTab(meta);
+            } else if (sameParams(current.params, meta.params)) {
+                // 显式传了标题就以它为准；没传则保留页面自己设的标题
+                if (meta.customTitle !== undefined && meta.customTitle !== current.customTitle) {
+                    handle.updateTab(meta.key, {customTitle: meta.customTitle});
                 }
-                // 参数变了，丢掉这个页面的元素缓存，否则会复用带旧参数的旧元素
-                tabInstances.current.delete(meta.key);
-                const next = [...prev];
-                next[index] = {
-                    ...current,
-                    params: meta.params,
-                    // 标题一并重置：页面会重新挂载、由它自己按新数据再设一次
-                    // （留着旧标题会出现「标题还是上一单的号、内容已经是新单」的错位）
-                    customTitle: meta.customTitle,
-                };
-                return next;
-            });
-            setActiveTab(meta.key);
+                handle.setActive(meta.key);
+            } else {
+                // 参数变了：重建页面（清内容缓存），标题一并重置由页面按新数据再设
+                handle.openTab(
+                    {...current, params: meta.params, customTitle: meta.customTitle},
+                    {rebuild: true},
+                );
+            }
             const ancestors = meta.trail.slice(0, -1).map((item) => item.view);
             if (ancestors.length) {
                 setOpenKeys((prev) => Array.from(new Set([...prev, ...ancestors])));
@@ -384,122 +371,13 @@ const MainLayout: React.FC = () => {
      * 只改 openTabs 里的那一项，页面元素缓存不动 → 不会导致页面重挂载。
      */
     const setTabTitle = useCallback((tabKey: string, title: string | undefined) => {
-        setOpenTabs((prev) => {
-            const index = prev.findIndex((tab) => tab.key === tabKey);
-            if (index < 0) return prev;
-            const current = prev[index];
-            if (current.customTitle === title) return prev;
-            const next = [...prev];
-            next[index] = {...current, customTitle: title};
-            return next;
-        });
+        const handle = tabsRef.current;
+        if (!handle) return;
+        const current = handle.getTabs().find((tab) => tab.key === tabKey);
+        if (!current || current.customTitle === title) return;
+        handle.updateTab(tabKey, {customTitle: title});
     }, []);
 
-
-    /**
-     * 关闭一批页签（X 按钮单个关闭、右键菜单批量关闭都走这里）。
-     *
-     * 工作台永远保留；被关页签的页面实例缓存一并清掉，重新打开时按新状态重建。
-     * 基于 ref 读「当下」的页签与激活项（右键菜单的 onClick 被 memo 缓存，闭包会拿旧值），
-     * 并把 setActiveTab 放在 setOpenTabs 之外，保持 updater 纯净。
-     *
-     * 激活页被关掉时的落点：优先 fallbackKey（批量关闭时指向右键的那个页签），
-     * 否则取被关页签的右邻（没有右邻取左邻），最后兜底到工作台。
-     */
-    const closeTabs = useCallback((keys: string[], fallbackKey?: string) => {
-        const closing = new Set(keys.filter((key) => key !== HOME_TAB.key));
-        if (closing.size === 0) return;
-        const prev = openTabsRef.current;
-        const next = prev.filter((tab) => !closing.has(tab.key));
-        if (next.length === prev.length) return;
-        closing.forEach((key) => tabInstances.current.delete(key));
-        // 同步刷新 ref：紧接着 Dropdown 关闭会把焦点还给被右键的页签并触发 onChange，
-        // 守卫要立刻看到「这些页签已经没了」，不能等 effect。
-        openTabsRef.current = next;
-        setOpenTabs(next);
-        const currentActive = activeTabRef.current;
-        if (closing.has(currentActive)) {
-            const survived = fallbackKey ? next.find((tab) => tab.key === fallbackKey) : undefined;
-            const index = prev.findIndex((tab) => tab.key === currentActive);
-            const neighbor = next[Math.min(index, next.length - 1)];
-            const pick = (survived ?? neighbor ?? next[0]).key;
-            activeTabRef.current = pick;
-            setActiveTab(pick);
-        }
-    }, []);
-
-    const handleTabEdit = useCallback(
-        (targetKey: string | React.MouseEvent | React.KeyboardEvent, action: 'add' | 'remove') => {
-            if (action !== 'remove') return;
-            closeTabs([targetKey as string]);
-        },
-        [closeTabs],
-    );
-
-    /**
-     * 切换激活页签。右键菜单关闭页签后，Dropdown 会把焦点还给被右键的那个页签，
-     * rc-tabs 随之试图激活它；若它刚被关掉，这里要挡住，
-     * 否则激活项会落到一个不存在的 key 上，表现为「没有任何页签被选中」。
-     */
-    const handleTabChange = useCallback((key: string) => {
-        if (openTabsRef.current.some((tab) => tab.key === key)) {
-            setActiveTab(key);
-        }
-    }, []);
-
-    /** 右键菜单动作：按右键页签的位置算出要关闭的集合 */
-    const handleTabContextAction = useCallback(
-        (tabKey: string, action: string) => {
-            const index = openTabs.findIndex((tab) => tab.key === tabKey);
-            if (index < 0) return;
-            switch (action) {
-                case 'close':
-                    handleTabEdit(tabKey, 'remove');
-                    break;
-                case 'closeLeft':
-                    closeTabs(openTabs.slice(0, index).map((tab) => tab.key), tabKey);
-                    break;
-                case 'closeRight':
-                    closeTabs(openTabs.slice(index + 1).map((tab) => tab.key), tabKey);
-                    break;
-                case 'closeOthers':
-                    closeTabs(openTabs.filter((tab) => tab.key !== tabKey).map((tab) => tab.key), tabKey);
-                    break;
-                case 'closeAll':
-                    closeTabs(openTabs.map((tab) => tab.key), HOME_TAB.key);
-                    break;
-            }
-        },
-        [openTabs, handleTabEdit, closeTabs],
-    );
-
-    /** 页签右键菜单：按位置禁用不可用的动作（最左没有「关闭左侧」，工作台不可关闭） */
-    const tabContextMenu = useCallback(
-        (tabKey: string): MenuProps => {
-            const index = openTabs.findIndex((tab) => tab.key === tabKey);
-            const closable = (tab: TabMeta) => tab.key !== HOME_TAB.key;
-            return {
-                items: [
-                    {key: 'close', label: '关闭当前标签', disabled: tabKey === HOME_TAB.key},
-                    {
-                        key: 'closeLeft',
-                        label: '关闭左侧标签',
-                        disabled: !openTabs.slice(0, index).some(closable),
-                    },
-                    {key: 'closeRight', label: '关闭右侧标签', disabled: index >= openTabs.length - 1},
-                    {
-                        key: 'closeOthers',
-                        label: '关闭其他标签',
-                        disabled: !openTabs.some((tab) => tab.key !== tabKey && closable(tab)),
-                    },
-                    {type: 'divider'},
-                    {key: 'closeAll', label: '关闭全部标签', disabled: !openTabs.some(closable)},
-                ],
-                onClick: ({key: action}) => handleTabContextAction(tabKey, action),
-            };
-        },
-        [openTabs, handleTabContextAction],
-    );
 
     const handleMenuSearch = useCallback(
         (value: string) => {
@@ -527,57 +405,35 @@ const MainLayout: React.FC = () => {
 
     const renderTabContent = useCallback(
         (meta: TabMeta) => {
-            let node = tabInstances.current.get(meta.key);
-            if (!node) {
-                if (meta.key === HOME_TAB.key) {
-                    node = <Dashboard/>;
-                } else {
-                    // 页面组件按 **view** 解析（页签 key 可能带 `::实例标识` 后缀，不是 View 路径）
-                    const PageComponent = resolveView(meta.view);
-                    // 作用域绑定到「本页签自己的 key」：页面改标题时只改自己那个页签，不会串到别的页签
-                    const scope: TabTitleScope = {
-                        tabKey: meta.key,
-                        baseLabel: meta.label,
-                        setTitle: (title: string | undefined) => setTabTitle(meta.key, title),
-                    };
-                    node = (
-                        <TabTitleContext.Provider value={scope}>
-                            <Suspense
-                                // key 带上参数：业务指定了 tabKey 时，同一个页签可能被换成另一组参数，
-                                // 带上参数才能强制重建，让页面拿到新参数
-                                // （不然 React 会复用组件实例，只更新 props，页面内部的初始状态还是旧的）
-                                key={`${meta.key}::${JSON.stringify(meta.params ?? null)}`}
-                                fallback={
-                                    <div style={{textAlign: 'center', padding: '48px 0'}}>
-                                        <Spin/>
-                                    </div>
-                                }
-                            >
-                                <PageComponent view={meta.view} trail={meta.trail} params={meta.params}/>
-                            </Suspense>
-                        </TabTitleContext.Provider>
-                    );
-                }
-                tabInstances.current.set(meta.key, node);
-            }
-            return node;
+            // keep-alive 缓存由 ContextTabs 按 key 持有，这里只负责纯渲染
+            if (meta.key === HOME_TAB.key) return <Dashboard/>;
+            // 页面组件按 **view** 解析（页签 key 可能带 `::实例标识` 后缀，不是 View 路径）
+            const PageComponent = resolveView(meta.view);
+            // 作用域绑定到「本页签自己的 key」：页面改标题时只改自己那个页签，不会串到别的页签
+            const scope: TabTitleScope = {
+                tabKey: meta.key,
+                baseLabel: meta.label,
+                setTitle: (title: string | undefined) => setTabTitle(meta.key, title),
+            };
+            return (
+                <TabTitleContext.Provider value={scope}>
+                    <Suspense
+                        // key 带上参数：业务指定了 tabKey 时，同一个页签可能被换成另一组参数，
+                        // 带上参数才能强制重建，让页面拿到新参数
+                        // （不然 React 会复用组件实例，只更新 props，页面内部的初始状态还是旧的）
+                        key={`${meta.key}::${JSON.stringify(meta.params ?? null)}`}
+                        fallback={
+                            <div style={{textAlign: 'center', padding: '48px 0'}}>
+                                <Spin/>
+                            </div>
+                        }
+                    >
+                        <PageComponent view={meta.view} trail={meta.trail} params={meta.params}/>
+                    </Suspense>
+                </TabTitleContext.Provider>
+            );
         },
         [setTabTitle],
-    );
-
-    const tabItems = useMemo(
-        () =>
-            openTabs.map((meta) => ({
-                key: meta.key,
-                label: (
-                    <Dropdown menu={tabContextMenu(meta.key)} trigger={['contextMenu']}>
-                        <span className="main-tab-label">{displayTitle(meta)}</span>
-                    </Dropdown>
-                ),
-                closable: meta.key !== HOME_TAB.key,
-                children: renderTabContent(meta),
-            })),
-        [openTabs, renderTabContent, tabContextMenu],
     );
 
     /**
@@ -711,15 +567,15 @@ const MainLayout: React.FC = () => {
                     {/* 页面组件通过 useTabs() 拿跳转能力，所以 Provider 要包住 Tabs 的内容 */}
                     <TabsContext.Provider value={tabsApi}>
                         <div className="main-content-panel">
-                            <Tabs
+                            <ContextTabs
+                                ref={tabsRef}
                                 className="main-tabs"
-                                type="editable-card"
-                                hideAdd
-                                activeKey={activeTab}
-                                onChange={handleTabChange}
-                                onEdit={handleTabEdit}
-                                items={tabItems}
-                                destroyOnHidden={false}
+                                initialTabs={[HOME_TAB]}
+                                initialActiveKey={HOME_TAB.key}
+                                isClosable={(tab) => tab.key !== HOME_TAB.key}
+                                renderLabel={displayTitle}
+                                renderContent={renderTabContent}
+                                onChange={handleTabsChange}
                             />
                         </div>
                     </TabsContext.Provider>
