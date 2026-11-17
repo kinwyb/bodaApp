@@ -1,0 +1,64 @@
+<!doctype html>
+<!--
+  bodaWay 预览桥接页：与 iframe.html 同目录部署（预览服务 origin 下）。
+
+  为什么需要它：官方 iframe.html 的消息监听器在 App 异步挂载后才注册，
+  父页面在 load 事件投 Blob 会早于监听器而丢失；跨源又读不了 iframe DOM、
+  demo 也没有 ready 回信。本页与 iframe.html 同源，可以轮询内部 DOM 精确
+  判定挂载完成，再通知父页面投递，零竞态、零重复渲染。
+
+  协议：
+    URL:  boda-bridge.html?from=<祖父页面origin>&name=<文件名>
+    上行: 挂载完成后 parent.postMessage({type:'boda-viewer-ready'}, from)
+    下行: 父页面 postMessage(Blob, 本origin) → 转发给内层 iframe.html
+          （内层 from 设为本 origin，来源校验链不变）
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>文件预览</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #fff; }
+  iframe { border: 0; width: 100%; height: 100%; display: block; }
+</style>
+</head>
+<body>
+<iframe id="v" title="文件预览"></iframe>
+<script>
+  var q = new URLSearchParams(location.search);
+  var from = q.get('from') || '';
+  var name = q.get('name') || 'file';
+  var inner = document.getElementById('v');
+  inner.src = './iframe.html?from=' + encodeURIComponent(location.origin) +
+    '&name=' + encodeURIComponent(name);
+
+  var ready = false;
+  function announce() {
+    if (ready) return;
+    ready = true;
+    parent.postMessage({ type: 'boda-viewer-ready' }, from || '*');
+  }
+  // App 挂载的标志：#app 出现子节点（boot 屏在 #app 之外，挂载后即被替换）
+  var poll = setInterval(function () {
+    var doc = null;
+    try { doc = inner.contentDocument; } catch (e) { /* 跨源兜底，见超时 */ }
+    var app = doc && doc.querySelector('#app');
+    if (app && app.children.length > 0) {
+      clearInterval(poll);
+      // 留出监听器注册的余量（setup 与 mount 之间的微任务间隔）
+      setTimeout(announce, 150);
+    }
+  }, 100);
+  // 兜底：15s 还没挂载成功也通知父页面投一次（至少不比直连更差）
+  setTimeout(function () { clearInterval(poll); announce(); }, 15000);
+
+  window.addEventListener('message', function (e) {
+    if (from && e.origin !== from) return;
+    if (e.data instanceof Blob) {
+      inner.contentWindow.postMessage(e.data, location.origin);
+    }
+  });
+</script>
+</body>
+</html>

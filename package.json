@@ -15,7 +15,9 @@
     "preview": "vite preview",
     "app:dev": "mygo dev app",
     "app:build": "mygo build app",
-    "gen:api": "node scripts/gen-api-schemas.mjs"
+    "gen:api": "node scripts/gen-api-schemas.mjs",
+    "file-viewer:setup": "node scripts/setup-file-viewer.mjs",
+    "file-viewer:serve": "node scripts/serve-file-viewer.mjs"
   },
   "dependencies": {
     "@ant-design/icons": "^6.3.4",

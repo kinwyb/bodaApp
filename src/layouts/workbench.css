@@ -146,6 +146,109 @@ body.workbench-resizing {
   overflow: hidden;
 }
 
+/* ---------------- 右侧文件浏览面板 ---------------- */
+
+.workbench-files {
+  flex: 0 0 auto;
+  height: 100%;
+  min-width: 0;
+  overflow: hidden;
+  background: #fff;
+  border-left: 1px solid #f0f0f0;
+}
+
+.workbench-files-panel {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 顶栏高度对齐后台与助手（64px），三栏分界处的横线连成一条 */
+.workbench-files-header {
+  flex: 0 0 64px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.workbench-files-title {
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.workbench-files-readonly {
+  margin-inline-end: 0;
+}
+
+.workbench-files-agent {
+  min-width: 120px;
+  max-width: 180px;
+}
+
+.workbench-files-spacer {
+  flex: 1 1 auto;
+}
+
+.workbench-files-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
+
+/* 目录树：定宽 + 独立滚动，文件名长时横向滚动而不是撑破面板 */
+.workbench-files-tree {
+  flex: 0 0 220px;
+  min-width: 0;
+  overflow: auto;
+  padding: 8px 4px;
+  border-right: 1px solid #f0f0f0;
+}
+
+.workbench-files-tree .ant-tree {
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.workbench-files-tree-loading {
+  display: flex;
+  justify-content: center;
+  padding: 24px 0;
+}
+
+.workbench-files-preview {
+  flex: 1 1 auto;
+  min-width: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.workbench-files-frame {
+  flex: 1 1 auto;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+}
+
+.workbench-files-preview-status {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 16px;
+}
+
+.workbench-files-preview-status-text {
+  font-size: 13px;
+  color: rgba(0, 0, 0, 0.45);
+}
+
 /* ---------------- 弹窗只盖住左侧，不遮助手 ---------------- */
 
 /*

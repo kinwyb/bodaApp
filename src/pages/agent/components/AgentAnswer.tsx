@@ -19,7 +19,7 @@ import type {
   AgentUserInput,
 } from '../types';
 import { timelineOf } from '../types';
-import { resolveAgentFileUrl } from '../files';
+import { resolveAgentFileUrl, useAgentFilePreview } from '../files';
 import { AgentApprovalCard } from './AgentApproval';
 import { AgentStepChain } from './AgentStepChain';
 import { AgentUserInputCard } from './AgentUserInput';
@@ -149,6 +149,8 @@ export const AgentAnswer: React.FC<{
   onUserInput?: (requestId: string, answers: Record<string, string[]>) => void;
 }> = ({ content, streaming, onApproval, onShowApproval, onUserInput }) => {
   const blocks = blocksOf(timelineOf(content));
+  // 工作台挂了文件面板时附件在面板里预览；独立 /agent 路由没有 Provider，保持新窗口
+  const preview = useAgentFilePreview();
 
   return (
     <div className="agent-answer">
@@ -210,16 +212,19 @@ export const AgentAnswer: React.FC<{
              * 其余类型它本来就会带 attachment 头）。
              */
             const href = resolveAgentFileUrl(media.url);
+            const name = media.name || fileNameOf(media.url) || `附件 ${index + 1}`;
             return {
               key: `${media.url ?? media.name ?? 'media'}-${index}`,
-              name: media.name || fileNameOf(media.url) || `附件 ${index + 1}`,
+              name,
               type: fileCardType(media.type),
               // byte 是字节数，卡片自己格式化成 KB/MB
               byte: media.size,
               src: href,
-              onClick: href
-                ? () => window.open(href, '_blank', 'noopener,noreferrer')
-                : undefined,
+              onClick: preview && media.url
+                ? () => preview.openFile({ url: media.url!, name })
+                : href
+                  ? () => window.open(href, '_blank', 'noopener,noreferrer')
+                  : undefined,
               style: href ? ({ cursor: 'pointer' } as React.CSSProperties) : undefined,
             };
           })}

@@ -10,6 +10,7 @@ import { Button, Dropdown, Select, Space, Tag, Tooltip, Typography } from 'antd'
 import {
   ClearOutlined,
   EllipsisOutlined,
+  FolderOpenOutlined,
   PlusOutlined,
   ReloadOutlined,
   SettingOutlined,
@@ -37,6 +38,8 @@ export const AgentHeader: React.FC<{
   onClear: () => void;
   onCreate: () => void;
   onReconnect: () => void;
+  /** 打开工作台文件浏览面板（仅工作台嵌入时提供） */
+  onOpenFiles?: () => void;
 }> = ({
   title,
   messageCount,
@@ -53,6 +56,7 @@ export const AgentHeader: React.FC<{
   onClear,
   onCreate,
   onReconnect,
+  onOpenFiles,
 }) => {
   const agentOptions = useMemo(
     () =>
@@ -168,6 +172,11 @@ export const AgentHeader: React.FC<{
           placeholder="选择 agent"
           options={agentOptions}
         />
+        {onOpenFiles ? (
+          <Tooltip title="文件浏览">
+            <Button type="text" icon={<FolderOpenOutlined />} onClick={onOpenFiles} />
+          </Tooltip>
+        ) : null}
         {/*
           紧凑形态把「对话参数 / 清空」收进一个更多菜单：
           480px 的面板里，四个按钮并排会顶到换行（顶栏变成两行）。

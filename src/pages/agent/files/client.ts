@@ -121,8 +121,8 @@ function authHeaders(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-/** 解析错误响应：服务端给 {code,message}，解析不出来就用状态码兜底 */
-function toFileError(status: number, body: string): AgentFileError {
+/** 解析错误响应：服务端给 {code,message}，解析不出来就用状态码兜底（工作区接口也复用） */
+export function toFileError(status: number, body: string): AgentFileError {
   let payload: FileErrorData | undefined;
   try {
     payload = JSON.parse(body) as FileErrorData;

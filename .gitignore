@@ -39,3 +39,7 @@ app/mygo.ts
 
 # ASR 模型权重（230MB，本地下载，不进仓库）
 asr/models/
+
+# file-viewer 独立预览服务：官方静态构建本地下载，不进仓库
+services/file-viewer/site/
+services/file-viewer/*.tar.gz

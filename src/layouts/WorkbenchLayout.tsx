@@ -1,5 +1,8 @@
 /**
- * 工作台布局：左右两块 —— 左侧 Agent 助手，右侧原本的后台主界面。
+ * 工作台布局：左中右三块 —— 后台主界面、Agent 助手、文件浏览面板。
+ *
+ * 文件面板（WorkbenchFilePanel）默认收起：点对话里的附件或顶栏文件夹按钮展开，
+ * 里面是 agent 工作区目录树 + file-viewer 独立服务的预览 iframe（只读）。
  *
  * 为什么不用 antd 的 Splitter：这里只要「一条可拖拽的竖向分隔 + 面板能整块收起」，
  * 而 Splitter 会给两侧都套一层 Panel（自己管尺寸与动画），
@@ -11,17 +14,22 @@
  * 本文件按项目约定只导出组件。
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, ConfigProvider, Tooltip } from 'antd';
 import { MenuFoldOutlined, MenuUnfoldOutlined, RobotOutlined } from '@ant-design/icons';
 
 import AgentChatPage from '../pages/agent';
+import { AgentFilePreviewContext } from '../pages/agent/files';
+import type { AgentFilePreviewApi, AgentFilePreviewTarget } from '../pages/agent/files';
 import MainLayout from './MainLayout';
+import WorkbenchFilePanel from './WorkbenchFilePanel';
 import './workbench.css';
 
 /** 用户偏好：左侧 Agent 面板宽度 / 是否收起 */
 const WIDTH_KEY = 'boda_workbench.agent_width';
 const COLLAPSED_KEY = 'boda_workbench.agent_collapsed';
+const FILES_WIDTH_KEY = 'boda_workbench.files_width';
+const FILES_OPEN_KEY = 'boda_workbench.files_open';
 
 /**
  * 右边助手实际占掉的宽度，写到 :root 上供 workbench.css 收窄弹窗遮罩用。
@@ -41,12 +49,23 @@ const DEFAULT_WIDTH = 480;
 const AGENT_MIN_WIDTH = 360;
 /** 右侧后台最小宽度：主界面自带 220px 菜单栏，再窄内容区就没法用了（Dashboard 的卡片会竖排） */
 const MAIN_MIN_WIDTH = 720;
+/** 文件面板默认宽度：目录树 220px + 预览区约 400px，A4 文档不至于缩得太小 */
+const DEFAULT_FILES_WIDTH = 640;
+/** 文件面板最小宽度：再窄预览区就只剩一条缝了 */
+const FILES_MIN_WIDTH = 420;
 
-/** 把宽度收敛到「两侧都还可用」的区间里（窗口变小时不能把后台挤没） */
-function clampWidth(width: number, viewport: number): number {
-  const max = Math.max(AGENT_MIN_WIDTH, viewport - MAIN_MIN_WIDTH);
+/** 把助手宽度收敛到「各栏都还可用」的区间里（extra 是文件面板占掉的宽度） */
+function clampWidth(width: number, viewport: number, extra = 0): number {
+  const max = Math.max(AGENT_MIN_WIDTH, viewport - MAIN_MIN_WIDTH - extra);
   const safe = Number.isFinite(width) ? width : DEFAULT_WIDTH;
   return Math.round(Math.min(Math.max(safe, AGENT_MIN_WIDTH), max));
+}
+
+/** 文件面板宽度收敛：后台与助手（或窄轨）占掉的空间不能再抢 */
+function clampFilesWidth(width: number, viewport: number, agentOccupied: number): number {
+  const max = Math.max(FILES_MIN_WIDTH, viewport - MAIN_MIN_WIDTH - agentOccupied - DIVIDER_WIDTH);
+  const safe = Number.isFinite(width) ? width : DEFAULT_FILES_WIDTH;
+  return Math.round(Math.min(Math.max(safe, FILES_MIN_WIDTH), max));
 }
 
 /** 读上次的宽度：本地存的值可能来自更大的屏幕，先按当前视口收敛一次 */
@@ -69,9 +88,33 @@ function readStoredCollapsed(): boolean {
   }
 }
 
+function readStoredFilesWidth(): number {
+  try {
+    const raw = localStorage.getItem(FILES_WIDTH_KEY);
+    const stored = raw === null ? DEFAULT_FILES_WIDTH : Number(raw);
+    return clampFilesWidth(stored, window.innerWidth, 0);
+  } catch {
+    return clampFilesWidth(DEFAULT_FILES_WIDTH, window.innerWidth, 0);
+  }
+}
+
+function readStoredFilesOpen(): boolean {
+  try {
+    return localStorage.getItem(FILES_OPEN_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
 const WorkbenchLayout: React.FC = () => {
   const [agentWidth, setAgentWidth] = useState<number>(readStoredWidth);
   const [collapsed, setCollapsed] = useState<boolean>(readStoredCollapsed);
+  const [filesOpen, setFilesOpen] = useState<boolean>(readStoredFilesOpen);
+  const [filesWidth, setFilesWidth] = useState<number>(readStoredFilesWidth);
+  /** 对话里点开的附件（每次点击都是新对象，面板据此重新取内容） */
+  const [attachment, setAttachment] = useState<AgentFilePreviewTarget | null>(null);
+  /** 对话当前 agent，文件面板的目录树跟着它走 */
+  const [chatAgent, setChatAgent] = useState('');
 
   // 记住偏好（写失败不影响使用）
   useEffect(() => {
@@ -90,12 +133,31 @@ const WorkbenchLayout: React.FC = () => {
     }
   }, [collapsed]);
 
-  // 窗口变小 / 显示器切换后重新收敛，避免右侧后台被压没
   useEffect(() => {
-    const handleResize = () => setAgentWidth((current) => clampWidth(current, window.innerWidth));
+    try {
+      localStorage.setItem(FILES_WIDTH_KEY, String(filesWidth));
+      localStorage.setItem(FILES_OPEN_KEY, filesOpen ? '1' : '0');
+    } catch {
+      /* 同上 */
+    }
+  }, [filesWidth, filesOpen]);
+
+  // 窗口变小 / 显示器切换后重新收敛，避免后台被压没；挂载时也跑一次，
+  // 把「上次在大屏存的宽度」按当前视口与文件面板占位收敛掉
+  useEffect(() => {
+    const handleResize = () => {
+      const viewport = window.innerWidth;
+      const filesExtra = filesOpen ? filesWidth + DIVIDER_WIDTH : 0;
+      setAgentWidth((current) => clampWidth(current, viewport, filesExtra));
+      if (filesOpen) {
+        const agentOccupied = collapsed ? RAIL_WIDTH : agentWidth + DIVIDER_WIDTH;
+        setFilesWidth((current) => clampFilesWidth(current, viewport, agentOccupied));
+      }
+    };
+    handleResize();
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
-  }, []);
+  }, [filesOpen, filesWidth, collapsed, agentWidth]);
 
   /**
    * 把「助手占掉多宽」广播给全局，让 antd 的弹窗遮罩只盖住左侧后台。
@@ -107,12 +169,47 @@ const WorkbenchLayout: React.FC = () => {
    */
   useEffect(() => {
     const root = document.documentElement;
-    const occupied = collapsed ? RAIL_WIDTH : agentWidth + DIVIDER_WIDTH;
+    const agentOccupied = collapsed ? RAIL_WIDTH : agentWidth + DIVIDER_WIDTH;
+    const occupied = agentOccupied + (filesOpen ? filesWidth + DIVIDER_WIDTH : 0);
     root.style.setProperty(OCCUPIED_VAR, `${occupied}px`);
     return () => {
       root.style.removeProperty(OCCUPIED_VAR);
     };
-  }, [agentWidth, collapsed]);
+  }, [agentWidth, collapsed, filesOpen, filesWidth]);
+
+  /**
+   * 展开文件面板前先腾地方：优先压缩助手宽度，实在放不下就把助手收成窄轨。
+   * 后台的最小宽度始终不让 —— 它是干活的主界面。
+   */
+  const showFiles = useCallback(() => {
+    const viewport = window.innerWidth;
+    const agentOccupied = collapsed ? RAIL_WIDTH : agentWidth + DIVIDER_WIDTH;
+    let nextAgentOccupied = agentOccupied;
+    if (viewport - MAIN_MIN_WIDTH - DIVIDER_WIDTH - agentOccupied < FILES_MIN_WIDTH) {
+      const agentRoom = viewport - MAIN_MIN_WIDTH - DIVIDER_WIDTH - FILES_MIN_WIDTH;
+      if (!collapsed && agentRoom >= AGENT_MIN_WIDTH + DIVIDER_WIDTH) {
+        const narrowed = clampWidth(agentRoom - DIVIDER_WIDTH, viewport);
+        setAgentWidth(narrowed);
+        nextAgentOccupied = narrowed + DIVIDER_WIDTH;
+      } else {
+        setCollapsed(true);
+        nextAgentOccupied = RAIL_WIDTH;
+      }
+    }
+    setFilesWidth((current) => clampFilesWidth(current, viewport, nextAgentOccupied));
+    setFilesOpen(true);
+  }, [collapsed, agentWidth]);
+
+  /** 对话附件点击入口：记下目标并展开面板（经 AgentFilePreviewContext 下发） */
+  const openFile = useCallback(
+    (target: AgentFilePreviewTarget) => {
+      setAttachment({ ...target });
+      showFiles();
+    },
+    [showFiles],
+  );
+
+  const previewApi = useMemo<AgentFilePreviewApi>(() => ({ openFile }), [openFile]);
 
   /**
    * 拖拽分隔条调宽度。
@@ -130,7 +227,8 @@ const WorkbenchLayout: React.FC = () => {
 
       const handleMove = (moveEvent: PointerEvent) => {
         // 分隔条在助手左边：指针往左拖（delta 为负）才是变宽，所以取反
-        setAgentWidth(clampWidth(startWidth - (moveEvent.clientX - startX), window.innerWidth));
+        const filesExtra = filesOpen ? filesWidth + DIVIDER_WIDTH : 0;
+        setAgentWidth(clampWidth(startWidth - (moveEvent.clientX - startX), window.innerWidth, filesExtra));
       };
       const handleUp = () => {
         window.removeEventListener('pointermove', handleMove);
@@ -144,13 +242,56 @@ const WorkbenchLayout: React.FC = () => {
       window.addEventListener('pointercancel', handleUp);
       document.body.classList.add('workbench-resizing');
     },
-    [agentWidth],
+    [agentWidth, filesOpen, filesWidth],
   );
 
   /** 双击分隔条：宽度回到默认值 */
   const handleResetWidth = useCallback(() => {
-    setAgentWidth(clampWidth(DEFAULT_WIDTH, window.innerWidth));
-  }, []);
+    const filesExtra = filesOpen ? filesWidth + DIVIDER_WIDTH : 0;
+    setAgentWidth(clampWidth(DEFAULT_WIDTH, window.innerWidth, filesExtra));
+  }, [filesOpen, filesWidth]);
+
+  /** 文件面板分隔条：与助手同一套拖拽逻辑，只是收敛时让位的对象换成助手 */
+  const handleFilesDragStart = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+
+      const startX = event.clientX;
+      const startWidth = filesWidth;
+      const agentOccupied = collapsed ? RAIL_WIDTH : agentWidth + DIVIDER_WIDTH;
+
+      const handleMove = (moveEvent: PointerEvent) => {
+        setFilesWidth(
+          clampFilesWidth(startWidth - (moveEvent.clientX - startX), window.innerWidth, agentOccupied),
+        );
+      };
+      const handleUp = () => {
+        window.removeEventListener('pointermove', handleMove);
+        window.removeEventListener('pointerup', handleUp);
+        window.removeEventListener('pointercancel', handleUp);
+        document.body.classList.remove('workbench-resizing');
+      };
+
+      window.addEventListener('pointermove', handleMove);
+      window.addEventListener('pointerup', handleUp);
+      window.addEventListener('pointercancel', handleUp);
+      document.body.classList.add('workbench-resizing');
+    },
+    [filesWidth, collapsed, agentWidth],
+  );
+
+  const handleResetFilesWidth = useCallback(() => {
+    const agentOccupied = collapsed ? RAIL_WIDTH : agentWidth + DIVIDER_WIDTH;
+    setFilesWidth(clampFilesWidth(DEFAULT_FILES_WIDTH, window.innerWidth, agentOccupied));
+  }, [collapsed, agentWidth]);
+
+  /** 窄轨展开助手：文件面板开着时要把它的占位也算进收敛 */
+  const handleExpandAgent = useCallback(() => {
+    setCollapsed(false);
+    const filesExtra = filesOpen ? filesWidth + DIVIDER_WIDTH : 0;
+    setAgentWidth((current) => clampWidth(current, window.innerWidth, filesExtra));
+  }, [filesOpen, filesWidth]);
 
   return (
     /*
@@ -165,59 +306,82 @@ const WorkbenchLayout: React.FC = () => {
      * 只包在工作台里：/app、/agent、登录页的弹窗保持 antd 默认。
      */
     <ConfigProvider modal={{ focusable: { trap: false } }}>
-      {/* 主界面在左、助手在右；助手收起时只留一条 44px 窄轨（图标 + 竖排文字），点一下展开 */}
-      <div className="workbench">
-        <div className="workbench-main">
-          <MainLayout />
-        </div>
+      {/* 主界面在左、助手居中、文件浏览在右；助手收起时只留一条 44px 窄轨 */}
+      <AgentFilePreviewContext.Provider value={previewApi}>
+        <div className="workbench">
+          <div className="workbench-main">
+            <MainLayout />
+          </div>
 
-        {/* 分隔条在助手左边：向右收、向左扩 */}
-        {collapsed ? null : (
+          {/* 分隔条在助手左边：向右收、向左扩 */}
+          {collapsed ? null : (
+            <div
+              className="workbench-divider"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="拖动调整助手面板宽度"
+              onPointerDown={handleDragStart}
+              onDoubleClick={handleResetWidth}
+            >
+              <Tooltip title="收起助手" placement="left">
+                {/* 收起按钮放在分隔条上：这里已经有「向右收」的视觉语义，不必再占顶栏位置。
+                    pointerdown 必须拦住，否则按一下就变成开始拖拽。 */}
+                <button
+                  type="button"
+                  className="workbench-divider-handle"
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onClick={() => setCollapsed(true)}
+                >
+                  <MenuUnfoldOutlined />
+                </button>
+              </Tooltip>
+            </div>
+          )}
+
+          {/*
+            收起时用 display:none 而不是卸载组件：AgentChatPage 一旦卸载，ws 连接会断、
+            正在生成的回答和会话列表都会丢，展开后又得重连重拉。
+          */}
           <div
-            className="workbench-divider"
-            role="separator"
-            aria-orientation="vertical"
-            aria-label="拖动调整助手面板宽度"
-            onPointerDown={handleDragStart}
-            onDoubleClick={handleResetWidth}
+            className={`workbench-agent${collapsed ? ' workbench-agent-hidden' : ''}`}
+            style={{ width: agentWidth }}
           >
-            <Tooltip title="收起助手" placement="left">
-              {/* 收起按钮放在分隔条上：这里已经有「向右收」的视觉语义，不必再占顶栏位置。
-                  pointerdown 必须拦住，否则按一下就变成开始拖拽。 */}
-              <button
-                type="button"
-                className="workbench-divider-handle"
-                onPointerDown={(event) => event.stopPropagation()}
-                onClick={() => setCollapsed(true)}
-              >
-                <MenuUnfoldOutlined />
-              </button>
-            </Tooltip>
+            <AgentChatPage embedded onOpenFiles={showFiles} onAgentChange={setChatAgent} />
           </div>
-        )}
 
-        {/*
-          收起时用 display:none 而不是卸载组件：AgentChatPage 一旦卸载，ws 连接会断、
-          正在生成的回答和会话列表都会丢，展开后又得重连重拉。
-        */}
-        <div
-          className={`workbench-agent${collapsed ? ' workbench-agent-hidden' : ''}`}
-          style={{ width: agentWidth }}
-        >
-          <AgentChatPage embedded />
+          {collapsed ? (
+            <div className="workbench-rail">
+              <Tooltip title="展开智能助手" placement="left">
+                <Button type="text" icon={<MenuFoldOutlined />} onClick={handleExpandAgent} />
+              </Tooltip>
+              <RobotOutlined className="workbench-rail-icon" />
+              {/* 竖排文字：图标不能塞进这段里（writing-mode 会把它一起转成竖的） */}
+              <span className="workbench-rail-text">智能助手</span>
+            </div>
+          ) : null}
+
+          {/* 文件面板：关闭即卸载（iframe/渲染引擎跟着释放），预览目标留在本层，重开接着看 */}
+          {filesOpen ? (
+            <>
+              <div
+                className="workbench-divider"
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="拖动调整文件面板宽度"
+                onPointerDown={handleFilesDragStart}
+                onDoubleClick={handleResetFilesWidth}
+              />
+              <div className="workbench-files" style={{ width: filesWidth }}>
+                <WorkbenchFilePanel
+                  agent={chatAgent}
+                  attachment={attachment}
+                  onClose={() => setFilesOpen(false)}
+                />
+              </div>
+            </>
+          ) : null}
         </div>
-
-        {collapsed ? (
-          <div className="workbench-rail">
-            <Tooltip title="展开智能助手" placement="left">
-              <Button type="text" icon={<MenuFoldOutlined />} onClick={() => setCollapsed(false)} />
-            </Tooltip>
-            <RobotOutlined className="workbench-rail-icon" />
-            {/* 竖排文字：图标不能塞进这段里（writing-mode 会把它一起转成竖的） */}
-            <span className="workbench-rail-text">智能助手</span>
-          </div>
-        ) : null}
-      </div>
+      </AgentFilePreviewContext.Provider>
     </ConfigProvider>
   );
 };

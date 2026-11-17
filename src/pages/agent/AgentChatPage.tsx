@@ -18,7 +18,7 @@ import { formatFileSize } from '@/utils';
 import type { AgentAssistantContent, AgentComposerApi, AgentConnectionStatus } from './types';
 import { assistantContentOf, hasRenderableContent, timelineOf } from './types';
 import { AGENT_MAX_AUTO_RETRY } from './constants';
-import { resolveAgentFileUrl } from './files';
+import { resolveAgentFileUrl, useAgentFilePreview } from './files';
 import { useAgentChat } from './chat/use-agent-chat';
 import { AgentAnswer } from './components/AgentAnswer';
 import { AgentApprovalModal } from './components/AgentApproval';
@@ -133,11 +133,21 @@ const AgentConnectionBanner: React.FC<{
  */
 type AgentChatPageProps = {
   embedded?: boolean;
+  /** 工作台文件面板入口（顶栏文件夹按钮）；不传则不显示 */
+  onOpenFiles?: () => void;
+  /** 当前 agent 变化时上报（工作台文件面板跟随切换目录树） */
+  onAgentChange?: (agent: string) => void;
 };
 
-const AgentChatPage: React.FC<AgentChatPageProps> = ({ embedded = false }) => {
+const AgentChatPage: React.FC<AgentChatPageProps> = ({ embedded = false, onOpenFiles, onAgentChange }) => {
   const chat = useAgentChat();
   const { message, modal } = AntdApp.useApp();
+  // 工作台挂了文件面板时，上行附件也在面板里预览（独立 /agent 保持新窗口）
+  const preview = useAgentFilePreview();
+
+  useEffect(() => {
+    onAgentChange?.(chat.agent);
+  }, [chat.agent, onAgentChange]);
 
   const [settingsOpen, setSettingsOpen] = useState(false);
   /** 欢迎页快捷指令点选 → 填充输入框（不直接发送），给用户留出修改措辞的余地 */
@@ -230,6 +240,14 @@ const AgentChatPage: React.FC<AgentChatPageProps> = ({ embedded = false }) => {
                         href={href}
                         target="_blank"
                         rel="noopener noreferrer"
+                        onClick={
+                          preview && file.url
+                            ? (event) => {
+                                event.preventDefault();
+                                preview.openFile({ url: file.url!, name: file.name });
+                              }
+                            : undefined
+                        }
                       >
                         {file.name}
                       </a>
@@ -266,7 +284,7 @@ const AgentChatPage: React.FC<AgentChatPageProps> = ({ embedded = false }) => {
 
         return base;
       }),
-    [messages, replayTurn],
+    [messages, replayTurn, preview],
   );
 
   const confirmClear = useCallback(() => {
@@ -319,6 +337,7 @@ const AgentChatPage: React.FC<AgentChatPageProps> = ({ embedded = false }) => {
           onClear={confirmClear}
           onCreate={chat.createConversation}
           onReconnect={chat.reconnect}
+          onOpenFiles={onOpenFiles}
         />
 
         <div className="agent-body">

@@ -16,3 +16,14 @@ export {
   uploadAgentFile,
 } from './client';
 export type { UploadOptions } from './client';
+export {
+  agentWorkspaceBaseUrl,
+  fetchWorkspaceFile,
+  listWorkspaceAgents,
+  listWorkspaceDir,
+  workspaceFileUrl,
+} from './workspace';
+export type { WorkspaceAgent, WorkspaceDir, WorkspaceEntry, WorkspaceRoot } from './workspace';
+export { AgentFilePreviewContext, useAgentFilePreview } from './preview';
+export type { AgentFilePreviewApi, AgentFilePreviewTarget } from './preview';
+export { fileViewerBaseUrl, fileViewerFrameUrl, fileViewerOrigin } from './viewer';

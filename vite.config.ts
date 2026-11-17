@@ -77,6 +77,13 @@ export default defineConfig(({ mode }) => {
    */
   const asrTarget = env.VITE_ASR_TARGET || 'http://127.0.0.1:9383'
 
+  /*
+   * file-viewer 独立预览服务（官方零依赖 iframe 静态站）。
+   * npm run file-viewer:setup 安装、npm run file-viewer:serve 起在 8090；
+   * 这里代理成同源 /file-viewer，iframe 与主页面同源，postMessage 不受跨域限制。
+   */
+  const fileViewerTarget = env.VITE_FILE_VIEWER_TARGET || 'http://127.0.0.1:8090'
+
   return {
     plugins: [react(), menuDescriptionsPlugin()],
     resolve: {
@@ -96,6 +103,17 @@ export default defineConfig(({ mode }) => {
         '/ws/files': {
           target: agentTarget,
           changeOrigin: true,
+        },
+        // Agent 工作区目录浏览（只读）：与附件同一个后端
+        '/ws/agents': {
+          target: agentTarget,
+          changeOrigin: true,
+        },
+        // file-viewer 预览服务：站点挂在根路径，这里剥掉 /file-viewer 前缀
+        '/file-viewer': {
+          target: fileViewerTarget,
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/file-viewer/, ''),
         },
         // 语音识别：前端 POST /asr，转发到本地 ASR 容器
         '/asr': {
