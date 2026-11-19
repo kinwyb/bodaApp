@@ -1,6 +1,18 @@
 import React from 'react';
-import ViewPage from './ViewPage';
 import type { ViewComponent } from './types';
+
+/**
+ * 通用列表页：没单独实现页面的菜单都落到这里。
+ *
+ * 懒加载。它静态 import 了 GridTable，那串组件代码只在用户真点进「没单独实现的菜单」时
+ * 才需要 —— 挂在首屏纯属浪费模块求值。页面本来就在 MainLayout 的 Suspense 里渲染，
+ * 所以改 lazy 不需要额外加 fallback。
+ *
+ * 注：vtable 那 2.9MB 仍在首屏、这里省不掉 —— 界面桥（`agent/ui-bridge/table.ts`）
+ * 静态依赖 `columnBuilder` 读表结构，那条链才是它进首屏的原因。别指望靠这行 lazy
+ * 把 vtable 摘出去（试过把 tag 布局改成注册制，代价是隐式时序约定，已回退）。
+ */
+const ViewPage = React.lazy(() => import('./ViewPage'));
 
 /**
  * 页面按 View 层级建目录，注册全自动：
