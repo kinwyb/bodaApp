@@ -127,7 +127,11 @@ export function createMockTransport(): AgentTransport {
       if (eventId) envelope.eventID = eventId;
       chunk += 1;
       mapAgentEnvelope(envelope, payload.conversationId).forEach(emit);
-      mapEnvelopeAttachments(envelope, payload.conversationId).forEach(emit);
+      mapEnvelopeAttachments(envelope, payload.conversationId, {
+        origin: 'live',
+        includeSendFile: true,
+        includeUserMedia: false,
+      }).forEach(emit);
     };
 
     // 模拟一次握手后的首帧延迟

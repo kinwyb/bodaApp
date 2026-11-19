@@ -88,12 +88,13 @@ export type {
   TurnReplayResult,
 } from './payloads';
 
-export type { AgentEventHandler, AgentStreamEvent } from './events';
+export type { AgentEventHandler, AgentMediaOrigin, AgentStreamEvent } from './events';
 
 export * from './uplink';
 export {
   mapAgentEnvelope,
   mapEnvelopeAttachments,
+  mediaKeyOf,
   parseAck,
   parseAgentSkills,
   parseError,

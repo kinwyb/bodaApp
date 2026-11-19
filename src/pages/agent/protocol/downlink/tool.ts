@@ -9,6 +9,7 @@ import type { AgentEventHandler, AgentStreamEvent } from '../events';
 import { AGENT_EVENT, clip } from '../envelope';
 import type { AgentToolCall } from '../payloads';
 import type { AgentStepStatus, AgentToolStep } from '../../types';
+import { SEND_FILE_TOOL, sendFileMediaOf } from './attachments';
 
 /** 后端 ToolCall.type 的 MCP 取值（core/types/message.go 的 ToolTypeMCP） */
 const TOOL_TYPE_MCP = 'mcp';
@@ -49,7 +50,14 @@ export const mapToolEvent: AgentEventHandler = (name, data, conversationId) => {
   if (calls.length === 0) return [];
 
   const status: AgentStepStatus = name === AGENT_EVENT.toolStart ? 'loading' : 'success';
-  return calls.map(
+  return calls
+    .filter((call) => {
+      if (call.name !== SEND_FILE_TOOL) return true;
+      // 成功的 send_file 已经由 attachments 映射成文件卡片；失败或还原不出文件时保留步骤。
+      if (call.extra?.status === 'error' || call.extra?.success === false) return true;
+      return Boolean(data.media?.length) || !sendFileMediaOf(call);
+    })
+    .map(
     (call, index): AgentStreamEvent => ({
       type: 'tool',
       conversationId,

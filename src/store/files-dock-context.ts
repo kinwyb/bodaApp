@@ -13,6 +13,12 @@
 import { createContext, useContext } from 'react';
 import type { AgentFilePreviewTarget } from '../pages/agent/files';
 
+export type AgentFilePreviewRequest = {
+  id: number;
+  targets: AgentFilePreviewTarget[];
+  activateFirst: boolean;
+};
+
 /** 一个预览页签；blob 异步到达，未到之前页签内显示加载态 */
 export type FileTab = {
   key: string;
@@ -27,8 +33,10 @@ export type FileTab = {
 export type FilesDockState = {
   /** 对话当前 agent（目录树跟随）；无工作台上下文时为空串 */
   agent: string;
-  /** 对话里点开的附件 */
-  attachment: AgentFilePreviewTarget | null;
+  /** 对话里点开/自动打开的附件批次 */
+  previewRequests: AgentFilePreviewRequest[];
+  /** 面板处理完一批后回执，避免重复开页签 */
+  ackPreviewRequests: (ids: number[]) => void;
   /** 是否停靠在右栏 */
   docked: boolean;
   /** 是否提供停靠能力（仅工作台） */
@@ -44,7 +52,8 @@ const noop = () => {};
 
 export const FilesDockContext = createContext<FilesDockState>({
   agent: '',
-  attachment: null,
+  previewRequests: [],
+  ackPreviewRequests: noop,
   docked: false,
   canDock: false,
   setDocked: noop,

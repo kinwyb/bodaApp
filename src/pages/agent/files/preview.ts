@@ -13,10 +13,16 @@ export type AgentFilePreviewTarget = {
   /** 后端给的原始地址（/ws/files/<id> 相对地址或绝对地址），由面板负责解析与取内容 */
   url: string;
   name?: string;
+  /** 稳定媒体 key：同一文件多次到达时复用同一个页签 */
+  key?: string;
 };
 
 export type AgentFilePreviewApi = {
   openFile: (target: AgentFilePreviewTarget) => void;
+  openFiles: (
+    targets: AgentFilePreviewTarget[],
+    options?: { activateFirst?: boolean },
+  ) => void;
 };
 
 export const AgentFilePreviewContext = createContext<AgentFilePreviewApi | null>(null);

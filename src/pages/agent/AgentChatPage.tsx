@@ -15,10 +15,21 @@ import type { BubbleItemType } from '@ant-design/x';
 import { PaperClipOutlined, ReloadOutlined, RobotOutlined, UserOutlined } from '@ant-design/icons';
 
 import { formatFileSize } from '@/utils';
-import type { AgentAssistantContent, AgentComposerApi, AgentConnectionStatus } from './types';
+import type {
+  AgentAssistantContent,
+  AgentComposerApi,
+  AgentConnectionStatus,
+  AgentMedia,
+} from './types';
 import { assistantContentOf, hasRenderableContent, timelineOf } from './types';
 import { AGENT_MAX_AUTO_RETRY } from './constants';
-import { resolveAgentFileUrl, useAgentFilePreview, workspaceFileUrl } from './files';
+import {
+  resolveAgentFileUrl,
+  useAgentFilePreview,
+  workspaceFileUrl,
+} from './files';
+import type { AgentFilePreviewTarget } from './files';
+import { mediaKeyOf } from './protocol';
 import { useAgentChat } from './chat/use-agent-chat';
 import { AgentAnswer } from './components/AgentAnswer';
 import { AgentApprovalModal } from './components/AgentApproval';
@@ -34,6 +45,13 @@ const ASSISTANT_AVATAR = (
   <Avatar className="agent-avatar agent-avatar-ai" icon={<RobotOutlined />} size={32} />
 );
 const USER_AVATAR = <Avatar className="agent-avatar agent-avatar-user" icon={<UserOutlined />} size={32} />;
+
+function fileNameOf(url?: string): string | undefined {
+  if (!url) return undefined;
+  const clean = url.split('?')[0];
+  const name = clean.slice(clean.lastIndexOf('/') + 1);
+  return name || undefined;
+}
 
 /**
  * 气泡角色配置：工厂 + useMemo 保证引用稳定（每次渲染重建会重置打字动画）。
@@ -140,10 +158,59 @@ type AgentChatPageProps = {
 };
 
 const AgentChatPage: React.FC<AgentChatPageProps> = ({ embedded = false, onOpenFiles, onAgentChange }) => {
-  const chat = useAgentChat();
   const { message, modal } = AntdApp.useApp();
   // 工作台挂了文件面板时，上行附件也在面板里预览（独立 /agent 保持新窗口）
   const preview = useAgentFilePreview();
+  /** 本轮是否已自动激活过文件页签 */
+  const autoPreviewActivatedRef = useRef(false);
+  /** 本轮已自动打开过的媒体 key，避免同一文件多帧重复开 tab */
+  const autoPreviewSeenRef = useRef(new Set<string>());
+
+  const handleLiveMedia = useCallback(
+    (media: AgentMedia[], _conversationId: string, agentName?: string) => {
+      if (!preview) return;
+
+      const targets: AgentFilePreviewTarget[] = [];
+      const seen = autoPreviewSeenRef.current;
+      for (const item of media) {
+        const key = mediaKeyOf(item);
+        const filePath = typeof item.metadata?.filePath === 'string' ? item.metadata.filePath : '';
+        const fileAgent =
+          typeof item.metadata?.agent === 'string' ? item.metadata.agent : agentName ?? '';
+        const url =
+          item.url ??
+          (filePath && fileAgent ? workspaceFileUrl(fileAgent, filePath) : undefined);
+        if (!url) continue;
+
+        const name = item.name || fileNameOf(item.url) || fileNameOf(filePath) || '附件';
+        const nameKey = `name:${name}`;
+        if (seen.has(key) || seen.has(nameKey)) continue;
+        seen.add(key);
+        seen.add(nameKey);
+        targets.push({ url, name, key });
+      }
+      if (targets.length === 0) return;
+
+      const activateFirst = !autoPreviewActivatedRef.current;
+      autoPreviewActivatedRef.current = true;
+      preview.openFiles(targets, { activateFirst });
+    },
+    [preview],
+  );
+
+  const chat = useAgentChat({ onLiveMedia: handleLiveMedia });
+
+  // 一轮结束或切换会话后，下一批文件重新从「激活第一个」开始。
+  useEffect(() => {
+    if (chat.streaming) return;
+    autoPreviewActivatedRef.current = false;
+    autoPreviewSeenRef.current.clear();
+  }, [chat.streaming]);
+
+  useEffect(() => {
+    autoPreviewActivatedRef.current = false;
+    autoPreviewSeenRef.current.clear();
+  }, [chat.activeKey]);
 
   useEffect(() => {
     onAgentChange?.(chat.agent);

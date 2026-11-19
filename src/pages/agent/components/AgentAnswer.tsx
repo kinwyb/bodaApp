@@ -8,7 +8,8 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Alert } from 'antd';
+import { Alert, Button } from 'antd';
+import { EyeOutlined, FileImageOutlined } from '@ant-design/icons';
 import { FileCard, Sources, Think } from '@ant-design/x';
 import XMarkdown from '@ant-design/x-markdown';
 import type {
@@ -20,6 +21,8 @@ import type {
 } from '../types';
 import { timelineOf } from '../types';
 import { resolveAgentFileUrl, useAgentFilePreview, workspaceFileUrl } from '../files';
+import type { AgentFilePreviewApi } from '../files';
+import { mediaKeyOf } from '../protocol';
 import { AgentApprovalCard } from './AgentApproval';
 import { AgentStepChain } from './AgentStepChain';
 import { AgentUserInputCard } from './AgentUserInput';
@@ -46,6 +49,8 @@ function fileCardType(type?: string): 'file' | 'image' | 'audio' | 'video' | und
       return undefined;
   }
 }
+
+const IMAGE_NAME = /\.(png|jpe?g|gif|bmp|webp|svg|ico|heic)$/i;
 
 /*
  * XMarkdown 是 React.memo 的，但 streaming 每次渲染新建对象就会让 memo 失效：
@@ -138,6 +143,68 @@ const AgentReasoning: React.FC<{
   );
 };
 
+/**
+ * 图片 media 的展示卡片。
+ *
+ * FileCard 的 image 分支只渲染图片本身，不渲染 name/description，也不会接 onClick，
+ * 用户看不出这是文件。这里保留图片预览，同时固定显示文件名与“预览”入口。
+ */
+const AgentMediaImage: React.FC<{
+  href?: string;
+  openUrl?: string;
+  name: string;
+  mediaKey: string;
+  preview: AgentFilePreviewApi | null;
+}> = ({ href, openUrl, name, mediaKey, preview }) => {
+  const [failed, setFailed] = useState(false);
+
+  const open = () => {
+    if (preview && openUrl) {
+      preview.openFile({ url: openUrl, name, key: mediaKey });
+      return;
+    }
+    const target = href ?? openUrl;
+    if (target) window.open(target, '_blank', 'noopener,noreferrer');
+  };
+
+  if (!href || failed) {
+    return (
+      <div className="agent-media-image agent-media-image-fallback">
+        <FileImageOutlined className="agent-media-image-fallback-icon" />
+        <span className="agent-media-image-name" title={name}>
+          {name}
+        </span>
+        {href || openUrl ? (
+          <Button size="small" type="text" icon={<EyeOutlined />} onClick={open}>
+            打开
+          </Button>
+        ) : null}
+      </div>
+    );
+  }
+
+  return (
+    <figure className="agent-media-image">
+      <button
+        type="button"
+        className="agent-media-image-preview"
+        aria-label={`预览 ${name}`}
+        onClick={open}
+      >
+        <img src={href} alt={name} loading="lazy" onError={() => setFailed(true)} />
+      </button>
+      <figcaption className="agent-media-image-meta">
+        <span className="agent-media-image-name" title={name}>
+          {name}
+        </span>
+        <Button size="small" type="text" icon={<EyeOutlined />} onClick={open}>
+          预览
+        </Button>
+      </figcaption>
+    </figure>
+  );
+};
+
 export const AgentAnswer: React.FC<{
   content: AgentAssistantContent;
   streaming: boolean;
@@ -151,6 +218,40 @@ export const AgentAnswer: React.FC<{
   const blocks = blocksOf(timelineOf(content));
   // 工作台挂了文件面板时附件在面板里预览；独立 /agent 路由没有 Provider，保持新窗口
   const preview = useAgentFilePreview();
+  const mediaItems = (content.media ?? []).map((media, index) => {
+    const filePath = typeof media.metadata?.filePath === 'string' ? media.metadata.filePath : '';
+    const fileAgent = typeof media.metadata?.agent === 'string' ? media.metadata.agent : '';
+    const href =
+      resolveAgentFileUrl(media.url) ??
+      (filePath && fileAgent ? workspaceFileUrl(fileAgent, filePath) : undefined);
+    // 交给面板的地址：实时用原始相对地址（面板负责补 token / download），
+    // 历史没有相对地址，直接用解析好的工作区 URL
+    const openUrl = media.url ?? href;
+    const name =
+      media.name || fileNameOf(media.url) || fileNameOf(filePath) || `附件 ${index + 1}`;
+    const type = href
+      ? (fileCardType(media.type) ?? (IMAGE_NAME.test(name) ? 'image' : 'file'))
+      : 'file';
+    const mediaKey = mediaKeyOf(media);
+    return {
+      key: `${mediaKey}-${index}`,
+      mediaKey,
+      href,
+      openUrl,
+      name,
+      type,
+      byte: media.size,
+      onClick:
+        preview && openUrl
+          ? () => preview.openFile({ url: openUrl, name, key: mediaKey })
+          : href
+            ? () => window.open(href, '_blank', 'noopener,noreferrer')
+            : undefined,
+      style: href ? ({ cursor: 'pointer' } as React.CSSProperties) : undefined,
+    };
+  });
+  const imageMedia = mediaItems.filter((item) => item.type === 'image');
+  const fileMedia = mediaItems.filter((item) => item.type !== 'image');
 
   return (
     <div className="agent-answer">
@@ -199,46 +300,35 @@ export const AgentAnswer: React.FC<{
         );
       })}
 
-      {content.media && content.media.length > 0 ? (
+      {imageMedia.length > 0 ? (
+        <div className="agent-media-images">
+          {imageMedia.map((item) => (
+            <AgentMediaImage
+              key={item.key}
+              href={item.href}
+              openUrl={item.openUrl}
+              name={item.name}
+              mediaKey={item.mediaKey}
+              preview={preview}
+            />
+          ))}
+        </div>
+      ) : null}
+
+      {fileMedia.length > 0 ? (
         <FileCard.List
           className="agent-media"
           size="small"
           overflow="wrap"
-          items={content.media.map((media, index) => {
-            /*
-             * 下行附件由服务端登记在文件服务里，media.url 是相对地址（/ws/files/<id>），
-             * 必须补上 host 与 token 才能被 <img> / 新窗口直接用。
-             * 不加 ?download=1：让服务端按 MIME 决定内联还是下载（图片/PDF 直接看，
-             * 其余类型它本来就会带 attachment 头）。
-             */
-            // 历史 send_file 没有 fileID 地址，只有入参的容器路径 + agent：换成工作区
-            // 文件 URL 并入 href，之后与实时附件走同一条 FileCard / 预览面板链路
-            const filePath = typeof media.metadata?.filePath === 'string' ? media.metadata.filePath : '';
-            const fileAgent = typeof media.metadata?.agent === 'string' ? media.metadata.agent : '';
-            const href =
-              resolveAgentFileUrl(media.url) ??
-              (filePath && fileAgent ? workspaceFileUrl(fileAgent, filePath) : undefined);
-            // 交给面板的地址：实时用原始相对地址（面板负责补 token / download），
-            // 历史没有相对地址，直接用解析好的工作区 URL
-            const openUrl = media.url ?? href;
-            const name =
-              media.name || fileNameOf(media.url) || fileNameOf(filePath) || `附件 ${index + 1}`;
-            return {
-              key: `${media.url ?? media.name ?? 'media'}-${index}`,
-              name,
-              // 无地址（老数据缺 agent）时不做 image/video/audio 预览，退化为图标+文件名避免破图
-              type: href ? fileCardType(media.type) : 'file',
-              // byte 是字节数，卡片自己格式化成 KB/MB
-              byte: media.size,
-              src: href,
-              onClick: preview && openUrl
-                ? () => preview.openFile({ url: openUrl, name })
-                : href
-                  ? () => window.open(href, '_blank', 'noopener,noreferrer')
-                  : undefined,
-              style: href ? ({ cursor: 'pointer' } as React.CSSProperties) : undefined,
-            };
-          })}
+          items={fileMedia.map((item) => ({
+            key: item.key,
+            name: item.name,
+            type: item.type,
+            byte: item.byte,
+            src: item.href,
+            onClick: item.onClick,
+            style: item.style,
+          }))}
         />
       ) : null}
 

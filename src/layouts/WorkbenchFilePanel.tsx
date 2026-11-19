@@ -180,7 +180,8 @@ const WorkbenchFilePanel: React.FC<{
   // props 传值会让异步到达的附件/_blob 更新不进子树，context 能穿透缓存
   const {
     agent,
-    attachment,
+    previewRequests,
+    ackPreviewRequests,
     docked,
     canDock,
     setDocked,
@@ -299,31 +300,57 @@ const WorkbenchFilePanel: React.FC<{
     [],
   );
 
-  // 对话附件：父层每次点击都给新对象；同一附件重复点只激活已有页签
+  // 对话附件：一批文件按顺序开页签；只有批内第一个可预览文件激活。
   useEffect(() => {
-    if (!attachment) return;
-    const resolved = resolveAgentFileUrl(attachment.url);
+    if (previewRequests.length === 0) return;
     const handle = tabsRef.current;
-    if (!resolved || !handle) return;
-    const key = `att:${attachment.url}`;
-    const name = attachment.name || resolved.split('?')[0].split('/').pop() || '附件';
-    if (handle.getTabs().some((tab) => tab.key === key)) handle.setActive(key);
-    else handle.openTab({ key, name });
-    loadIntoTab(
-      key,
-      async () => {
-        const response = await fetch(resolved);
-        if (!response.ok) {
-          throw new AgentFileError(`文件服务返回 ${response.status}`, `http_${response.status}`);
+    if (!handle) return;
+
+    const done: number[] = [];
+    for (const request of previewRequests) {
+      let activated = false;
+      const opened = new Set<string>();
+
+      for (const target of request.targets) {
+        const resolved = resolveAgentFileUrl(target.url);
+        if (!resolved) continue;
+
+        const key = target.key ? `att:${target.key}` : `att:${target.url}`;
+        if (opened.has(key)) continue;
+        opened.add(key);
+
+        const name = target.name || resolved.split('?')[0].split('/').pop() || '附件';
+        // 即使用户已手动关掉所有页签，新到文件也至少要有一个可见的激活页。
+        const shouldActivate =
+          !activated && (request.activateFirst || handle.getTabs().length === 0);
+        const exists = handle.getTabs().some((tab) => tab.key === key);
+        if (exists) {
+          if (shouldActivate) handle.setActive(key);
+        } else {
+          handle.openTab({ key, name }, { activate: shouldActivate });
         }
-        return {
-          blob: await response.blob(),
-          downloadUrl: resolveAgentFileUrl(attachment.url, { download: true }),
-        };
-      },
-      resolved,
-    );
-  }, [attachment, loadIntoTab]);
+        if (shouldActivate) activated = true;
+
+        loadIntoTab(
+          key,
+          async () => {
+            const response = await fetch(resolved);
+            if (!response.ok) {
+              throw new AgentFileError(`文件服务返回 ${response.status}`, `http_${response.status}`);
+            }
+            return {
+              blob: await response.blob(),
+              downloadUrl: resolveAgentFileUrl(target.url, { download: true }),
+            };
+          },
+          resolved,
+        );
+      }
+      done.push(request.id);
+    }
+
+    ackPreviewRequests(done);
+  }, [previewRequests, ackPreviewRequests, loadIntoTab]);
 
   /** 目录树懒加载 */
   const loadTreeData = useCallback(async (node: FileTreeNode) => {

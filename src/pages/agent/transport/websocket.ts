@@ -496,7 +496,11 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
       const conversationId = conversationIdOf(envelope.sessionID, sessions, identity);
       if (!conversationId) return;
       mapAgentEnvelope(envelope, conversationId).forEach(emit);
-      mapEnvelopeAttachments(envelope, conversationId).forEach(emit);
+      mapEnvelopeAttachments(envelope, conversationId, {
+        origin: 'live',
+        includeSendFile: true,
+        includeUserMedia: false,
+      }).forEach(emit);
     }
     // 未知 kind（cron / notice / 后续扩展）按协议忽略
   };

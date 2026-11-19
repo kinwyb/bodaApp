@@ -15,6 +15,9 @@ import type {
   AgentUserInput,
 } from '../types';
 
+/** 媒体来源：实时帧 / 历史重建。自动预览只接受 live。 */
+export type AgentMediaOrigin = 'live' | 'history';
+
 export type AgentStreamEvent =
   /** 一条回答开始（message_start） */
   | { type: 'reply-start'; conversationId: string }
@@ -57,7 +60,7 @@ export type AgentStreamEvent =
    * requestId 匹配审批或提问，把仍是 pending 的那条置为 expired。
    */
   | { type: 'request-resolved'; conversationId: string; requestId: string }
-  | { type: 'media'; conversationId: string; media: AgentMedia[] }
+  | { type: 'media'; conversationId: string; media: AgentMedia[]; origin: AgentMediaOrigin }
   | { type: 'sources'; conversationId: string; sources: AgentSource[] }
   /**
    * token 用量更新（token_usage 帧）。

@@ -5,10 +5,12 @@
  * 与正文事件同帧到达，这里单独抽成事件，界面分别用 FileCard.List / Sources 渲染。
  */
 
-import type { AgentStreamEvent } from '../events';
+import type { AgentMediaOrigin, AgentStreamEvent } from '../events';
 import type { AgentEnvelope } from '../envelope';
 import type { AgentEventData, AgentToolCall } from '../payloads';
 import type { AgentMedia, AgentSource } from '../../types';
+
+const TOOL_COMPLETED_EVENT = 'tool_completed';
 
 /** meta.sources 宽松解析：字段不全的条目直接跳过 */
 export function readSources(meta: Record<string, unknown> | undefined): AgentSource[] {
@@ -58,22 +60,82 @@ export function normalizeMedia(media: AgentMedia): AgentMedia {
   };
 }
 
+/**
+ * 媒体去重 key。
+ *
+ * 实时帧里 data.media 和 send_file 结果可能同时出现；历史里同一文件也可能
+ * 由多帧还原。优先用服务端稳定标识，其次 URL，再其次工作区路径。
+ */
+export function mediaKeyOf(media: AgentMedia): string {
+  if (media.fileId) return `file:${media.fileId}`;
+  if (media.url) return `url:${media.url}`;
+  const agent = typeof media.metadata?.agent === 'string' ? media.metadata.agent : '';
+  const filePath = typeof media.metadata?.filePath === 'string' ? media.metadata.filePath : '';
+  if (filePath) return `path:${agent}:${filePath}`;
+  return `name:${media.name ?? ''}:${media.size ?? ''}:${media.type}`;
+}
+
+export type AttachmentMapOptions = {
+  /** 实时帧与历史重建共用本函数，用来源区分是否允许自动预览。 */
+  origin?: AgentMediaOrigin;
+  /** 实时链路把成功的 send_file 工具结果也转成媒体；历史由 frames.ts 单独处理。 */
+  includeSendFile?: boolean;
+  /** 上行会话实际使用的 agent，补齐本地路径媒体的工作区归属。 */
+  agent?: string;
+  /**
+   * 是否读取 role=user 帧里的 media。
+   *
+   * 历史 userAttachmentsOf 依赖它还原用户上传的附件；实时链路应传 false，
+   * 避免把用户自己上传的文件当成 agent 发送的文件。
+   */
+  includeUserMedia?: boolean;
+};
+
 export function mapEnvelopeAttachments(
   envelope: AgentEnvelope,
   conversationId: string,
+  options: AttachmentMapOptions = {},
 ): AgentStreamEvent[] {
   const data = (envelope.data ?? {}) as AgentEventData;
   const events: AgentStreamEvent[] = [];
+  const origin = options.origin ?? 'history';
+  const includeUserMedia = data.role !== 'user' || options.includeUserMedia !== false;
 
-  if (data.media && data.media.length > 0) {
-    events.push({
-      type: 'media',
-      conversationId,
-      media: data.media.map((media) => normalizeMedia(media)),
-    });
+  // 用户帧里的 media 是用户上传的附件，不属于 agent 发送的文件。
+  if (includeUserMedia) {
+    const media: AgentMedia[] = [];
+    const seenKeys = new Set<string>();
+    const seenNames = new Set<string>();
+    const pushMedia = (item: AgentMedia) => {
+      const key = mediaKeyOf(item);
+      if (seenKeys.has(key)) return;
+      seenKeys.add(key);
+      if (item.name) seenNames.add(item.name);
+      media.push(item);
+    };
+
+    for (const item of data.media ?? []) {
+      pushMedia(normalizeMedia(item));
+    }
+
+    if (options.includeSendFile && (data.event || envelope.type) === TOOL_COMPLETED_EVENT) {
+      for (const call of data.toolCalls ?? []) {
+        const file = sendFileMediaOf(call);
+        if (!file) continue;
+        // data.media 通常带 fileID/url，是更完整的版本；同名时不再补一条只有路径的卡片。
+        if (file.name && seenNames.has(file.name)) continue;
+        const owner = (typeof data.agent === 'string' && data.agent) || options.agent;
+        if (owner) file.metadata = { ...file.metadata, agent: owner };
+        pushMedia(file);
+      }
+    }
+
+    if (media.length > 0) {
+      events.push({ type: 'media', conversationId, media, origin });
+    }
   }
 
-  const sources = readSources(data.meta);
+  const sources = includeUserMedia ? readSources(data.meta) : [];
   if (sources.length > 0) {
     events.push({ type: 'sources', conversationId, sources });
   }

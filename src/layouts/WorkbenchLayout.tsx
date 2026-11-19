@@ -21,7 +21,11 @@ import { MenuFoldOutlined, MenuUnfoldOutlined, RobotOutlined } from '@ant-design
 import AgentChatPage from '../pages/agent';
 import { AgentFilePreviewContext } from '../pages/agent/files';
 import type { AgentFilePreviewApi, AgentFilePreviewTarget } from '../pages/agent/files';
-import { FilesDockContext, type FileTab } from '../store/files-dock-context';
+import {
+  FilesDockContext,
+  type AgentFilePreviewRequest,
+  type FileTab,
+} from '../store/files-dock-context';
 import type { TabsApi } from '../store/tabs';
 import MainLayout from './MainLayout';
 import WorkbenchFilePanel from './WorkbenchFilePanel';
@@ -113,8 +117,9 @@ const WorkbenchLayout: React.FC = () => {
   const [collapsed, setCollapsed] = useState<boolean>(readStoredCollapsed);
   const [docked, setDockedState] = useState<boolean>(readStoredFilesOpen);
   const [filesWidth, setFilesWidth] = useState<number>(readStoredFilesWidth);
-  /** 对话里点开的附件（每次点击都是新对象，面板据此重新取内容） */
-  const [attachment, setAttachment] = useState<AgentFilePreviewTarget | null>(null);
+  /** 对话里点开/自动打开的附件批次（面板按批次消费后回执） */
+  const [previewRequests, setPreviewRequests] = useState<AgentFilePreviewRequest[]>([]);
+  const previewRequestIdRef = useRef(0);
   /** 对话当前 agent，文件面板的目录树跟着它走 */
   const [chatAgent, setChatAgent] = useState('');
   /** 文件页签存档（含 Blob）：面板在主页面 / 右栏之间换宿主重挂载时恢复 */
@@ -222,21 +227,45 @@ const WorkbenchLayout: React.FC = () => {
     if (!docked) tabsApiRef.current?.openFiles();
   }, [docked]);
 
-  /** 对话附件点击入口：记下目标；未停靠时打开文件页签，停靠时右栏面板自行接收 */
-  const openFile = useCallback(
-    (target: AgentFilePreviewTarget) => {
-      setAttachment({ ...target });
+  const ackPreviewRequests = useCallback((ids: number[]) => {
+    if (ids.length === 0) return;
+    const done = new Set(ids);
+    setPreviewRequests((prev) => prev.filter((item) => !done.has(item.id)));
+  }, []);
+
+  /** 对话附件入口：一批文件一次入队；未停靠时打开文件页签，停靠时右栏面板自行接收 */
+  const openFiles = useCallback(
+    (targets: AgentFilePreviewTarget[], options?: { activateFirst?: boolean }) => {
+      if (targets.length === 0) return;
+      previewRequestIdRef.current += 1;
+      setPreviewRequests((prev) => [
+        ...prev,
+        {
+          id: previewRequestIdRef.current,
+          targets,
+          activateFirst: options?.activateFirst ?? true,
+        },
+      ]);
       if (!docked) tabsApiRef.current?.openFiles();
     },
     [docked],
   );
 
-  const previewApi = useMemo<AgentFilePreviewApi>(() => ({ openFile }), [openFile]);
+  const openFile = useCallback(
+    (target: AgentFilePreviewTarget) => openFiles([target], { activateFirst: true }),
+    [openFiles],
+  );
+
+  const previewApi = useMemo<AgentFilePreviewApi>(
+    () => ({ openFile, openFiles }),
+    [openFile, openFiles],
+  );
 
   const filesDockValue = useMemo(
     () => ({
       agent: chatAgent,
-      attachment,
+      previewRequests,
+      ackPreviewRequests,
       docked,
       canDock: true,
       setDocked,
@@ -244,7 +273,15 @@ const WorkbenchLayout: React.FC = () => {
       active: fileTabs.active,
       onTabsChange: handleFileTabsChange,
     }),
-    [chatAgent, attachment, docked, setDocked, fileTabs, handleFileTabsChange],
+    [
+      chatAgent,
+      previewRequests,
+      ackPreviewRequests,
+      docked,
+      setDocked,
+      fileTabs,
+      handleFileTabsChange,
+    ],
   );
 
   /**

@@ -12,6 +12,7 @@ import type {
   AgentConnectionStatus,
   AgentConversation,
   AgentInfo,
+  AgentMedia,
   AgentMessage,
   AgentSkill,
   AgentTokenUsage,
@@ -139,7 +140,16 @@ export type AgentChatApi = {
   retry: (messageKey: string) => void;
 };
 
-export function useAgentChat(): AgentChatApi {
+export type AgentChatOptions = {
+  /**
+   * 当前活动会话收到实时媒体时回调。
+   *
+   * 历史加载与回放不会触发；只用于打开文件面板，不参与消息状态。
+   */
+  onLiveMedia?: (media: AgentMedia[], conversationId: string, agent?: string) => void;
+};
+
+export function useAgentChat(options: AgentChatOptions = {}): AgentChatApi {
   const [state, dispatch] = useReducer(chatReducer, undefined, createInitialState);
   const [connection, setConnection] = useState<AgentConnectionStatus>('idle');
   const [agents, setAgents] = useState<AgentInfo[]>([]);
@@ -177,6 +187,7 @@ export function useAgentChat(): AgentChatApi {
   const connectionRef = useRef<AgentConnectionStatus>('idle');
   const temporaryRef = useRef(false);
   const deletingKeysRef = useRef(new Set<string>());
+  const onLiveMediaRef = useRef(options.onLiveMedia);
 
   const beginDeletingConversation = useCallback((key: string): boolean => {
     if (deletingKeysRef.current.has(key)) return false;
@@ -201,6 +212,10 @@ export function useAgentChat(): AgentChatApi {
   useEffect(() => {
     agentRef.current = agent;
   }, [agent]);
+
+  useEffect(() => {
+    onLiveMediaRef.current = options.onLiveMedia;
+  }, [options.onLiveMedia]);
 
   useEffect(() => {
     const transport = createAgentTransport();
@@ -353,13 +368,30 @@ export function useAgentChat(): AgentChatApi {
             requestId: event.requestId,
           });
           break;
-        case 'media':
+        case 'media': {
+          const conversation = stateRef.current.conversations.find(
+            (item) => item.key === event.conversationId,
+          );
+          const owner =
+            conversation?.agent ||
+            (event.conversationId === stateRef.current.activeKey ? agentRef.current : '') ||
+            undefined;
+          const media = event.media.map((item) => {
+            const filePath =
+              typeof item.metadata?.filePath === 'string' ? item.metadata.filePath : '';
+            if (!filePath || typeof item.metadata?.agent === 'string' || !owner) return item;
+            return { ...item, metadata: { ...item.metadata, agent: owner } };
+          });
           dispatch({
             type: 'setMedia',
             conversationKey: event.conversationId,
-            media: event.media,
+            media,
           });
+          if (event.origin === 'live' && event.conversationId === stateRef.current.activeKey) {
+            onLiveMediaRef.current?.(media, event.conversationId, owner);
+          }
           break;
+        }
         case 'sources':
           dispatch({
             type: 'setSources',

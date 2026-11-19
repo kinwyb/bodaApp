@@ -14,6 +14,7 @@ import {
   AGENT_EVENT,
   mapAgentEnvelope,
   mapEnvelopeAttachments,
+  mediaKeyOf,
   parseUIEventMessage,
   sendFileMediaOf,
   SEND_FILE_TOOL,
@@ -147,13 +148,33 @@ export function contentFromFrames(frames: AgentEnvelope[], agent?: string): Agen
     // 归属用户消息（见 userAttachmentsOf），不能并进助手回答
     if (data.role !== 'user') {
       for (const event of mapEnvelopeAttachments(frame, '')) {
-        if (event.type === 'media') media = event.media;
-        else if (event.type === 'sources') sources = event.sources;
+        if (event.type === 'media') {
+          media = media ?? [];
+          const known = new Set(media.map(mediaKeyOf));
+          for (const item of event.media) {
+            const key = mediaKeyOf(item);
+            if (known.has(key)) continue;
+            known.add(key);
+            media.push(item);
+          }
+        } else if (event.type === 'sources') {
+          sources = event.sources;
+        }
       }
     }
   }
 
-  if (sendFiles.size > 0) media = [...(media ?? []), ...sendFiles.values()];
+  if (sendFiles.size > 0) {
+    const known = new Set((media ?? []).map(mediaKeyOf));
+    const knownNames = new Set((media ?? []).map((item) => item.name).filter(Boolean));
+    for (const item of sendFiles.values()) {
+      const key = mediaKeyOf(item);
+      if (known.has(key) || (item.name && knownNames.has(item.name))) continue;
+      known.add(key);
+      if (item.name) knownNames.add(item.name);
+      media = [...(media ?? []), item];
+    }
+  }
 
   const content = withTimeline({ text: '' }, timeline);
   content.media = media;

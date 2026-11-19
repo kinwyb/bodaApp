@@ -48,7 +48,13 @@ export function mapAgentEnvelope(
   return [];
 }
 
-export { mapEnvelopeAttachments, readSources, sendFileMediaOf, SEND_FILE_TOOL } from './attachments';
+export {
+  mapEnvelopeAttachments,
+  mediaKeyOf,
+  readSources,
+  sendFileMediaOf,
+  SEND_FILE_TOOL,
+} from './attachments';
 export { toTokenUsage } from './usage';
 export { toHistoryEvent, toReplayEvent } from './history';
 export { parseSessionList } from './session-list';

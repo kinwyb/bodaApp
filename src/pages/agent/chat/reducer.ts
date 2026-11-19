@@ -3,8 +3,9 @@
  */
 
 import type { AgentChatAction, AgentChatState } from './actions';
-import type { AgentConversation, AgentHistoryThread, AgentTokenUsage } from '../types';
+import type { AgentConversation, AgentHistoryThread, AgentMedia, AgentTokenUsage } from '../types';
 import { hasRenderableContent, timelineOf } from '../types';
+import { mediaKeyOf } from '../protocol';
 import { DEFAULT_LABEL, createConversation, nextMessageKey } from './actions';
 import { contentFromFrames, groupFramesByReq, historyMessagesOf, isTruncatedContent } from './frames';
 import {
@@ -31,6 +32,36 @@ function isDraft(conversation: AgentConversation): boolean {
 /** 还没落库、也没说过话的「新对话」占位；列表里最多保留一个。 */
 function isNewDraft(conversation: AgentConversation): boolean {
   return isDraft(conversation) && conversation.messages.length === 0 && conversation.label === DEFAULT_LABEL;
+}
+
+/** 同一轮多帧媒体按稳定 key 合并，后到的完整字段覆盖先到的。 */
+function mergeMedia(current: AgentMedia[] | undefined, incoming: AgentMedia[]): AgentMedia[] {
+  const result = [...(current ?? [])];
+  const indexByKey = new Map(result.map((item, index) => [mediaKeyOf(item), index]));
+  const indexByName = new Map<string, number>();
+  result.forEach((item, index) => {
+    if (item.name) indexByName.set(item.name, index);
+  });
+
+  for (const item of incoming) {
+    const key = mediaKeyOf(item);
+    const index = indexByKey.get(key) ?? (item.name ? indexByName.get(item.name) : undefined);
+    if (index === undefined) {
+      result.push(item);
+      indexByKey.set(key, result.length - 1);
+      if (item.name) indexByName.set(item.name, result.length - 1);
+      continue;
+    }
+    result[index] = {
+      ...result[index],
+      ...item,
+      metadata: { ...result[index].metadata, ...item.metadata },
+    };
+    indexByKey.set(key, index);
+    if (result[index].name) indexByName.set(result[index].name as string, index);
+  }
+
+  return result;
 }
 
 /**
@@ -367,7 +398,10 @@ export function chatReducer(state: AgentChatState, action: AgentChatAction): Age
 
     case 'setMedia':
       return withConversation(state, action.conversationKey, (conversation) =>
-        mapStreamingReply(conversation, (content) => ({ ...content, media: action.media })),
+        mapStreamingReply(conversation, (content) => ({
+          ...content,
+          media: mergeMedia(content.media, action.media),
+        })),
       );
 
     case 'setSources':

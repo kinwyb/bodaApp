@@ -32,7 +32,7 @@ export type ContextTabMeta = {
 
 export type ContextTabsHandle<T extends ContextTabMeta> = {
   /** 打开（或激活）页签；已存在时整体替换 meta，rebuild 清掉内容缓存强制重建 */
-  openTab: (meta: T, options?: { rebuild?: boolean }) => void;
+  openTab: (meta: T, options?: { rebuild?: boolean; activate?: boolean }) => void;
   /** 只改 meta 不动内容缓存（改标题之类） */
   updateTab: (key: string, patch: Partial<T>) => void;
   closeTabs: (keys: string[], fallbackKey?: string) => void;
@@ -118,7 +118,7 @@ function ContextTabsInner<T extends ContextTabMeta>(
     [closable, hidden],
   );
 
-  const openTab = useCallback((meta: T, options?: { rebuild?: boolean }) => {
+  const openTab = useCallback((meta: T, options?: { rebuild?: boolean; activate?: boolean }) => {
     if (options?.rebuild) instances.current.delete(meta.key);
     setTabs((prev) => {
       const index = prev.findIndex((tab) => tab.key === meta.key);
@@ -127,6 +127,7 @@ function ContextTabsInner<T extends ContextTabMeta>(
       next[index] = meta;
       return next;
     });
+    if (options?.activate === false) return;
     activeRef.current = meta.key;
     setActiveKey(meta.key);
   }, []);
