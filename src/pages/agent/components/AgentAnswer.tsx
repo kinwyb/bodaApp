@@ -9,17 +9,16 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Alert, Button } from 'antd';
-import { EyeOutlined, FileImageOutlined } from '@ant-design/icons';
+import { CheckCircleOutlined, CloseCircleOutlined, EyeOutlined, FileImageOutlined } from '@ant-design/icons';
 import { FileCard, Sources, Think } from '@ant-design/x';
 import XMarkdown from '@ant-design/x-markdown';
 import type {
-  AgentApproval,
   AgentAssistantContent,
   AgentTimelineItem,
-  AgentToolStep,
-  AgentUserInput,
 } from '../types';
 import { timelineOf } from '../types';
+import { blocksOf, splitAnswerBlocks } from '../timeline';
+import type { AnswerSplit, TimelineBlock } from '../timeline';
 import { resolveAgentFileUrl, useAgentFilePreview, workspaceFileUrl } from '../files';
 import type { AgentFilePreviewApi } from '../files';
 import { mediaKeyOf } from '../protocol';
@@ -60,53 +59,6 @@ const IMAGE_NAME = /\.(png|jpe?g|gif|bmp|webp|svg|ico|heic)$/i;
 const MARKDOWN_STREAMING = { hasNextChunk: true, tail: true };
 const MARKDOWN_IDLE = { hasNextChunk: false, tail: false };
 
-/** 渲染单元：相邻的工具步合成一个链，其余一项一块 */
-type TimelineBlock =
-  | { kind: 'reasoning'; key: string; item: Extract<AgentTimelineItem, { kind: 'reasoning' }> }
-  | { kind: 'text'; key: string; item: Extract<AgentTimelineItem, { kind: 'text' }> }
-  | { kind: 'tools'; key: string; steps: AgentToolStep[] }
-  | { kind: 'approval'; key: string; approval: AgentApproval }
-  | { kind: 'user-input'; key: string; userInput: AgentUserInput }
-  | { kind: 'error'; key: string; message: string };
-
-function blocksOf(items: AgentTimelineItem[]): TimelineBlock[] {
-  const blocks: TimelineBlock[] = [];
-
-  items.forEach((item) => {
-    switch (item.kind) {
-      case 'tool': {
-        // 连续的工具调用归到一个链里，避免一步一个卡片太碎
-        const last = blocks[blocks.length - 1];
-        if (last && last.kind === 'tools') {
-          last.steps.push(item.step);
-          return;
-        }
-        blocks.push({ kind: 'tools', key: item.key, steps: [item.step] });
-        return;
-      }
-      case 'reasoning':
-        blocks.push({ kind: 'reasoning', key: item.key, item });
-        return;
-      case 'text':
-        blocks.push({ kind: 'text', key: item.key, item });
-        return;
-      case 'approval':
-        blocks.push({ kind: 'approval', key: item.key, approval: item.approval });
-        return;
-      case 'user-input':
-        blocks.push({ kind: 'user-input', key: item.key, userInput: item.userInput });
-        return;
-      case 'error':
-        blocks.push({ kind: 'error', key: item.key, message: item.message });
-        return;
-      default:
-        return;
-    }
-  });
-
-  return blocks;
-}
-
 /**
  * 一段思考过程。
  *
@@ -139,6 +91,46 @@ const AgentReasoning: React.FC<{
       onExpand={setExpanded}
     >
       <div className="agent-reasoning">{item.text}</div>
+    </Think>
+  );
+};
+
+/**
+ * 轮次结束后的「执行过程」折叠。
+ *
+ * 流式中过程照旧摊开；这一轮结束（streaming 翻 false）才挂载本组件，默认收起，
+ * 把版面让给最终回答。展开态是本地状态：挂载后完全跟随用户点击，父级因别的消息
+ * 流式而重渲染不会把它顶回去；历史消息（streaming=false）同样默认收起。
+ * 复用 Think 的壳（图标 + 标题 + 箭头 + 折叠动画），视觉与思考块一致；
+ * 收起时内容不挂载（Think 默认 destroyOnHidden），长历史不用白养一堆 Markdown。
+ */
+const AgentProcessFold: React.FC<{ split: AnswerSplit; children: React.ReactNode }> = ({
+  split,
+  children,
+}) => {
+  const [expanded, setExpanded] = useState(false);
+  const stats = [
+    split.reasoningCount > 0 ? `思考 ${split.reasoningCount} 段` : '',
+    split.toolCount > 0 ? `工具 ${split.toolCount} 次` : '',
+    split.noteCount > 0 ? `说明 ${split.noteCount} 段` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
+
+  return (
+    <Think
+      className={`agent-think agent-process-fold${split.failed ? ' agent-process-fold-failed' : ''}`}
+      title={
+        <span className="agent-process-fold-title">
+          执行过程
+          {stats ? <span className="agent-process-fold-stats">{stats}</span> : null}
+        </span>
+      }
+      icon={split.failed ? <CloseCircleOutlined /> : <CheckCircleOutlined />}
+      expanded={expanded}
+      onExpand={setExpanded}
+    >
+      <div className="agent-process-fold-body">{children}</div>
     </Think>
   );
 };
@@ -216,6 +208,8 @@ export const AgentAnswer: React.FC<{
   onUserInput?: (requestId: string, answers: Record<string, string[]>) => void;
 }> = ({ content, streaming, onApproval, onShowApproval, onUserInput }) => {
   const blocks = blocksOf(timelineOf(content));
+  // 流式中不分区，过程照旧摊开；轮次结束后才折过程、露最终回答
+  const split = streaming ? null : splitAnswerBlocks(blocks);
   // 工作台挂了文件面板时附件在面板里预览；独立 /agent 路由没有 Provider，保持新窗口
   const preview = useAgentFilePreview();
   const mediaItems = (content.media ?? []).map((media, index) => {
@@ -253,52 +247,64 @@ export const AgentAnswer: React.FC<{
   const imageMedia = mediaItems.filter((item) => item.type === 'image');
   const fileMedia = mediaItems.filter((item) => item.type !== 'image');
 
+  /** 一块时间线一个元素，过程区与回答区共用同一套渲染 */
+  const renderBlock = (block: TimelineBlock) => {
+    if (block.kind === 'tools') {
+      return <AgentStepChain key={block.key} steps={block.steps} />;
+    }
+
+    if (block.kind === 'approval') {
+      return (
+        <AgentApprovalCard
+          key={block.key}
+          approval={block.approval}
+          onRespond={onApproval}
+          onShow={onShowApproval}
+        />
+      );
+    }
+
+    if (block.kind === 'user-input') {
+      return <AgentUserInputCard key={block.key} userInput={block.userInput} onRespond={onUserInput} />;
+    }
+
+    if (block.kind === 'error') {
+      return (
+        <Alert key={block.key} className="agent-answer-error" type="error" showIcon message={block.message} />
+      );
+    }
+
+    if (block.kind === 'reasoning') {
+      return <AgentReasoning key={block.key} item={block.item} streaming={streaming} />;
+    }
+
+    // 正文：一段回答一块，流式中只有「当前这段」显示打字光标
+    const active = streaming && !block.item.done;
+    return (
+      <XMarkdown
+        key={block.key}
+        className="agent-markdown"
+        content={block.item.text}
+        openLinksInNewTab
+        streaming={active ? MARKDOWN_STREAMING : MARKDOWN_IDLE}
+      />
+    );
+  };
+
   return (
     <div className="agent-answer">
       {blocks.length === 0 && streaming ? <span className="agent-thinking">正在思考</span> : null}
 
-      {blocks.map((block) => {
-        if (block.kind === 'tools') {
-          return <AgentStepChain key={block.key} steps={block.steps} />;
-        }
-
-        if (block.kind === 'approval') {
-          return (
-            <AgentApprovalCard
-              key={block.key}
-              approval={block.approval}
-              onRespond={onApproval}
-              onShow={onShowApproval}
-            />
-          );
-        }
-
-        if (block.kind === 'user-input') {
-          return <AgentUserInputCard key={block.key} userInput={block.userInput} onRespond={onUserInput} />;
-        }
-
-        if (block.kind === 'error') {
-          return (
-            <Alert key={block.key} className="agent-answer-error" type="error" showIcon message={block.message} />
-          );
-        }
-
-        if (block.kind === 'reasoning') {
-          return <AgentReasoning key={block.key} item={block.item} streaming={streaming} />;
-        }
-
-        // 正文：一段回答一块，流式中只有「当前这段」显示打字光标
-        const active = streaming && !block.item.done;
-        return (
-          <XMarkdown
-            key={block.key}
-            className="agent-markdown"
-            content={block.item.text}
-            openLinksInNewTab
-            streaming={active ? MARKDOWN_STREAMING : MARKDOWN_IDLE}
-          />
-        );
-      })}
+      {split?.foldable ? (
+        <>
+          <AgentProcessFold key="process-fold" split={split}>
+            {split.process.map(renderBlock)}
+          </AgentProcessFold>
+          {split.answer.map(renderBlock)}
+        </>
+      ) : (
+        blocks.map(renderBlock)
+      )}
 
       {imageMedia.length > 0 ? (
         <div className="agent-media-images">

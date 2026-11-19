@@ -460,6 +460,37 @@
   color: rgba(0, 0, 0, 0.6);
 }
 
+/* 轮次结束后的过程折叠：一行摘要 + 统计，展开回完整时间线 */
+.agent-process-fold {
+  /* 过程与最终回答之间：淡分割线 + 留白，避免摘要行贴着正文标题；
+     下线距由 .agent-answer 的 gap 提供，展开态同样隔在过程区与正文之间 */
+  padding-bottom: 10px;
+  border-bottom: 1px solid #ebedf0;
+}
+
+.agent-process-fold .ant-think-status-icon {
+  color: #52c41a;
+}
+
+.agent-process-fold-failed .ant-think-status-icon {
+  color: #ff4d4f;
+}
+
+/* 统计比标题弱一档，不跟最终回答抢注意力 */
+.agent-process-fold-stats {
+  margin-left: 8px;
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+/* 展开后的过程区：块间距与回答外层一致 */
+.agent-process-fold-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 8px;
+}
+
 .agent-approval {
   margin: 2px 0;
 }
