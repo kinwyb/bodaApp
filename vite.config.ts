@@ -89,6 +89,15 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: {
         '@': fileURLToPath(new URL('./src', import.meta.url)),
+        /*
+         * lottie-web 只经 @visactor/vrender-kits 的 barrel 进入模块图：
+         * vtable 从未注册 Lottie 图形，整块在打包时被 tree-shake 掉（产物里
+         * 一个字都没有），但 rolldown 在解析阶段仍要 transform 那份源码，
+         * 于是每次构建都报一条 direct `eval` 警告 —— 来自 lottie 的
+         * After Effects 表达式引擎。指到空替身即可：警告消失，模块图也小一圈。
+         * 本项目不使用 Lottie 图形，替身见 scripts/shims/lottie-web.ts。
+         */
+        'lottie-web': fileURLToPath(new URL('./scripts/shims/lottie-web.ts', import.meta.url)),
       },
     },
     server: {
@@ -121,6 +130,60 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
         },
       },
+    },
+    build: {
+      /*
+       * 分块策略。
+       *
+       * rolldown-vite 默认把被多处共享的依赖塞进同一个 chunk —— 打出来是
+       * 3.9MB 的 PageBreadcrumb-*.js（名字取自最先用到这堆模块的那个文件），
+       * 还被 index.html 的 modulepreload 挂到首屏。按库拆开后，改业务代码
+       * 不会让第三方那几块 hash 失效，解析也能并行。
+       *
+       * 三个大头：vtable 1.9MB、antd 1.4MB、vrender 0.95MB。
+       * 别给它们加 maxSize 自动切片：实测 vtable 会被切出 8 块、antd 12 块，
+       * 单块小了但缓存粒度碎掉，首屏请求数也上去了，不值得。
+       */
+      rolldownOptions: {
+        output: {
+          codeSplitting: {
+            groups: [
+              {
+                name: 'vendor-react',
+                test: /node_modules[\\/](react|react-dom|react-router|react-router-dom|scheduler)[\\/]/,
+                priority: 40,
+              },
+              {
+                name: 'vendor-vrender',
+                test: /node_modules[\\/]@visactor[\\/](vrender|vutils|vdataset|vscale)/,
+                priority: 35,
+              },
+              {
+                name: 'vendor-vtable',
+                test: /node_modules[\\/]@visactor[\\/]vtable/,
+                priority: 30,
+              },
+              {
+                name: 'vendor-antd',
+                test: /node_modules[\\/](antd|@ant-design|@rc-component|rc-[a-z-]+)[\\/]/,
+                priority: 20,
+              },
+              {
+                name: 'vendor-charts',
+                test: /node_modules[\\/](recharts|victory-vendor|d3-[a-z]+)[\\/]/,
+                priority: 20,
+              },
+              { name: 'vendor', test: /node_modules[\\/]/, priority: 10, minSize: 30000 },
+            ],
+          },
+        },
+      },
+      /*
+       * 500kB 是给公网站点的默认阈值。这里是 MyGo 桌面壳本地读 dist，不走网络，
+       * 而 vtable 单库就有 1.9MB（gzip 500kB），压到 500kB 以下只能靠切片，
+       * 见上面的取舍说明。阈值放到 2.2MB，真冒出超过这个量级的块再回来查。
+       */
+      chunkSizeWarningLimit: 2200,
     },
   }
 })
