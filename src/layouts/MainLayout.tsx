@@ -46,6 +46,10 @@ import type {UINavItem} from '../pages/agent/protocol';
 import type {ViewTrailItem} from '../pages/types';
 import {isDebugEnv} from "@/utils";
 import MenuLabel from './MenuLabel';
+import LanguageSwitcher from '@/i18n/LanguageSwitcher';
+import {PageLocaleProvider} from '@/i18n/provider';
+import {useI18n} from '@/i18n/context';
+import type {Translate} from '@/i18n';
 
 const {Header, Sider, Content} = Layout;
 const {Text} = Typography;
@@ -79,8 +83,8 @@ interface TabMeta {
 }
 
 /** 页签上显示的文字：页面自定义过就用自定义的 */
-function displayTitle(meta: TabMeta): string {
-    return meta.customTitle ?? meta.label;
+function displayTitle(meta: TabMeta, t: Translate): string {
+    return meta.customTitle ?? t(meta.label, {scope: 'menu'});
 }
 
 const HOME_TAB: TabMeta = {key: 'dashboard', view: '', label: '工作台', trail: []};
@@ -104,16 +108,23 @@ const iconByMenuName: Record<string, React.ReactNode> = {
 };
 
 /** 按关键字过滤菜单树，命中的节点保留整棵子树，否则只保留匹配的孩子 */
-function filterMenuTree(nodes: DesktopMenu[], keyword: string): DesktopMenu[] {
+function filterMenuTree(
+    nodes: DesktopMenu[],
+    keyword: string,
+    labelOf: (node: DesktopMenu) => string,
+): DesktopMenu[] {
     const kw = keyword.trim().toLowerCase();
     if (!kw) return nodes;
     const result: DesktopMenu[] = [];
     nodes.forEach((node) => {
-        if (node.MenuName.toLowerCase().includes(kw)) {
+        if (
+            node.MenuName.toLowerCase().includes(kw) ||
+            labelOf(node).toLowerCase().includes(kw)
+        ) {
             result.push(node);
             return;
         }
-        const children = node.Children ? filterMenuTree(node.Children, keyword) : [];
+        const children = node.Children ? filterMenuTree(node.Children, keyword, labelOf) : [];
         if (children.length) {
             result.push({...node, Children: children});
         }
@@ -128,14 +139,22 @@ function filterMenuTree(nodes: DesktopMenu[], keyword: string): DesktopMenu[] {
  * （`MenuItem` 内部 `tooltipTitle = firstLevel ? children : ''`），
  * 换成组件后那个提示就哑了；而折叠态下文字本来就被压成 0 宽，不需要我们的溢出判断。
  */
-function menuLabelOf(node: DesktopMenu, collapsed: boolean): React.ReactNode {
-    return collapsed ? node.MenuName : <MenuLabel text={node.MenuName}/>;
+function menuLabelOf(node: DesktopMenu, collapsed: boolean, labelOf: (node: DesktopMenu) => string): React.ReactNode {
+    const text = labelOf(node);
+    return collapsed ? text : <MenuLabel text={text}/>;
 }
 
-function buildMenuItems(nodes: DesktopMenu[], depth: number, collapsed: boolean): AntdMenuItems {
+function buildMenuItems(
+    nodes: DesktopMenu[],
+    depth: number,
+    collapsed: boolean,
+    labelOf: (node: DesktopMenu) => string,
+): AntdMenuItems {
     return nodes
         .map((node) => {
-            const childItems = node.Children ? buildMenuItems(node.Children, depth + 1, collapsed) : [];
+            const childItems = node.Children
+                ? buildMenuItems(node.Children, depth + 1, collapsed, labelOf)
+                : [];
             const hasChildren = childItems.length > 0;
             const icon =
                 depth === 0
@@ -147,7 +166,7 @@ function buildMenuItems(nodes: DesktopMenu[], depth: number, collapsed: boolean)
                 key: node.View,
                 icon,
                 // 侧栏宽度固定，深层菜单名会被截断，交给 MenuLabel 做「溢出才提示」
-                label: menuLabelOf(node, collapsed),
+                label: menuLabelOf(node, collapsed, labelOf),
                 children: hasChildren ? childItems : undefined,
             };
         });
@@ -170,6 +189,7 @@ const MainLayout: React.FC<{
 }> = ({onTabsApi}) => {
     const filesDock = useFilesDock();
     const navigate = useNavigate();
+    const {t} = useI18n();
     const {userInfo, logout} = useAuth();
     const {token: {colorBgContainer}} = theme.useToken();
     const {menu: menuTree, loading: menuLoading} = usePermission();
@@ -237,10 +257,22 @@ const MainLayout: React.FC<{
     }, [visibleMenuTree]);
 
     const displayTree = useMemo(
-        () => filterMenuTree(visibleMenuTree, menuKeyword),
-        [visibleMenuTree, menuKeyword],
+        () => filterMenuTree(
+            visibleMenuTree,
+            menuKeyword,
+            (node) => t(node.MenuName, {scope: 'menu'}),
+        ),
+        [visibleMenuTree, menuKeyword, t],
     );
-    const menuItems = useMemo(() => buildMenuItems(displayTree, 0, collapsed), [displayTree, collapsed]);
+    const menuItems = useMemo(
+        () => buildMenuItems(
+            displayTree,
+            0,
+            collapsed,
+            (node) => t(node.MenuName, {scope: 'menu'}),
+        ),
+        [displayTree, collapsed, t],
+    );
 
     /**
      * 界面桥用的导航清单：权限过滤后的菜单，**只留已接入界面桥的页面**，平铺成 {view, title, trail}。
@@ -265,12 +297,12 @@ const MainLayout: React.FC<{
                     }
                     return {
                         view,
-                        title: meta.label,
+                        title: t(meta.label, {scope: 'menu'}),
                         description,
-                        trail: meta.trail.map((item) => item.name),
+                        trail: meta.trail.map((item) => t(item.name, {scope: 'menu'})),
                     };
                 }),
-        [menuMetaMap],
+        [menuMetaMap, t],
     );
 
     /**
@@ -404,10 +436,14 @@ const MainLayout: React.FC<{
         (value: string) => {
             setMenuKeyword(value);
             if (value.trim()) {
-                setOpenKeys(collectSubmenuKeys(filterMenuTree(visibleMenuTree, value)));
+                setOpenKeys(collectSubmenuKeys(filterMenuTree(
+                    visibleMenuTree,
+                    value,
+                    (node) => t(node.MenuName, {scope: 'menu'}),
+                )));
             }
         },
-        [visibleMenuTree],
+        [t, visibleMenuTree],
     );
 
     const handleLogout = useCallback(() => {
@@ -418,10 +454,10 @@ const MainLayout: React.FC<{
     const userMenuItems = useMemo(
         () => ({
             items: [
-                {key: 'logout', icon: <LogoutOutlined/>, label: '退出登录', onClick: handleLogout},
+                {key: 'logout', icon: <LogoutOutlined/>, label: t('退出登录'), onClick: handleLogout},
             ],
         }),
-        [handleLogout],
+        [handleLogout, t],
     );
 
     const renderTabContent = useCallback(
@@ -439,28 +475,30 @@ const MainLayout: React.FC<{
             // 作用域绑定到「本页签自己的 key」：页面改标题时只改自己那个页签，不会串到别的页签
             const scope: TabTitleScope = {
                 tabKey: meta.key,
-                baseLabel: meta.label,
+                baseLabel: t(meta.label, {scope: 'menu'}),
                 setTitle: (title: string | undefined) => setTabTitle(meta.key, title),
             };
             return (
-                <TabTitleContext.Provider value={scope}>
-                    <Suspense
-                        // key 带上参数：业务指定了 tabKey 时，同一个页签可能被换成另一组参数，
-                        // 带上参数才能强制重建，让页面拿到新参数
-                        // （不然 React 会复用组件实例，只更新 props，页面内部的初始状态还是旧的）
-                        key={`${meta.key}::${JSON.stringify(meta.params ?? null)}`}
-                        fallback={
-                            <div style={{textAlign: 'center', padding: '48px 0'}}>
-                                <Spin/>
-                            </div>
-                        }
-                    >
-                        <PageComponent view={meta.view} trail={meta.trail} params={meta.params}/>
-                    </Suspense>
-                </TabTitleContext.Provider>
+                <PageLocaleProvider code={meta.view}>
+                    <TabTitleContext.Provider value={scope}>
+                        <Suspense
+                            // key 带上参数：业务指定了 tabKey 时，同一个页签可能被换成另一组参数，
+                            // 带上参数才能强制重建，让页面拿到新参数
+                            // （不然 React 会复用组件实例，只更新 props，页面内部的初始状态还是旧的）
+                            key={`${meta.key}::${JSON.stringify(meta.params ?? null)}`}
+                            fallback={
+                                <div style={{textAlign: 'center', padding: '48px 0'}}>
+                                    <Spin/>
+                                </div>
+                            }
+                        >
+                            <PageComponent view={meta.view} trail={meta.trail} params={meta.params}/>
+                        </Suspense>
+                    </TabTitleContext.Provider>
+                </PageLocaleProvider>
             );
         },
-        [setTabTitle],
+        [setTabTitle, t],
     );
 
     /**
@@ -471,9 +509,9 @@ const MainLayout: React.FC<{
      */
     useEffect(() => {
         const active = openTabs.find((tab) => tab.key === activeTab);
-        const title = active ? displayTitle(active) : '';
+        const title = active ? displayTitle(active, t) : '';
         document.title = title ? `${title} - bodaWay` : 'bodaWay';
-    }, [openTabs, activeTab]);
+    }, [openTabs, activeTab, t]);
 
 
     return (
@@ -528,7 +566,7 @@ const MainLayout: React.FC<{
                             autoFocus
                             allowClear
                             size="small"
-                            placeholder="搜索菜单"
+                            placeholder={t('搜索菜单')}
                             prefix={<SearchOutlined/>}
                             value={menuKeyword}
                             onChange={(event) => handleMenuSearch(event.target.value)}
@@ -547,7 +585,7 @@ const MainLayout: React.FC<{
                                 setSearchOpen(true);
                             }}
                         >
-                            {collapsed ? undefined : '菜单搜索'}
+                            {collapsed ? undefined : t('菜单搜索')}
                         </Button>
                     )}
                 </div>
@@ -571,11 +609,12 @@ const MainLayout: React.FC<{
                             onClick={() => setCollapsed(!collapsed)}
                         />
                         <Button type="text" icon={<HomeOutlined/>} onClick={() => openTab(HOME_TAB)}/>
-                        <Tooltip title="文件浏览">
+                        <Tooltip title={t('文件浏览')}>
                             <Button type="text" icon={<FolderOpenOutlined/>} onClick={() => openTab(FILES_TAB)}/>
                         </Tooltip>
                     </div>
                     <div style={{display: 'flex', alignItems: 'center', gap: 12}}>
+                        <LanguageSwitcher/>
                         {serviceOrg && (
                             <Tag
                                 icon={<ClusterOutlined/>}
@@ -604,7 +643,7 @@ const MainLayout: React.FC<{
                                 initialActiveKey={HOME_TAB.key}
                                 isClosable={(tab) => tab.key !== HOME_TAB.key && tab.key !== FILES_TAB.key}
                                 hiddenKeys={filesHiddenKeys}
-                                renderLabel={displayTitle}
+                                renderLabel={(tab) => displayTitle(tab, t)}
                                 renderContent={renderTabContent}
                                 onChange={handleTabsChange}
                             />

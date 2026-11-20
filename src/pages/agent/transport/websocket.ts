@@ -695,6 +695,7 @@ export function createWebSocketTransport(url: string, token?: TokenSource): Agen
           agent: payload.agent,
           fileIds: payload.fileIds,
           attachments: payload.attachments,
+          locale: payload.locale,
         }),
         { conversationId: payload.conversationId, threadId: payload.threadId },
       );

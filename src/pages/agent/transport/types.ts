@@ -11,6 +11,7 @@ import type {
   UIRequestPayload,
   UIResponsePayload,
 } from '../protocol';
+import type { AppLocale } from '@/i18n';
 
 export type AgentSendPayload = {
   /** 前端会话 key；会话还没落库时它就当后端 chatID 用 */
@@ -31,6 +32,8 @@ export type AgentSendPayload = {
    */
   fileIds?: string[];
   attachments?: { name: string; size: number }[];
+  /** 本轮发送时的界面语言 */
+  locale: AppLocale;
 };
 
 export type AgentHistoryQuery = {

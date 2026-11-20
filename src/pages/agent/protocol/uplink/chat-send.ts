@@ -8,6 +8,8 @@
 import type { AgentEnvelope } from '../envelope';
 import { CLIENT_TYPE, KIND, newEnvelope } from '../envelope';
 import type { ChatSendData } from '../payloads';
+import type { AppLocale } from '@/i18n';
+import { buildChatSendMetadata, type ChatSendAttachment } from './chat-send-metadata';
 
 export type ChatSendInput = {
   /**
@@ -26,11 +28,13 @@ export type ChatSendInput = {
    */
   fileIds?: string[];
   /** 附件名字/大小：只进 metadata，服务端当元数据透传（演示模式下是唯一的附件信息） */
-  attachments?: { name: string; size: number }[];
+  attachments?: ChatSendAttachment[];
   /** 已知 sessionID 时回传，便于服务端续接同一会话 */
   sessionID?: string;
   /** 已知 threadID 时回传，服务端会直接在该历史对话下开始新轮次 */
   threadId?: string;
+  /** 本轮发送时的界面语言；服务端据此约束默认回复语言 */
+  locale: AppLocale;
 };
 
 export function buildChatSend(input: ChatSendInput): AgentEnvelope {
@@ -41,7 +45,7 @@ export function buildChatSend(input: ChatSendInput): AgentEnvelope {
     agent: input.agent || undefined,
     content: input.content,
     fileIDs: input.fileIds?.length ? input.fileIds : undefined,
-    metadata: input.attachments?.length ? { attachments: input.attachments } : undefined,
+    metadata: buildChatSendMetadata(input.locale, input.attachments),
   };
   return newEnvelope({ kind: KIND.client, type: CLIENT_TYPE.chatSend, data });
 }

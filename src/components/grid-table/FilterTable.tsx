@@ -33,6 +33,7 @@ import type {
     GridTableHeightMode,
 } from './index';
 import {formatDate, now, toNumberOrZero, toStringOrEmpty} from "@/utils";
+import {useI18n} from '@/i18n/context';
 
 const DEFAULT_PAGE_SIZE = 30;
 
@@ -311,7 +312,7 @@ export const FilterTable = React.forwardRef<FilterTableApi, FilterTableProps>(
             showCount = true,
             showPagination = true,
             showSummary = true,
-            searchPlaceholder = '搜索关键字',
+            searchPlaceholder,
             searchWidth = 200,
             filters,
             onFilterChange,
@@ -325,6 +326,8 @@ export const FilterTable = React.forwardRef<FilterTableApi, FilterTableProps>(
     ) => {
         const tableRef = useRef<GridTableApi | null>(null);
         const searchRef = useRef<SearchComponent | null>(null);
+        const {t} = useI18n();
+        const resolvedSearchPlaceholder = searchPlaceholder ?? t('搜索关键字');
         // 导出的 loading / 结果提示（App.useApp 只能组件顶层调，与页面取 message 同一来源）
         const {message} = App.useApp();
         /**
@@ -514,16 +517,16 @@ export const FilterTable = React.forwardRef<FilterTableApi, FilterTableProps>(
          * （与 `components/commands/exportCommand` 的命名规则一致，插件自动补 .xlsx）。
          */
         const handleExport = useCallback(async () => {
-            const hide = message.loading('正在导出…', 0);
+            const hide = message.loading(t('正在导出…'), 0);
             try {
                 await tableRef.current?.exportExcel(`${toStringOrEmpty(exportName)}${formatDate(now())}`);
-                void message.success('导出成功');
+                void message.success(t('导出成功'));
             } catch (error) {
-                void message.error(error instanceof Error ? error.message : '导出失败');
+                void message.error(error instanceof Error ? error.message : t('导出失败'));
             } finally {
                 hide();
             }
-        }, [exportName, message]);
+        }, [exportName, message, t]);
 
         // 向外暴露 GridTable 实例方法
         useImperativeHandle(
@@ -594,7 +597,7 @@ export const FilterTable = React.forwardRef<FilterTableApi, FilterTableProps>(
         // 导出按钮：exportName 有值才显示（值即文件名前缀），尺寸与筛选 / 分组按钮一致
         const exportButton = exportName ? (
             <Button icon={<ExportOutlined />} onClick={() => void handleExport()}>
-                导出
+                {t('导出')}
             </Button>
         ) : null;
 
@@ -620,7 +623,7 @@ export const FilterTable = React.forwardRef<FilterTableApi, FilterTableProps>(
                                 placement="bottomRight"
                                 title={
                                     <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between'}}>
-                                        <span>按列分组</span>
+                                        <span>{t('按列分组')}</span>
                                         {groupFields.length > 0 && (
                                             <Button
                                                 type="link"
@@ -628,7 +631,7 @@ export const FilterTable = React.forwardRef<FilterTableApi, FilterTableProps>(
                                                 style={{padding: 0}}
                                                 onClick={clearGroupFields}
                                             >
-                                                清除
+                                                {t('清除')}
                                             </Button>
                                         )}
                                     </div>
@@ -679,7 +682,7 @@ export const FilterTable = React.forwardRef<FilterTableApi, FilterTableProps>(
                                                                 style={{display: 'flex', gap: 2}}
                                                                 onClick={(event) => event.stopPropagation()}
                                                             >
-                                                                <Tooltip title="往外层">
+                                                                <Tooltip title={t('往外层')}>
                                                                     <Button
                                                                         size="small"
                                                                         type="text"
@@ -688,7 +691,7 @@ export const FilterTable = React.forwardRef<FilterTableApi, FilterTableProps>(
                                                                         onClick={() => moveGroupField(index, -1)}
                                                                     />
                                                                 </Tooltip>
-                                                                <Tooltip title="往内层">
+                                                                <Tooltip title={t('往内层')}>
                                                                     <Button
                                                                         size="small"
                                                                         type="text"
@@ -723,7 +726,7 @@ export const FilterTable = React.forwardRef<FilterTableApi, FilterTableProps>(
                             </Popover>
                         )}
                         <Input.Search
-                            placeholder={searchPlaceholder}
+                            placeholder={resolvedSearchPlaceholder}
                             onSearch={handleSearch}
                             allowClear
                             style={{width: searchWidth}}
@@ -761,7 +764,7 @@ export const FilterTable = React.forwardRef<FilterTableApi, FilterTableProps>(
                         onCellValueChange={onCellValueChange}
                         rowHeight={rowHeight}
                         headerRowHeight={headerRowHeight}
-                        emptyTip={emptyTip ?? '暂无数据'}
+                        emptyTip={emptyTip ?? t('暂无数据')}
                         loading={loading}
                         loadingTip={loadingTip}
                         exportOptions={exportOptions}

@@ -30,6 +30,7 @@ import type { TabsApi } from '../store/tabs';
 import MainLayout from './MainLayout';
 import WorkbenchFilePanel from './WorkbenchFilePanel';
 import './workbench.css';
+import { useI18n } from '@/i18n/context';
 
 /** 用户偏好：左侧 Agent 面板宽度 / 是否收起 */
 const WIDTH_KEY = 'boda_workbench.agent_width';
@@ -113,6 +114,7 @@ function readStoredFilesOpen(): boolean {
 }
 
 const WorkbenchLayout: React.FC = () => {
+  const { t } = useI18n();
   const [agentWidth, setAgentWidth] = useState<number>(readStoredWidth);
   const [collapsed, setCollapsed] = useState<boolean>(readStoredCollapsed);
   const [docked, setDockedState] = useState<boolean>(readStoredFilesOpen);
@@ -393,11 +395,11 @@ const WorkbenchLayout: React.FC = () => {
                 className="workbench-divider"
                 role="separator"
                 aria-orientation="vertical"
-                aria-label="拖动调整助手面板宽度"
+                aria-label={t('拖动调整助手面板宽度')}
                 onPointerDown={handleDragStart}
                 onDoubleClick={handleResetWidth}
               >
-                <Tooltip title="收起助手" placement="left">
+                <Tooltip title={t('收起助手')} placement="left">
                   {/* 收起按钮放在分隔条上：这里已经有「向右收」的视觉语义，不必再占顶栏位置。
                       pointerdown 必须拦住，否则按一下就变成开始拖拽。 */}
                   <button
@@ -425,12 +427,12 @@ const WorkbenchLayout: React.FC = () => {
 
             {collapsed ? (
               <div className="workbench-rail">
-                <Tooltip title="展开智能助手" placement="left">
+                <Tooltip title={t('展开智能助手')} placement="left">
                   <Button type="text" icon={<MenuFoldOutlined />} onClick={handleExpandAgent} />
                 </Tooltip>
                 <RobotOutlined className="workbench-rail-icon" />
                 {/* 竖排文字：图标不能塞进这段里（writing-mode 会把它一起转成竖的） */}
-                <span className="workbench-rail-text">智能助手</span>
+                <span className="workbench-rail-text">{t('智能助手')}</span>
               </div>
             ) : null}
 
@@ -441,7 +443,7 @@ const WorkbenchLayout: React.FC = () => {
                   className="workbench-divider"
                   role="separator"
                   aria-orientation="vertical"
-                  aria-label="拖动调整文件面板宽度"
+                  aria-label={t('拖动调整文件面板宽度')}
                   onPointerDown={handleFilesDragStart}
                   onDoubleClick={handleResetFilesWidth}
                 />

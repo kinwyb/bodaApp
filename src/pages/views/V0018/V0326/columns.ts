@@ -7,6 +7,7 @@
  * 固定列（周/周开始/周结束）在「全部」时包一层「日期」标题组（ShowBands=true）。
  */
 import type {AppColumnDef} from '@/components/grid-table/columnBuilder';
+import type {Translate} from '@/i18n';
 import {
     PRODUCTION_METRICS,
     PRODUCTION_ORGS,
@@ -18,17 +19,17 @@ import {
 export const WEEK_PRODUCTION_ROW_KEY = '_rowKey';
 
 /** orgId 为空串 = 全部组织 */
-export function buildWeekProductionColumns(orgId: string): AppColumnDef[] {
+export function buildWeekProductionColumns(orgId: string, t: Translate): AppColumnDef[] {
     const showAll = orgId === '';
     const visibleOrgs = showAll ? PRODUCTION_ORGS : PRODUCTION_ORGS.filter((org) => org.id === orgId);
-    const period = buildPeriodColumns('week', showAll);
+    const period = buildPeriodColumns('week', showAll, t);
     if (showAll) {
         return [
             ...period,
             ...PRODUCTION_METRICS.map((metric): AppColumnDef => ({
-                title: metric.title,
+                title: t(metric.title),
                 children: visibleOrgs.map((org) =>
-                    buildMetricLeaf(metric, org, org.name, WEEK_PRODUCTION_ROW_KEY, 90)),
+                    buildMetricLeaf(metric, org, t(org.name), WEEK_PRODUCTION_ROW_KEY, 90)),
             })),
         ];
     }
@@ -36,6 +37,6 @@ export function buildWeekProductionColumns(orgId: string): AppColumnDef[] {
         ...period,
         ...PRODUCTION_METRICS.flatMap((metric) =>
             visibleOrgs.map((org) =>
-                buildMetricLeaf(metric, org, `${metric.title}(${org.name})`, WEEK_PRODUCTION_ROW_KEY, 150))),
+                buildMetricLeaf(metric, org, `${t(metric.title)}(${t(org.name)})`, WEEK_PRODUCTION_ROW_KEY, 150))),
     ];
 }

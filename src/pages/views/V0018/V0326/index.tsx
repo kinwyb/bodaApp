@@ -28,6 +28,7 @@ import {useCurrentOrg, useProductionOrgs} from '../productionOrgs';
 import {buildWeekProductionColumns} from './columns';
 import {createWeekProductionBridge, type WeekProductionBridgeContext, type WeekProductionQuery} from './bridged';
 import {ZZDetailModal} from './models/zzDetail';
+import {usePageI18n} from '@/i18n/context';
 
 const MIN_YEAR = 2024;
 
@@ -43,6 +44,7 @@ type ZZDetailTarget = {
 
 const WeekProductionPage: React.FC<ViewPageProps> = ({view, trail}) => {
     const {message} = App.useApp();
+    const {t} = usePageI18n(view);
     const [form] = Form.useForm<SearchValues>();
     const tableRef = useRef<FilterTableApi | null>(null);
     const currentOrg = useCurrentOrg();
@@ -51,12 +53,12 @@ const WeekProductionPage: React.FC<ViewPageProps> = ({view, trail}) => {
     /** 组织候选：只保留义乌/越南（山西已按需求排除），两地齐全时插入「全部」 */
     const orgOptions = useMemo(() => {
         const available = PRODUCTION_ORGS.filter((org) => orgs.some((item) => item.OrgID === org.id));
-        const options = available.map((org) => ({value: org.id, label: org.name}));
+        const options = available.map((org) => ({value: org.id, label: t(org.name)}));
         if (available.length === PRODUCTION_ORGS.length) {
-            options.unshift({value: '', label: '全部'});
+            options.unshift({value: '', label: t('全部')});
         }
         return options;
-    }, [orgs]);
+    }, [orgs, t]);
 
     /** 当前展示的组织；空串 = 全部。默认当前系统组织（store 取，旧客户端 Common.config.OrgID） */
     const [orgId, setOrgId] = useState<string>(() => currentOrg || PRODUCTION_ORGS[0].id);
@@ -84,14 +86,14 @@ const WeekProductionPage: React.FC<ViewPageProps> = ({view, trail}) => {
         setLoading(true);
         try {
             const res = await biApi.productionWeekDateQuery(query.year, false);
-            setRows(buildProductionRows(res.data ?? [], weekPeriodName));
+            setRows(buildProductionRows(res.data ?? [], (item) => weekPeriodName(item, t)));
         } catch (error) {
-            void message.error(ErrorMessage(error, '数据加载失败'));
+            void message.error(ErrorMessage(error, t('数据加载失败')));
         } finally {
             setLoading(false);
             settleQuery();
         }
-    }, [message, query, settleQuery]);
+    }, [message, query, settleQuery, t]);
 
     useEffect(() => {
         void loadData();
@@ -111,7 +113,7 @@ const WeekProductionPage: React.FC<ViewPageProps> = ({view, trail}) => {
             }, 12000);
         }), [form]);
 
-    const columns = useMemo(() => buildWeekProductionColumns(orgId), [orgId]);
+    const columns = useMemo(() => buildWeekProductionColumns(orgId, t), [orgId, t]);
     /** 统计行按旧客户端口径：比率取平均且忽略缺值（组件内置 avg 会把缺值当 0） */
     const summary = useMemo(() => buildSummaryFromColumns(columns), [columns]);
 
@@ -152,18 +154,18 @@ const WeekProductionPage: React.FC<ViewPageProps> = ({view, trail}) => {
                     setQuery({year: (values.year ?? now()).year()});
                 }}
             >
-                <Form.Item name="year" label="年份">
+                <Form.Item name="year" label={t('年份')}>
                     <DatePicker
                         picker="year"
                         allowClear={false}
                         disabledDate={(current) => current.year() < MIN_YEAR || current.isAfter(now(), 'year')}
                     />
                 </Form.Item>
-                <Form.Item label="组织">
+                <Form.Item label={t('组织')}>
                     <Select
                         style={{width: 120}}
                         options={orgOptions}
-                        placeholder="选择组织"
+                        placeholder={t('选择组织')}
                         // 候选未加载或当前组织不在候选里时不显示原始 GUID（旧客户端组合框为空）
                         value={orgOptions.some((option) => option.value === orgId) ? orgId : undefined}
                         onChange={(value: string) => setOrgId(value)}
@@ -172,7 +174,7 @@ const WeekProductionPage: React.FC<ViewPageProps> = ({view, trail}) => {
                 <Form.Item>
                     <Space>
                         <Button type="primary" htmlType="submit" icon={<SearchOutlined/>}>
-                            查询
+                            {t('查询')}
                         </Button>
                     </Space>
                 </Form.Item>
@@ -185,7 +187,7 @@ const WeekProductionPage: React.FC<ViewPageProps> = ({view, trail}) => {
                 loading={loading}
                 showPagination={false}
                 summary={summary}
-                exportName="周生产数据"
+                exportName={t('周生产数据')}
                 onCellDblClick={handleCellDblClick}
             />
             <ZZDetailModal

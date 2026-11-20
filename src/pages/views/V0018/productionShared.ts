@@ -13,6 +13,7 @@ import type {AppColumnDef} from '@/components/grid-table/columnBuilder';
 import {SUMMARY_ROW_KEY} from '@/components/grid-table';
 import type {ProductionWeekData} from '@/api';
 import {toNumberOrZero, toStringOrEmpty} from '@/utils';
+import type {Translate} from '@/i18n';
 
 /** 生产报表的组织：id 是后端组织主键，prefix 是旧客户端拼列名用的前缀（YW/VN） */
 export type ProductionOrg = {
@@ -86,8 +87,16 @@ export const PRODUCTION_METRICS: readonly ProductionMetric[] = [
 ];
 
 /** 周名：`2025第03周`（旧客户端 `string.Format("{0}第{1}周", WeekYear, WeekNum.ToString("00"))`） */
-export function weekPeriodName(d: ProductionWeekData): string {
-    return `${toNumberOrZero(d.WeekYear)}第${String(toNumberOrZero(d.WeekNum)).padStart(2, '0')}周`;
+export function weekPeriodName(d: ProductionWeekData, t?: Translate): string {
+    const year = toNumberOrZero(d.WeekYear);
+    const week = String(toNumberOrZero(d.WeekNum)).padStart(2, '0');
+    if (!t) return `${year}第${week}周`;
+    return t('{year}第{week}周', {
+        vars: {
+            year,
+            week,
+        },
+    });
 }
 
 /** 月名：`2025-03`（旧客户端月数据用 `WeekNum - 60` 还原月份） */
@@ -161,9 +170,15 @@ export function productionFieldFormat(
  * 固定「日期」带区：周（名/开始/结束）或月（名/开始/结束）。
  * grouped 时包一层「日期」标题组 —— 对应旧客户端 `ShowBands = true` 时出现的 gridBand1。
  */
-export function buildPeriodColumns(kind: 'week' | 'month', grouped: boolean): AppColumnDef[] {
+export function buildPeriodColumns(
+    kind: 'week' | 'month',
+    grouped: boolean,
+    t?: Translate,
+): AppColumnDef[] {
     const [nameTitle, startTitle, endTitle] =
-        kind === 'week' ? ['周', '周开始', '周结束'] : ['月', '月开始', '月结束'];
+        kind === 'week'
+            ? [t?.('周') ?? '周', t?.('周开始') ?? '周开始', t?.('周结束') ?? '周结束']
+            : [t?.('月') ?? '月', t?.('月开始') ?? '月开始', t?.('月结束') ?? '月结束'];
     const leaves: AppColumnDef[] = [
         {field: 'WeekName', title: nameTitle, width: 110, minWidth: 90, sortable: true, filterType: 'text'},
         {
@@ -185,7 +200,7 @@ export function buildPeriodColumns(kind: 'week' | 'month', grouped: boolean): Ap
             filterType: 'date'
         },
     ];
-    return grouped ? [{title: '日期', children: leaves}] : leaves;
+    return grouped ? [{title: t?.('日期') ?? '日期', children: leaves}] : leaves;
 }
 
 /** 一个「指标 × 组织」叶子列：汇总方式、显示格式、筛选都按旧客户端的列配置来 */

@@ -19,6 +19,7 @@ import type {
 } from '../types';
 import type { AgentSendPayload } from '../transport';
 import { agentTransportMode, createAgentTransport } from '../transport';
+import { getCurrentLocale } from '@/i18n';
 import {
   clearWaitConfirms,
   consumeWaitConfirm,
@@ -245,6 +246,7 @@ export function useAgentChat(options: AgentChatOptions = {}): AgentChatApi {
         threadId: conversation.threadId,
         content: composeUIEventMessage(events),
         agent: sendAgentOf(conversation, agentRef.current),
+        locale: getCurrentLocale(),
       });
       return true;
     };
@@ -673,6 +675,7 @@ export function useAgentChat(options: AgentChatOptions = {}): AgentChatApi {
         ?.map((file) => file.fileId)
         .filter((id): id is string => Boolean(id)),
       attachments: attachments?.map((file) => ({ name: file.name, size: file.size })),
+      locale: getCurrentLocale(),
     };
     transportRef.current?.send(payload);
   }, []);
@@ -728,6 +731,7 @@ export function useAgentChat(options: AgentChatOptions = {}): AgentChatApi {
           ?.map((file) => file.fileId)
           .filter((id): id is string => Boolean(id)),
         attachments: attachments?.map((file) => ({ name: file.name, size: file.size })),
+        locale: getCurrentLocale(),
       });
     },
     [send],
@@ -807,6 +811,7 @@ export function useAgentChat(options: AgentChatOptions = {}): AgentChatApi {
       threadId: conversation.threadId,
       content: question.content,
       agent: sendAgentOf(conversation, agentRef.current),
+      locale: getCurrentLocale(),
     });
   }, []);
 

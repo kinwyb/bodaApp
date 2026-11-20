@@ -3,6 +3,7 @@ import type {ApiResponse, RequestOptions} from './types';
 import {fetchParsed} from './parse';
 import {API_BASE_URL} from '@/utils/runtime-config';
 import {captureServiceOrg} from '@/utils/service-org';
+import {getCurrentLocale} from '@/i18n';
 
 /**
  * 接口基础路径。后端接口统一带 /v1/boda 前缀。
@@ -157,6 +158,7 @@ export async function request<T = unknown>(
             'Content-Type': useForm
                 ? 'application/x-www-form-urlencoded'
                 : 'application/json',
+            'Accept-Language': getCurrentLocale(),
             // ...(token ? { Authorization: `Bearer ${token}` } : {}),
             ...(token ? {token: `${token}`} : {}),
             ...headers,

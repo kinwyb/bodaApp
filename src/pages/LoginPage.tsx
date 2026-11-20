@@ -10,12 +10,15 @@ import {
   isSsoManualLogout,
   redirectToSsoLogin,
 } from '../utils/sso';
+import LanguageSwitcher from '@/i18n/LanguageSwitcher';
+import { useI18n } from '@/i18n/context';
 
 const { Title, Text } = Typography;
 
 const LoginPage: React.FC = () => {
   const { message } = App.useApp();
   const { login, isAuthenticated } = useAuth();
+  const { t } = useI18n();
   const navigate = useNavigate();
   const [loading, setLoading] = React.useState(false);
   // 统一登录启用时默认展示平台入口；账号密码保留为兜底（平台故障时仍能进系统）
@@ -34,11 +37,11 @@ const LoginPage: React.FC = () => {
     setLoading(true);
     try {
       await login(values.username, values.password);
-      message.success('登录成功');
+      message.success(t('登录成功'));
       navigate('/', { replace: true });
     } catch (error) {
       // 后端返回的提示（如「用户名或密码错误」）比统一的「登录失败」更有用
-      message.error(error instanceof ApiError ? error.message : '登录失败');
+      message.error(error instanceof ApiError ? error.message : t('登录失败'));
     } finally {
       setLoading(false);
     }
@@ -52,19 +55,23 @@ const LoginPage: React.FC = () => {
 
   return (
     <div style={{
+      position: 'relative',
       display: 'flex',
       justifyContent: 'center',
       alignItems: 'center',
       minHeight: '100vh',
       background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
     }}>
+      <div style={{ position: 'absolute', top: 16, right: 20 }}>
+        <LanguageSwitcher />
+      </div>
       <Card
         style={{ width: 'min(400px, calc(100vw - 32px))', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.15)' }}
         styles={{ body: { padding: '40px 32px' } }}
       >
         <div style={{ textAlign: 'center', marginBottom: 32 }}>
           <Title level={2} style={{ marginBottom: 4 }}>BodaWay</Title>
-          <Text type="secondary">企业管理后台系统</Text>
+          <Text type="secondary">{t('企业管理后台系统')}</Text>
         </div>
         {showSsoEntry ? (
           <>
@@ -72,16 +79,16 @@ const LoginPage: React.FC = () => {
               <Alert
                 type="info"
                 showIcon
-                message="您已退出登录"
-                description="再次进入请通过统一登录平台验证身份。"
+                title={t('您已退出登录')}
+                description={t('再次进入请通过统一登录平台验证身份')}
                 style={{ marginBottom: 24 }}
               />
             ) : (
               <Alert
                 type="warning"
                 showIcon
-                message="统一登录未能自动完成"
-                description="自动跳转可能未成功，请重试；或使用下方账号密码登录。"
+                title={t('统一登录未能自动完成')}
+                description={t('自动跳转可能未成功请重试或使用下方账号密码登录')}
                 style={{ marginBottom: 24 }}
               />
             )}
@@ -92,14 +99,14 @@ const LoginPage: React.FC = () => {
               icon={<SafetyCertificateOutlined />}
               onClick={startSsoLogin}
             >
-              统一身份认证登录
+              {t('统一身份认证登录')}
             </Button>
             <Divider plain style={{ margin: '20px 0 12px' }}>
-              <Text type="secondary" style={{ fontSize: 12 }}>其它方式</Text>
+              <Text type="secondary" style={{ fontSize: 12 }}>{t('其它方式')}</Text>
             </Divider>
             <div style={{ textAlign: 'center' }}>
               <Button type="link" size="small" onClick={() => setUsePassword(true)}>
-                使用账号密码登录
+                {t('使用账号密码登录')}
               </Button>
             </div>
           </>
@@ -113,19 +120,19 @@ const LoginPage: React.FC = () => {
             >
               <Form.Item
                 name="username"
-                rules={[{ required: true, message: '请输入用户名' }]}
+                rules={[{ required: true, message: t('请输入用户名') }]}
               >
-                <Input prefix={<UserOutlined />} placeholder="用户名" />
+                <Input prefix={<UserOutlined />} placeholder={t('用户名')} />
               </Form.Item>
               <Form.Item
                 name="password"
-                rules={[{ required: true, message: '请输入密码' }]}
+                rules={[{ required: true, message: t('请输入密码') }]}
               >
-                <Input.Password prefix={<LockOutlined />} placeholder="密码" />
+                <Input.Password prefix={<LockOutlined />} placeholder={t('密码')} />
               </Form.Item>
               <Form.Item style={{ marginBottom: isSsoEnabled ? 12 : 24 }}>
                 <Button type="primary" htmlType="submit" loading={loading} block>
-                  登 录
+                  {t('登 录')}
                 </Button>
               </Form.Item>
             </Form>

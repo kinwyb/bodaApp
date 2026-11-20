@@ -13,6 +13,7 @@ import type { ColumnsDefine, ListTableConstructorOptions } from '@visactor/vtabl
 import { TableExportPlugin } from '@visactor/vtable-plugins';
 import type { TableExportPluginOptions } from '@visactor/vtable-plugins';
 import { isDebugEnv } from '@/utils';
+import { useI18n } from '@/i18n/context';
 import {
   toDataTableCellStyle,
   type GridTableCellStyleHook,
@@ -479,6 +480,7 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
   onActiveSelectionChange,
   onSelectedChange,
 }, ref) => {
+  const { t } = useI18n();
   /**
    * 列定义归一化：传 `AppColumnDef[]` 时自动用 buildColumns 转成 `ColumnsDefine`；
    * 传原生 `ColumnsDefine` 时原样返回（**引用不变**，不会白白触发表格重建）。
@@ -1354,7 +1356,7 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
               ) => {
                 const headerLevel = table?.columnHeaderLevelCount ?? 0;
                 const current = row ?? headerLevel;
-                if (isSummaryRow(current, table)) return '汇总';
+                if (isSummaryRow(current, table)) return t('汇总');
                 if (hasGroup && isGroupRow(table?.getCellOriginRecord?.(0, current))) return '';
                 return current - headerLevel + 1;
               },
@@ -2181,6 +2183,7 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
     group?.indent,
     frozenColCount,
     rowNumber,
+    t,
     checkboxSelection,
     hasExpandable,
   ]);

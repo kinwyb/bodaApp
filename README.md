@@ -70,6 +70,7 @@ src/
 │   ├── grid-table/   # GridTable / FilterTable 体系（基于 @visactor/vtable 的封装）
 │   ├── commands/     # 页面命令（CommandBar 的按钮从哪来、怎么分组排序）
 │   └── nc/           # NC(ERP) 相关弹窗与 BOM 矩阵
+├── i18n/         # 多语言 locale、菜单资源、页面覆盖与切换组件
 ├── layouts/
 │   ├── MainLayout.tsx       # 菜单 + 页签 + 工作台级界面桥
 │   └── WorkbenchLayout.tsx  # 左主布局 + 右 Agent 面板（可拖拽分栏）
@@ -509,6 +510,7 @@ flex 高度链），宽度存 localStorage 并收敛（左 ≥360、右 ≥720�
 | 接口 Schema 生成                                        | `docs/API-Schema生成.md`                                                                                                                          |
 | **生成 app / 桌面打包**（环境、产物、生产地址、签名）   | `docs/桌面应用打包.md`                                                                                                                            |
 | 统一登录（SSO）配置与回跳契约                           | `docs/统一登录SSO.md`                                                                                                                             |
+| 多语言架构、页面接入、菜单迁移与 Agent 语言协议          | `docs/多语言架构与使用.md`                                                                                                                        |
 | **界面桥的契约，看代码注释**                            | `src/pages/agent/protocol/ui.ts`（协议）、`src/pages/agent/ui-bridge/`（实现）                                                                    |
 | **接入示例，看这三个文件**                              | `src/pages/views/V0189/V0279/V0280/bridged.ts`（页面层）、`.../models/yupaiOrderEditBridge.ts`（弹窗层）、`.../models/yupaiOrderEdit.tsx`（注册） |
 | **一页多表（标签页）示例**                              | `src/pages/views/V0277/V0354/bridged.ts`（三张表的拼法 + `tab.switch`）、`src/components/nc/bomMatrix/`（控件只交列定义与 ref）                  |

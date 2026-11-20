@@ -1,6 +1,7 @@
 import React from 'react';
 import { Breadcrumb } from 'antd';
 import type { ViewTrailItem } from '@/pages/types';
+import { useI18n } from '@/i18n/context';
 
 export interface PageBreadcrumbProps {
   /** 从根到当前菜单的层级 */
@@ -14,12 +15,13 @@ export interface PageBreadcrumbProps {
  * <PageBreadcrumb trail={trail} />
  */
 export const PageBreadcrumb: React.FC<PageBreadcrumbProps> = ({ trail, className }) => {
+  const { t } = useI18n();
   if (!trail || trail.length === 0) return null;
   return (
     <Breadcrumb
       className={className ? `page-breadcrumb ${className}` : 'page-breadcrumb'}
       style={{ marginBottom: 12 }}
-      items={trail.map((item) => ({ title: item.name }))}
+      items={trail.map((item) => ({ title: t(item.name, { scope: 'menu' }) }))}
     />
   );
 };

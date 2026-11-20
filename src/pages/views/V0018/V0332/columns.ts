@@ -7,6 +7,7 @@
  * 组织切换只影响叶子列的显隐（全部 = 两地都显示）。
  */
 import type {AppColumnDef} from '@/components/grid-table/columnBuilder';
+import type {Translate} from '@/i18n';
 import {buildPeriodColumns, PRODUCTION_ORGS, productionFieldFormat} from '../productionShared';
 
 /** 行主键：隐藏字段，值 = 周名（不用可见列 WeekName，避免统计行泄漏 __summary__） */
@@ -25,9 +26,13 @@ const MACHINE_METRICS: ReadonlyArray<{ field: string; title: string }> = [
 export type MachineCounts = Record<string, Partial<Record<string, number>>>;
 
 /** orgId 为空串 = 全部组织 */
-export function buildMachineWeekColumns(orgId: string, counts: MachineCounts): AppColumnDef[] {
+export function buildMachineWeekColumns(
+    orgId: string,
+    counts: MachineCounts,
+    t: Translate,
+): AppColumnDef[] {
     const visibleOrgs = orgId === '' ? PRODUCTION_ORGS : PRODUCTION_ORGS.filter((org) => org.id === orgId);
-    const period = buildPeriodColumns('week', true);
+    const period = buildPeriodColumns('week', true, t);
     // 未知组织（不在两地之内）时旧客户端所有数据列都隐藏，只剩固定列
     if (visibleOrgs.length === 0) return period;
     const sizeGroups: AppColumnDef[] = MACHINE_SIZES.map((size) => {
@@ -36,15 +41,17 @@ export function buildMachineWeekColumns(orgId: string, counts: MachineCounts): A
             ? Object.values(sizeCounts).reduce<number>((sum, count) => sum + (count ?? 0), 0)
             : undefined;
         return {
-            title: total !== undefined ? `${size}寸(${total})` : `${size}寸`,
+            title: total !== undefined
+                ? t('{size}寸({count})', {vars: {size, count: total}})
+                : t('{size}寸', {vars: {size}}),
             children: MACHINE_METRICS.map((metric): AppColumnDef => ({
-                title: metric.title,
+                title: t(metric.title),
                 children: visibleOrgs.map((org) => {
                     const field = org.prefix + metric.field + size;
                     const count = sizeCounts?.[org.prefix];
                     return {
                         field,
-                        title: count !== undefined ? `${org.name}(${count})` : org.name,
+                        title: count !== undefined ? `${t(org.name)}(${count})` : t(org.name),
                         width: 100,
                         minWidth: 80,
                         dataType: 'double' as const,

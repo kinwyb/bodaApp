@@ -2,10 +2,6 @@ import React, { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { App as AntdApp, Spin } from 'antd';
 import { XProvider } from '@ant-design/x';
-import zhCN from 'antd/locale/zh_CN';
-import zhCNX from '@ant-design/x/locale/zh_CN';
-import dayjs from 'dayjs';
-import 'dayjs/locale/zh-cn';
 
 import { AuthProvider } from './store/auth';
 import { useAuth } from './store/auth-context';
@@ -21,8 +17,8 @@ import LoginPage from './pages/LoginPage';
 import MainLayout from './layouts/MainLayout';
 import WorkbenchLayout from './layouts/WorkbenchLayout';
 import AgentChatPage from './pages/agent';
-
-dayjs.locale('zh-cn');
+import { LocaleProvider } from './i18n/provider';
+import { useLocale } from './i18n/context';
 
 const CenteredSpin: React.FC = () => (
   <div
@@ -80,11 +76,12 @@ const Protected: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   return <PermissionProvider>{children}</PermissionProvider>;
 };
 
-const App: React.FC = () => {
+const LocalizedApp: React.FC = () => {
+  const { componentLocale } = useLocale();
   return (
     // XProvider 完全继承 antd 的 ConfigProvider，另外带上 x 组件自己的文案
     <XProvider
-      locale={{ ...zhCN, ...zhCNX }}
+      locale={componentLocale}
       theme={{
         token: {
           borderRadius: 6,
@@ -131,5 +128,11 @@ const App: React.FC = () => {
     </XProvider>
   );
 };
+
+const App: React.FC = () => (
+  <LocaleProvider>
+    <LocalizedApp />
+  </LocaleProvider>
+);
 
 export default App;

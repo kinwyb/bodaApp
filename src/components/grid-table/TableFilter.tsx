@@ -6,6 +6,7 @@ import type { FilterType } from './columnBuilder';
 // 空条件判定与「过滤时跳过该字段」共用同一份实现（见 filtering.ts）：
 // 各写一套会出现「标签上写着筛了、数据却没变」这类对不上的情况
 import { isEmptyFilterCondition as isEmpty } from './filtering';
+import { useI18n } from '@/i18n/context';
 
 /** 可筛选的列：类型决定用哪种筛选控件。通常不用手写 —— FilterTable 从列定义的 `filterType` 自动收集 */
 export interface FilterField {
@@ -59,6 +60,7 @@ function describe(condition: FilterCondition, type: FilterField['type']): string
  * - text：包含
  */
 export const TableFilter: React.FC<TableFilterProps> = ({ fields, options, value, onChange, extra }) => {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<FilterModel>(value);
 
@@ -127,7 +129,7 @@ export const TableFilter: React.FC<TableFilterProps> = ({ fields, options, value
     return (
       <Input
         allowClear
-        placeholder="包含关键字"
+        placeholder={t('包含关键字')}
         value={condition.text}
         onChange={(event) => patch(item.field, { text: event.target.value })}
       />
@@ -154,7 +156,7 @@ export const TableFilter: React.FC<TableFilterProps> = ({ fields, options, value
             setOpen(false);
           }}
         >
-          清空
+          {t('清空')}
         </Button>
         <Button
           size="small"
@@ -168,7 +170,7 @@ export const TableFilter: React.FC<TableFilterProps> = ({ fields, options, value
             setOpen(false);
           }}
         >
-          确定
+          {t('确定')}
         </Button>
       </div>
     </div>
@@ -186,7 +188,7 @@ export const TableFilter: React.FC<TableFilterProps> = ({ fields, options, value
         <Badge count={activeFields.length} size="small">
           {/* 不设 size：默认尺寸与工具栏里的分组按钮 / 搜索框对齐（曾是 small，明显矮一截） */}
           <Button icon={<FilterOutlined />}>
-            筛选
+            {t('筛选')}
           </Button>
         </Badge>
       </Popover>
@@ -209,7 +211,7 @@ export const TableFilter: React.FC<TableFilterProps> = ({ fields, options, value
 
       {activeFields.length > 0 && (
         <Button size="small" type="link" onClick={() => onChange({})}>
-          清空筛选
+          {t('清空筛选')}
         </Button>
       )}
     </div>
