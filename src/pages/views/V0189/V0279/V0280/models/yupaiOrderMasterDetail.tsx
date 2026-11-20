@@ -1,6 +1,5 @@
 import React, {useMemo} from 'react';
 import {GridTable} from "@/components/grid-table";
-import {buildColumns} from "@/components/grid-table/columnBuilder.ts";
 import {toNumberOrZero} from "@/utils";
 import {Tabs, type TabsProps} from "antd";
 
@@ -27,7 +26,7 @@ export interface YupaiOrderMasterDetailProps {
 const YupaiOrderMasterDetail: React.FC<YupaiOrderMasterDetailProps> = ({records}) => {
 
     const columns = useMemo(() => {
-        return buildColumns([
+        return [
             {
                 field: 'BatchDate', title: t("出货日期"), width: 80, dataType: "date"
             },
@@ -38,7 +37,7 @@ const YupaiOrderMasterDetail: React.FC<YupaiOrderMasterDetailProps> = ({records}
                     return (rate * 100).toFixed(2) + "%";
                 },
             },
-        ]);
+        ];
     }, []);
 
     const items: TabsProps['items'] = [

@@ -1,5 +1,4 @@
-import type {ColumnsDefine} from '@visactor/vtable';
-import {buildColumns, type AppColumnLeafDef} from '@/components/grid-table/columnBuilder';
+import type {AppColumnLeafDef} from '@/components/grid-table/columnBuilder';
 import {
     registerAntdInputEditor,
     registerAntdNumberEditor, registerAntdSelectEditor,
@@ -204,9 +203,6 @@ export const DETAIL_EDITOR_FIELDS: Record<string, string> = Object.fromEntries(
  * 只声明「展示成什么」，编辑器由 GridTable 通过 editableFields 统一注入，
  * 所以这里不区分只读/可编辑：只读就是不传 editableFields。
  */
-export function buildPreorderDetailColumns(): ColumnsDefine {
-    return buildColumns(DETAIL_COLUMNS);
-}
 
 /** 新建一行空白明细，供用户直接在表格里输入。数值字段的空 = null（不是 0） */
 export function createDetailRow(id: string): yupaiOrderDetailRow {

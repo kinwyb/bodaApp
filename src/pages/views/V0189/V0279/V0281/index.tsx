@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect, useMemo, useRef, useState} from "react";
+import React, {useCallback, useEffect, useRef, useState} from "react";
 import type {ViewPageProps} from "@/pages/types.ts";
 import {App, Button, DatePicker, Form, Input, Select, Space} from "antd";
 import {PageBreadcrumb} from "@/components/PageBreadcrumb.tsx";
@@ -15,7 +15,7 @@ import type {YupaiOrderChangeAction, YupaiOrderChangeDetail} from "@/api/modules
 import {yupaiService} from "@/services/yupai.ts";
 import {ErrorMessage} from "@/api/request.ts";
 import {DATE_FORMAT, formatDate, now} from "@/utils";
-import {buildYupaiOrderChangeListColumns} from "@/pages/views/V0189/V0279/V0281/columns.ts";
+import {COLUMNS} from "@/pages/views/V0189/V0279/V0281/columns.ts";
 import {usePageTitle, useTabTitle} from "@/store/tab-title-context";
 
 import { createPageTranslator } from '@/i18n';
@@ -95,7 +95,7 @@ const YupaiOrderChangePage: React.FC<ViewPageProps> = ({trail, params}) => {
         [message, query],
     );
 
-    const columns = useMemo(() => buildYupaiOrderChangeListColumns(), []);
+    const columns = COLUMNS;
 
     const cellStyle = useCallback((info: GridTableCellStyleInfo) => {
         if (info.isSummaryRow || !info.record || info.field != 'ActionName') return undefined;

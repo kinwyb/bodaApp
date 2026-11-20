@@ -131,6 +131,8 @@ export default {
   清空当前对话: 'Clear conversation',
   新对话: 'New chat',
   新建对话: 'New conversation',
+  主要用在打印工序条码时使用: 'Mainly used when printing process barcodes.',
+  '保存成功后（拿到矩阵主键）才可用': 'Available after saving succeeds and the matrix ID is returned.',
   '还没有连接到后端服务': 'Not connected to the backend service.',
   '正在连接后端服务…': 'Connecting to the backend service...',
   连接正常: 'Connected',

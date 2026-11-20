@@ -1,5 +1,4 @@
-import type {ColumnsDefine} from '@visactor/vtable';
-import {buildColumns, type AppColumnDef} from '@/components/grid-table/columnBuilder';
+import type {AppColumnDef} from '@/components/grid-table/columnBuilder';
 import {registerAntdDatePickerEditor, registerAntdNumberEditor} from '@/components/grid-table/editors/register';
 import {DATE_FORMAT, formatDate, toDayjs, toNumberOrNull, toStringOrEmpty} from '@/utils';
 
@@ -223,7 +222,7 @@ export function batchEditableFields(byDate: boolean): Record<string, string> {
  * 日期列不用 `dataType: 'date'`：单元格里存的始终是完整日期，
  * 按月模式只该显示到月 —— 交给 fieldFormat 按当前粒度裁剪，两种模式共用一份数据。
  */
-export function buildBatchColumns(byDate: boolean): ColumnsDefine {
+export function buildBatchColumns(byDate: boolean): AppColumnDef[] {
     const columns: AppColumnDef[] = [
         {
             field: 'BatchDate',
@@ -247,5 +246,5 @@ export function buildBatchColumns(byDate: boolean): ColumnsDefine {
             },
         },
     ];
-    return buildColumns(columns);
+    return columns;
 }

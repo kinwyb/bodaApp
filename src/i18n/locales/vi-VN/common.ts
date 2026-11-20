@@ -131,6 +131,8 @@ export default {
   清空当前对话: 'Xóa hội thoại hiện tại',
   新对话: 'Hội thoại mới',
   新建对话: 'Tạo hội thoại mới',
+  主要用在打印工序条码时使用: 'Chủ yếu dùng khi in mã vạch công đoạn.',
+  '保存成功后（拿到矩阵主键）才可用': 'Chỉ dùng được sau khi lưu thành công và có mã ma trận.',
   '还没有连接到后端服务': 'Chưa kết nối dịch vụ backend.',
   '正在连接后端服务…': 'Đang kết nối dịch vụ backend...',
   连接正常: 'Kết nối bình thường',

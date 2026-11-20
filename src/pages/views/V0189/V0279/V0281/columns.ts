@@ -1,11 +1,10 @@
-import {type AppColumnDef, buildColumns} from "@/components/grid-table/columnBuilder.ts";
-import type {ColumnsDefine} from "@visactor/vtable";
+import type {AppColumnDef} from "@/components/grid-table/columnBuilder.ts";
 
 /**
  * 列定义：dataType 决定渲染控件（text / int / double / date / boolean / tag），
  * filterType 决定这一列进不进筛选面板（不配 = 不参与筛选）。
  */
-const COLUMNS: AppColumnDef[] = [
+export const COLUMNS: AppColumnDef[] = [
     {field: 'WorkPlace', title: '产地', width: 90, filterType: 'enum'},
     {field: 'ChangeDate', title: '修改日期', width: 100, dataType: 'date', sortable: true},
     {field: 'OrderCode', title: '订单号', width: 110, sortable: true, filterType: 'enum'},
@@ -21,7 +20,3 @@ const COLUMNS: AppColumnDef[] = [
     {field: 'ChangeTime', title: '修改时间', width: 140, dataType: 'datetime'},
     {field: 'ChangeEmployee', title: '修改人', width: 120},
 ];
-
-export function buildYupaiOrderChangeListColumns(): ColumnsDefine {
-    return buildColumns(COLUMNS);
-}

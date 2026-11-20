@@ -19,7 +19,7 @@ import {useTabs} from '@/store/tabs';
 import {yupaiService} from '@/services/yupai.ts';
 import {isBlank} from '@/utils';
 import {createYupaiOrderBridge, type YupaiOrderBridgeContext} from './bridged';
-import {buildPreorderColumns} from './columns';
+import {COLUMNS} from './columns';
 import YupaiOrderEdit from './models/yupaiOrderEdit';
 import YupaiOrderMasterDetail from './models/yupaiOrderMasterDetail.tsx';
 import YupaiOrderBatchModal from './models/yupaiOrderBatch.tsx';
@@ -259,7 +259,7 @@ const YupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
         settingsCommandContext,
     );
 
-    const columns = useMemo(() => buildPreorderColumns(), []);
+    const columns = COLUMNS;
 
     /**
      * 行展开：有分批数据（`Batchs`）的行才给展开，展开区里是分批明细（Tabs + 明细表格）。

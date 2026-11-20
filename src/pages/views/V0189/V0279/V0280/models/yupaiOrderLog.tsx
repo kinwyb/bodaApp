@@ -1,11 +1,10 @@
 import {Modal} from "antd";
 import {GridTable, type GridTableCellStyle, type GridTableCellStyleHook} from "@/components/grid-table";
-import React, {useCallback, useEffect, useMemo, useState} from "react";
+import React, {useCallback, useEffect, useState} from "react";
 import {COLUMNS} from "../columns.ts";
 import type {YupaiOrder} from "@/api";
 import {yupaiService} from "@/services/yupai.ts";
-import type {ColumnsDefine} from "@visactor/vtable";
-import {type AppColumnDef, buildColumns} from "@/components/grid-table/columnBuilder";
+import type {AppColumnDef} from "@/components/grid-table/columnBuilder";
 import {toNumberOrZero} from "@/utils";
 
 export interface yupaiOrderLogModalProps {
@@ -15,7 +14,7 @@ export interface yupaiOrderLogModalProps {
     onCancel: () => void;
 }
 
-const columns: AppColumnDef[] = [...COLUMNS,
+const LOG_COLUMNS: AppColumnDef[] = [...COLUMNS,
     {field: 'CreateTime', title: '创建时间', width: 140, dataType: 'datetime'},
     {field: 'CreateUser', title: '创建人', width: 110,},
     {field: 'UpdateTime', title: '更新时间', width: 140, dataType: 'datetime'},
@@ -24,11 +23,6 @@ const columns: AppColumnDef[] = [...COLUMNS,
     {field: 'DelUser', title: '取消人', width: 110},
 ]
 
-function buildPreorderColumns(): ColumnsDefine {
-    return buildColumns(columns);
-}
-
-
 export const YupaiOrderLogModal: React.FC<yupaiOrderLogModalProps> = ({
                                                                           open,
                                                                           onCancel,
@@ -36,7 +30,7 @@ export const YupaiOrderLogModal: React.FC<yupaiOrderLogModalProps> = ({
                                                                       }) => {
 
     const [dataSource, setDataSource] = useState<YupaiOrder[]>([]);
-    const columns = useMemo(() => buildPreorderColumns(), []);
+    const columns = LOG_COLUMNS;
 
     const loadData = useCallback(async () => {
         const data = await yupaiService.log(yupaiOrderID);

@@ -25,6 +25,7 @@ import {
 } from './departmentTree';
 
 import { createPageTranslator } from '@/i18n';
+import { useLocale } from '@/i18n/context';
 
 const t = createPageTranslator("V0005_V0010");
 
@@ -113,6 +114,7 @@ function renderNodeTitle(node: DepartmentTreeNode, mutedColor: string): React.Re
 }
 
 const DepartmentPage: React.FC<ViewPageProps> = ({view, trail}) => {
+    const {locale} = useLocale();
     const {message, modal} = App.useApp();
     const {token} = theme.useToken();
     const [form] = Form.useForm<DepartmentFormValues>();
@@ -403,8 +405,9 @@ const DepartmentPage: React.FC<ViewPageProps> = ({view, trail}) => {
                             <Form
                                 form={form}
                                 disabled={formDisabled}
-                                labelCol={{flex: '0 0 88px'}}
-                                wrapperCol={{flex: '1 1 auto'}}
+                                layout={locale === 'zh-CN' ? 'horizontal' : 'vertical'}
+                                labelCol={locale === 'zh-CN' ? {flex: '0 0 88px'} : undefined}
+                                wrapperCol={locale === 'zh-CN' ? {flex: '1 1 auto'} : undefined}
                                 labelAlign="right"
                                 onValuesChange={() => {
                                     const current = editorRef.current;
@@ -431,7 +434,7 @@ const DepartmentPage: React.FC<ViewPageProps> = ({view, trail}) => {
                                         options={DEPARTMENT_ATTRIBUTES.map((item) => ({value: item, label: t(item)}))}
                                     />
                                 </Form.Item>
-                                <Form.Item label={t("部门简码")} name="Code" extra="主要用在打印工序条码时使用">
+                                <Form.Item label={t("部门简码")} name="Code" extra={t("主要用在打印工序条码时使用")}>
                                     <Input allowClear maxLength={10} style={{width: 120}}/>
                                 </Form.Item>
                                 <Form.Item label={t("是否显示")} name="Visible" valuePropName="checked">

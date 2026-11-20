@@ -53,6 +53,7 @@ import {
 import './processRouteMatrixEdit.css';
 
 import { createPageTranslator } from '@/i18n';
+import { useLocale } from '@/i18n/context';
 
 const t = createPageTranslator("V0277_V0367");
 
@@ -134,6 +135,7 @@ function matrixLabelOf(matrix: ProcessRouteMatrix): string {
 const ProcessRouteMatrixEdit: React.FC<ProcessRouteMatrixEditProps> = ({
                                                                            open, view, mode, record, onSaved, onClose,
                                                                        }) => {
+    const {locale} = useLocale();
 
     const {message, modal} = App.useApp();
     const [form] = Form.useForm<Record<string, unknown>>();
@@ -789,7 +791,7 @@ const ProcessRouteMatrixEdit: React.FC<ProcessRouteMatrixEditProps> = ({
                     <Divider orientation="vertical" className="process-matrix-edit-divider"/>
                     <Button type="text" className="process-matrix-edit-action" icon={<CloudUploadOutlined/>}
                             disabled={!hasRecord}
-                            title={hasRecord ? undefined : '保存成功后（拿到矩阵主键）才可用'}
+                            title={hasRecord ? undefined : t('保存成功后（拿到矩阵主键）才可用')}
                             onClick={() => setPushOpen(true)}>{t("发布")}</Button>
                 </div>
 
@@ -799,7 +801,7 @@ const ProcessRouteMatrixEdit: React.FC<ProcessRouteMatrixEditProps> = ({
                     // 详情到达后由 `loadDetail` 补齐（initialValues 只管首帧）
                     initialValues={(record ?? {}) as Record<string, unknown>}
                     layout="horizontal"
-                    labelCol={{flex: '72px'}}
+                    labelCol={{flex: locale === 'zh-CN' ? '72px' : '120px'}}
                     colon={false}
                     size="small"
                 >

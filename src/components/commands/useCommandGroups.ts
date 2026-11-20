@@ -2,6 +2,7 @@ import {useMemo} from 'react';
 import type {CommandItem} from '@/components/CommandBar';
 import {isDebugEnv} from '@/utils';
 import type {CommandFactory} from './types';
+import {usePageI18n} from '@/i18n/context';
 
 /** 一组命令：context 与 factories 一一对应；不同组可以喂各自不同的 context */
 export interface CommandGroup<TContext extends object = object> {
@@ -63,6 +64,7 @@ export function useCommandGroups(
     groups: ReadonlyArray<AnyCommandGroup>,
     options?: {order?: readonly string[]},
 ): CommandItem[] {
+    const {t} = usePageI18n();
     const order = options?.order;
     return useMemo(() => {
         const items = groups.flatMap(({context, factories}) =>
@@ -87,5 +89,5 @@ export function useCommandGroups(
             }
         }
         return sorted;
-    }, [groups, order]);
+    }, [groups, order, t]);
 }

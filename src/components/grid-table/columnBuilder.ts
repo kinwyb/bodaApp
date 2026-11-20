@@ -442,6 +442,29 @@ export function normalizeColumns(
   return isAppColumnDefs(columns) ? buildColumns(columns, translate) : (columns as ColumnsDefine);
 }
 
+export function localizeNativeColumns(
+  columns: ColumnsDefine,
+  translate: Translate = defaultTranslate,
+): ColumnsDefine {
+  return columns.map((column) => {
+    const raw = column as ColumnsDefine[number] & {
+      title?: string | ((...args: unknown[]) => string);
+      columns?: ColumnsDefine;
+      children?: ColumnsDefine;
+    };
+    const next = { ...raw };
+    const title = raw.title;
+    if (typeof title === 'string') {
+      next.title = translate(title);
+    } else if (typeof title === 'function') {
+      next.title = (...args: unknown[]) => translate(String(title(...args) ?? ''));
+    }
+    if (Array.isArray(raw.columns)) next.columns = localizeNativeColumns(raw.columns, translate);
+    if (Array.isArray(raw.children)) next.children = localizeNativeColumns(raw.children, translate);
+    return next as ColumnsDefine[number];
+  }) as ColumnsDefine;
+}
+
 /**
  * 取一个节点下的子列：转换后的原生分组列用 `columns`，
  * 未转换的 `AppColumnDef` 标题组用 `children`。两个键都不会出现在同一列上。

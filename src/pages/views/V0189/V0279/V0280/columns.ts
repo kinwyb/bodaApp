@@ -1,7 +1,6 @@
-import type {ColumnsDefine} from '@visactor/vtable';
 import type {YupaiOrder} from '@/api';
 import {YupaiMachineSizeHeader} from '@/api'
-import {type AppColumnDef, buildColumns} from '@/components/grid-table/columnBuilder';
+import type {AppColumnDef} from '@/components/grid-table/columnBuilder';
 import {ORG_NAME} from "@/store/orgs.ts";
 
 /**
@@ -75,7 +74,3 @@ export const COLUMNS: AppColumnDef[] = [
         }
     }),
 ];
-
-export function buildPreorderColumns(): ColumnsDefine {
-    return buildColumns(COLUMNS);
-}

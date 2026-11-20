@@ -1,6 +1,7 @@
 import {useMemo} from 'react';
 import type {CommandItem} from '@/components/CommandBar';
 import type {CommandFactory} from './types';
+import {usePageI18n} from '@/i18n/context';
 
 /**
  * 组装命令条：按 factories 顺序逐个执行工厂，展开成 CommandItem[]。
@@ -21,12 +22,13 @@ export function useCommands<TContext extends object>(
     context: TContext,
     factories: CommandFactory<TContext>[],
 ): CommandItem[] {
+    const {t} = usePageI18n();
     return useMemo(
         () =>
             factories.flatMap((factory) => {
                 const created = factory(context);
                 return Array.isArray(created) ? created : [created];
             }),
-        [context, factories],
+        [context, factories, t],
     );
 }

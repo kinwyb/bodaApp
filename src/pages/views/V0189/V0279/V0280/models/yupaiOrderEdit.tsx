@@ -15,7 +15,7 @@ import {EmployeeQuickSelect} from '@/components/quick-select';
 import type {FormMode} from '../command';
 import {alignMenuIcons, toMenuIcon} from '@/components/grid-table/menuIcon';
 import {
-    buildPreorderDetailColumns,
+    DETAIL_COLUMNS,
     createDetailRow,
     DETAIL_EDITOR_FIELDS,
     setCurrentOrderCode,
@@ -419,7 +419,7 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
         }, [form, open, record, mode]);
 
         // 列定义只描述展示，是否可编辑由下面的 editableFields 决定
-        const detailColumns = useMemo(() => buildPreorderDetailColumns(), []);
+        const detailColumns = DETAIL_COLUMNS;
 
         /**
          * 右键菜单「添加行」：不传 afterRowKey 表示追加到末尾，传了则插到该行之后。

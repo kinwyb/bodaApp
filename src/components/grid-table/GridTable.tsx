@@ -57,6 +57,7 @@ import {
 import {
   collectColumnAggregates,
   collectDefaultSort,
+  localizeNativeColumns,
   normalizeColumns,
   type AppColumnDef,
 } from './columnBuilder';
@@ -486,7 +487,10 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
    * 传原生 `ColumnsDefine` 时原样返回（**引用不变**，不会白白触发表格重建）。
    * 组件内部一律用归一化后的 columns。
    */
-  const columns = useMemo(() => normalizeColumns(columnsProp, t), [columnsProp, t]);
+  const columns = useMemo(
+    () => localizeNativeColumns(normalizeColumns(columnsProp, t), t),
+    [columnsProp, t],
+  );
   const containerRef = useRef<HTMLDivElement>(null);
   const tableRef = useRef<ListTable | null>(null);
   /** 构造时的完整 options：updateOption 需要完整配置，否则 theme / 行高等会被重置为默认值 */
