@@ -41,6 +41,11 @@ import {
 } from './orderInfo';
 import {useOrderInfoEditors} from './useOrderInfoEditors';
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0120_V0121");
+
+
 type SearchValues = {
     startDate: Dayjs;
     endDate: Dayjs;
@@ -142,7 +147,7 @@ const OrderInfoPage: React.FC<ViewPageProps> = ({view, trail}) => {
         try {
             const result = await misProductionMonitorApi.orderList(queryToReq(payload), controller.signal);
             if (seq !== querySeqRef.current) {
-                return {ok: false, message: '查询已被新的查询取代', total: rowsRef.current.length};
+                return {ok: false, message: t("查询已被新的查询取代"), total: rowsRef.current.length};
             }
             const next = (result.data ?? []).map(withFlagString);
             tableRef.current?.getTable()?.cancelEditCell();
@@ -155,7 +160,7 @@ const OrderInfoPage: React.FC<ViewPageProps> = ({view, trail}) => {
             return {ok: true, message: `查询成功，共 ${next.length} 条记录`, total: next.length};
         } catch (error) {
             if (seq !== querySeqRef.current) {
-                return {ok: false, message: '查询已被新的查询取代', total: rowsRef.current.length};
+                return {ok: false, message: t("查询已被新的查询取代"), total: rowsRef.current.length};
             }
             const text = timedOut ? '查询超时，请稍后重试' : ErrorMessage(error, '数据加载失败');
             void message.error(text);
@@ -203,7 +208,7 @@ const OrderInfoPage: React.FC<ViewPageProps> = ({view, trail}) => {
     }, [loading, saving, updateEditing]);
 
     const save = useCallback(async (): Promise<OrderInfoSaveResult> => {
-        if (!editingRef.current) return {ok: true, message: '当前没有处于编辑态'};
+        if (!editingRef.current) return {ok: true, message: t("当前没有处于编辑态")};
         const committed = await commitActiveEditor(tableRef);
         if (!committed) {
             const text = '当前单元格校验未通过，请修正后重试，或按 ESC 放弃本次输入';
@@ -216,7 +221,7 @@ const OrderInfoPage: React.FC<ViewPageProps> = ({view, trail}) => {
         });
         if (dirtyRows.length === 0) {
             updateEditing(false);
-            return {ok: true, message: '没有改动，已退出编辑'};
+            return {ok: true, message: t("没有改动，已退出编辑")};
         }
         const issues = validateSaveRows(dirtyRows);
         if (issues.length > 0) {
@@ -403,15 +408,15 @@ const OrderInfoPage: React.FC<ViewPageProps> = ({view, trail}) => {
                     });
                 }}
             >
-                <Form.Item name="startDate" label="开始日期" rules={[{required: true, message: '请选择开始日期'}]}>
+                <Form.Item name="startDate" label={t("开始日期")} rules={[{required: true, message: t("请选择开始日期")}]}>
                     <DatePicker allowClear={false} style={{width: 140}}/>
                 </Form.Item>
                 <Form.Item
                     name="endDate"
-                    label="结束日期"
+                    label={t("结束日期")}
                     dependencies={['startDate']}
                     rules={[
-                        {required: true, message: '请选择结束日期'},
+                        {required: true, message: t("请选择结束日期")},
                         ({getFieldValue}) => ({
                             validator(_, value: Dayjs | undefined) {
                                 const start = getFieldValue('startDate') as Dayjs | undefined;
@@ -425,16 +430,15 @@ const OrderInfoPage: React.FC<ViewPageProps> = ({view, trail}) => {
                 >
                     <DatePicker allowClear={false} style={{width: 140}}/>
                 </Form.Item>
-                <Form.Item name="orderCode" label="订单号">
+                <Form.Item name="orderCode" label={t("订单号")}>
                     <OrderCodeSelect style={{width: 130}}/>
                 </Form.Item>
-                <Form.Item name="machineCode" label="机台号">
+                <Form.Item name="machineCode" label={t("机台号")}>
                     <Input allowClear style={{width: 100}}/>
                 </Form.Item>
                 <Form.Item>
                     <Button type="primary" htmlType="submit" icon={<SearchOutlined/>} loading={loading}>
-                        查询
-                    </Button>
+                        {t("查询")}</Button>
                 </Form.Item>
             </Form>
             <FilterTable
@@ -443,8 +447,8 @@ const OrderInfoPage: React.FC<ViewPageProps> = ({view, trail}) => {
                 records={rows}
                 rowKey="ID"
                 loading={loading}
-                emptyTip="没有任何记录"
-                exportName="订单信息补充"
+                emptyTip={t("没有任何记录")}
+                exportName={t("订单信息补充")}
                 editableFields={editableFields}
                 canEditCell={editors.canEditCell}
                 cellTooltip={editors.cellTooltip}

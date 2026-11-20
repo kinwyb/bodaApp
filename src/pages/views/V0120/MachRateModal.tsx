@@ -7,6 +7,11 @@ import type {AppColumnDef} from '@/components/grid-table';
 import {useUIBridgeDialog} from '@/pages/agent/ui-bridge';
 import type {UIDialogHost} from '@/pages/agent/ui-bridge';
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0120");
+
+
 const MACH_RATE_COLUMNS: AppColumnDef[] = [
     {field: 'WorkDate', title: '日期', width: 110, dataType: 'date', filterType: 'date'},
     {field: 'EmployeeNo', title: '员工号', width: 100, filterType: 'text'},
@@ -70,22 +75,22 @@ export function MachRateModal({
             mode: 'view',
             recordId: employeeNo || null,
             fields: [
-                {id: 'Month', label: '月份', type: 'text', value: month, readOnly: true},
-                {id: 'EmployeeNo', label: '员工号', type: 'text', value: employeeNo, readOnly: true},
+                {id: 'Month', label: t("月份"), type: 'text', value: month, readOnly: true},
+                {id: 'EmployeeNo', label: t("员工号"), type: 'text', value: employeeNo, readOnly: true},
                 {
                     id: 'Rows',
-                    label: '效率明细',
+                    label: t("效率明细"),
                     type: 'text',
                     value: JSON.stringify(rows),
                     readOnly: true,
-                    hint: '只读明细 JSON；包含日期、员工、机台、效率、产量和奖金',
+                    hint: t("只读明细 JSON；包含日期、员工、机台、效率、产量和奖金"),
                 },
             ],
             errors: [],
         }),
         actions: () => [
-            {id: 'rate.reload', label: '重新加载效率明细', group: 'form'},
-            {id: 'form.cancel', label: '关闭', group: 'form'},
+            {id: 'rate.reload', label: t("重新加载效率明细"), group: 'form'},
+            {id: 'form.cancel', label: t("关闭"), group: 'form'},
         ],
         handlers: {
             'rate.reload': async () => {
@@ -117,7 +122,7 @@ export function MachRateModal({
                     records={rows}
                     rowKey="_rowKey"
                     loading={loading}
-                    emptyTip="没有任何记录"
+                    emptyTip={t("没有任何记录")}
                 />
             </div>
         </Modal>

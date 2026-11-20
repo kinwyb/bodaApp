@@ -23,6 +23,11 @@ import {
     type YupaiCancelledCommandContext,
 } from './command';
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0189_V0279_V0283");
+
+
 /**
  * V0189_V0279_V0283 计划管理 > 预订单 > 预排取消列表
  *
@@ -134,7 +139,7 @@ const YupaiCancelledPage: React.FC<ViewPageProps> = ({view, trail}) => {
                 multiSelect
                 loading={loading}
                 emptyTip={loading ? '加载中…' : '没有任何记录'}
-                exportName="预排取消列表"
+                exportName={t("预排取消列表")}
                 cellStyle={cellStyle}
                 onActiveSelectionChange={(info) => setActiveRowCount(info.rowCount)}
                 onSelectedChange={handleSelectedChange}

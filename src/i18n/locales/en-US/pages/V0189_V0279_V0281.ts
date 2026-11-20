@@ -1,0 +1,26 @@
+import type { LocaleMessages } from '../../../types';
+
+export default {
+  "下生产单": "Create production order",
+  "事件": "Event",
+  "产地": "Origin",
+  "修改人": "Modified by",
+  "修改前": "Before",
+  "修改后": "After",
+  "修改字段": "Modified fields",
+  "修改日期": "Modification date",
+  "修改时间": "Modified at",
+  "删除": "Delete",
+  "恢复": "Restore",
+  "搜索": "Search",
+  "新增": "Add",
+  "更新": "Update",
+  "款号": "Product Code",
+  "款式描述": "Style description",
+  "款式数量": "Style quantity",
+  "状态": "Status",
+  "确认日期": "Confirmed date",
+  "订单号": "Order Code",
+  "走货日期": "Shipment date",
+  "重置": "Reset",
+} satisfies LocaleMessages;

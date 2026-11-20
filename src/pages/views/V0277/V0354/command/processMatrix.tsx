@@ -1,6 +1,11 @@
 import {ToolOutlined} from '@ant-design/icons';
 import type {PackBomMatrixCommandFactory} from './types';
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0277_V0354");
+
+
 /**
  * 工艺矩阵：打开这一份包装 BOM 对应的工艺矩阵。
  *
@@ -14,12 +19,12 @@ export const processMatrixCommand: PackBomMatrixCommandFactory = ({
     openProcessMatrix,
 }) => ({
     key: 'processMatrix',
-    label: '工艺矩阵',
+    label: t("工艺矩阵"),
     icon: <ToolOutlined/>,
     disabled: !hasSelection,
     onClick: () => {
         if (!activeRow) {
-            void message.warning('请先选中一行矩阵');
+            void message.warning(t("请先选中一行矩阵"));
             return;
         }
         openProcessMatrix(activeRow);

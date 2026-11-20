@@ -1,15 +1,20 @@
 import {EditOutlined} from '@ant-design/icons';
 import type {ProcessRouteMatrixCommandFactory} from './types';
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0277_V0367");
+
+
 /** 编辑：取选中的那一行，打开编辑表单 */
 export const editCommand: ProcessRouteMatrixCommandFactory = ({message, activeRow, hasSelection, openForm}) => ({
     key: 'edit',
-    label: '编辑',
+    label: t("编辑"),
     icon: <EditOutlined/>,
     disabled: !hasSelection,
     onClick: () => {
         if (!activeRow) {
-            void message.warning('请先选中一份工艺路线矩阵');
+            void message.warning(t("请先选中一份工艺路线矩阵"));
             return;
         }
         openForm('edit', activeRow);

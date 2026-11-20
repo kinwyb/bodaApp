@@ -1,5 +1,7 @@
 import type { ColumnsDefine, TextColumnDefine, TYPES } from '@visactor/vtable';
 import { formatDate, formatDateTime } from '@/utils';
+import type { Translate } from '@/i18n';
+import { translate as defaultTranslate } from '@/i18n';
 import type { GroupAggregate, GroupAggregateType } from './group';
 import type { GridTableSortState } from './sorting';
 import { formatTagValue, type ColumnTagItemLike } from './tag';
@@ -253,14 +255,18 @@ function mergeStyle(base: AppColumnStyle | undefined, override: AppColumnStyle):
 }
 
 /** 把带数据类型的列定义转成 GridTable 的列配置 */
-export function buildColumns(defs: AppColumnDef[]): ColumnsDefine {
+export function buildColumns(
+  defs: AppColumnDef[],
+  translate: Translate = defaultTranslate,
+): ColumnsDefine {
+  const titleOf = (title: string): string => translate(title);
   const columns = defs.map((def) => {
     // 标题组：转成 @visactor/vtable 原生的分组列 —— 只有 title + columns，
     // 本身不是数据列（不产生单元格），宽度由子列宽度相加得到
     if ('children' in def) {
       return {
-        title: def.title,
-        columns: buildColumns(def.children),
+        title: titleOf(def.title),
+        columns: buildColumns(def.children, translate),
         // 分组表头同样支持对齐（分组列没有独立的 minWidth / maxWidth，宽度由子列相加）
         ...(def.headerAlign ? { headerStyle: { textAlign: def.headerAlign } } : {}),
         // 兜底口子：可透传 headerStyle / hideColumnsSubHeader 等原生分组列配置
@@ -271,7 +277,7 @@ export function buildColumns(defs: AppColumnDef[]): ColumnsDefine {
     const field = def.field;
     const base: Record<string, unknown> = {
       field,
-      title: def.title,
+      title: titleOf(def.title),
       ...(def.width ? { width: def.width } : {}),
       // 0 也是有效值（明确要求最小 0），所以只跳过 undefined
       ...(def.minWidth !== undefined ? { minWidth: def.minWidth } : {}),
@@ -429,8 +435,11 @@ export function isAppColumnDefs(
  * GridTable / FilterTable / QuickSelectModal 的 columns 属性都走这里，
  * 所以页面既可以 `columns={buildColumns(COLUMNS)}`，也可以直接 `columns={COLUMNS}`。
  */
-export function normalizeColumns(columns: ColumnsDefine | AppColumnDef[]): ColumnsDefine {
-  return isAppColumnDefs(columns) ? buildColumns(columns) : (columns as ColumnsDefine);
+export function normalizeColumns(
+  columns: ColumnsDefine | AppColumnDef[],
+  translate: Translate = defaultTranslate,
+): ColumnsDefine {
+  return isAppColumnDefs(columns) ? buildColumns(columns, translate) : (columns as ColumnsDefine);
 }
 
 /**
@@ -490,7 +499,10 @@ export interface GroupableColumn {
   group: boolean;
 }
 
-export function collectGroupableColumns(columns: ColumnSource): GroupableColumn[] {
+export function collectGroupableColumns(
+  columns: ColumnSource,
+  translate: Translate = defaultTranslate,
+): GroupableColumn[] {
   const result: GroupableColumn[] = [];
   const seen = new Set<string>();
 
@@ -518,10 +530,11 @@ export function collectGroupableColumns(columns: ColumnSource): GroupableColumn[
       if (typeof cell.field !== 'string' || seen.has(cell.field)) continue;
       seen.add(cell.field);
       const rawTitle = cell.title;
-      const title =
+      const rawTitleText =
         typeof rawTitle === 'function'
           ? String((rawTitle as () => string)())
           : String(rawTitle ?? cell.field);
+      const title = translate(rawTitleText);
       result.push({ field: cell.field, title, group: cell.group === true });
     }
   };
@@ -544,7 +557,10 @@ export type FilterableColumn = {
  * `title` 是函数就先调一次拿文本；同一个字段只保留第一次出现。顺序与 columns 一致。
  * 没配 `filterType` 的列不参与筛选。
  */
-export function collectFilterFields(columns: ColumnSource): FilterableColumn[] {
+export function collectFilterFields(
+  columns: ColumnSource,
+  translate: Translate = defaultTranslate,
+): FilterableColumn[] {
   const result: FilterableColumn[] = [];
   const seen = new Set<string>();
 
@@ -567,10 +583,11 @@ export function collectFilterFields(columns: ColumnSource): FilterableColumn[] {
       if (typeof cell.filterType !== 'string') continue;
       seen.add(cell.field);
       const rawTitle = cell.title;
-      const title =
+      const rawTitleText =
         typeof rawTitle === 'function'
           ? String((rawTitle as () => string)())
           : String(rawTitle ?? cell.field);
+      const title = translate(rawTitleText);
       result.push({ field: cell.field, title, type: cell.filterType as FilterType });
     }
   };

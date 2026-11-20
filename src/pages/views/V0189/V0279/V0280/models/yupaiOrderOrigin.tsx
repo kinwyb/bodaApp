@@ -6,6 +6,11 @@ import {ORG_SELECT_OPTIONS} from "@/store/orgs.ts";
 import type {YupaiOrderOrgSettings} from "@/api/modules/yupai.ts";
 import {ErrorMessage} from "@/api/request.ts";
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0189_V0279_V0280");
+
+
 export interface YupaiOrderOriginModalProps {
     open: boolean;
     order: YupaiOrder | null;
@@ -48,7 +53,7 @@ const YupaiOrderOriginModal: React.FC<YupaiOrderOriginModalProps> = ({
         try {
             isDebugEnv && console.log('[工段产地设置] 提交数据', payload);
             await yupaiApi.orgSetting(payload);
-            void message.success('保存成功');
+            void message.success(t("保存成功"));
             onSaved();
         } catch (error) {
             void message.error(ErrorMessage(error, '组织产地保存失败'))
@@ -66,7 +71,7 @@ const YupaiOrderOriginModal: React.FC<YupaiOrderOriginModalProps> = ({
     return (
         <Modal
             open={open}
-            title="工段产地设置"
+            title={t("工段产地设置")}
             width={420}
             destroyOnHidden
             footer={null}
@@ -74,28 +79,28 @@ const YupaiOrderOriginModal: React.FC<YupaiOrderOriginModalProps> = ({
             onCancel={onCancel}
         >
             <div style={{display: 'flex', alignItems: 'center', marginTop: 16}}>
-                <span style={labelStyle}>订单号：</span>
+                <span style={labelStyle}>{t("订单号：")}</span>
                 <Input
                     style={{flex: 1}}
-                    placeholder="订单号"
+                    placeholder={t("订单号")}
                     value={toStringOrEmpty(order?.OrderCode)}
                     readOnly
                 />
             </div>
             <div style={{display: 'flex', alignItems: 'center', marginTop: 16}}>
-                <span style={labelStyle}>款号：</span>
+                <span style={labelStyle}>{t("款号：")}</span>
                 <Input
                     style={{flex: 1}}
-                    placeholder="款号"
+                    placeholder={t("款号")}
                     value={toStringOrEmpty(order?.StyleCode)}
                     readOnly
                 />
             </div>
             <div style={{display: 'flex', alignItems: 'center', marginTop: 16}}>
-                <span style={labelStyle}>织造产地：</span>
+                <span style={labelStyle}>{t("织造产地：")}</span>
                 <Select
                     style={{flex: 1}}
-                    placeholder="请选择"
+                    placeholder={t("请选择")}
                     showSearch
                     options={ORG_SELECT_OPTIONS}
                     value={knitOrgID || undefined}
@@ -104,10 +109,10 @@ const YupaiOrderOriginModal: React.FC<YupaiOrderOriginModalProps> = ({
             </div>
 
             <div style={{display: 'flex', alignItems: 'center', marginTop: 12}}>
-                <span style={labelStyle}>缝制产地：</span>
+                <span style={labelStyle}>{t("缝制产地：")}</span>
                 <Select
                     style={{flex: 1}}
-                    placeholder="请选择"
+                    placeholder={t("请选择")}
                     showSearch
                     options={ORG_SELECT_OPTIONS}
                     value={orgID || undefined}
@@ -117,8 +122,7 @@ const YupaiOrderOriginModal: React.FC<YupaiOrderOriginModalProps> = ({
 
             <div style={{display: 'flex', justifyContent: 'flex-end', marginTop: 24}}>
                 <Button type="primary" style={{minWidth: 88}} onClick={handleSave}>
-                    保存
-                </Button>
+                    {t("保存")}</Button>
             </div>
         </Modal>
     );

@@ -12,6 +12,7 @@ import { Button, Empty, Popconfirm, Popover, Tooltip } from 'antd';
 import { DeleteOutlined, LoadingOutlined, MessageOutlined, PlusOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import type { AgentConversation } from '../types';
+import { useI18n } from '@/i18n/context';
 
 /** 列表里的时间：今天只给时分，昨天给「昨天」，更早给日期（浮层只有 264px 宽） */
 function formatTime(timestamp: number): string {
@@ -52,6 +53,7 @@ export const AgentConversationPanel: React.FC<{
   onDelete,
   onLoadMore,
 }) => {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
 
   /** 打开时刷新一次（别的端可能刚聊过）；关闭时不请求，避免每次点叉都打一次接口 */
@@ -85,12 +87,12 @@ export const AgentConversationPanel: React.FC<{
   const content = (
     <div className="agent-conv-panel">
       <Button block className="agent-conv-new" icon={<PlusOutlined />} onClick={handleCreate}>
-        新建对话
+        {t('新建对话')}
       </Button>
 
       <div className="agent-conv-list">
         {items.length === 0 ? (
-          <Empty className="agent-conv-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有会话" />
+          <Empty className="agent-conv-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('还没有会话')} />
         ) : (
           items.map(({ conversation, time }) => {
             // 只有已落库、能定位到 thread 的会话才能软删除；本地新建草稿没有可删记录。
@@ -109,8 +111,8 @@ export const AgentConversationPanel: React.FC<{
                 <MessageOutlined className="agent-conv-icon" />
                 <div className="agent-conv-body">
                   <div className="agent-conv-line">
-                    <span className="agent-conv-label" title={conversation.label}>
-                      {conversation.label}
+                    <span className="agent-conv-label" title={t(conversation.label)}>
+                      {t(conversation.label)}
                     </span>
                     <span className="agent-conv-time">{time}</span>
                   </div>
@@ -122,15 +124,15 @@ export const AgentConversationPanel: React.FC<{
                 {deletable ? (
                   <div className="agent-conv-actions" onClick={(event) => event.stopPropagation()}>
                     <Popconfirm
-                      title="删除这个对话？"
-                      description="删除后不再出现在列表，也不能继续加载历史记录。"
-                      okText="删除"
-                      cancelText="取消"
+                      title={t('删除这个对话？')}
+                      description={t('删除后不再出现在列表，也不能继续加载历史记录。')}
+                      okText={t('删除')}
+                      cancelText={t('取消')}
                       okButtonProps={{ danger: true }}
                       disabled={deleting}
                       onConfirm={() => onDelete(conversation.key)}
                     >
-                      <Tooltip title="删除对话">
+                      <Tooltip title={t('删除对话')}>
                         <Button
                           type="text"
                           size="small"
@@ -138,7 +140,7 @@ export const AgentConversationPanel: React.FC<{
                           className="agent-conv-delete"
                           icon={<DeleteOutlined />}
                           loading={deleting}
-                          aria-label="删除对话"
+                          aria-label={t('删除对话')}
                         />
                       </Tooltip>
                     </Popconfirm>
@@ -153,14 +155,14 @@ export const AgentConversationPanel: React.FC<{
       <div className="agent-conv-footer">
         {loading ? (
           <span className="agent-conv-tip">
-            <LoadingOutlined /> 加载中
+            <LoadingOutlined /> {t('加载中')}
           </span>
         ) : hasMore ? (
           <Button type="link" size="small" className="agent-conv-loadmore" onClick={onLoadMore}>
-            加载更早的对话
+            {t('加载更早的对话')}
           </Button>
         ) : (
-          <span className="agent-conv-tip">共 {items.length} 个对话</span>
+          <span className="agent-conv-tip">{t('共 {count} 个对话', { vars: { count: items.length } })}</span>
         )}
       </div>
     </div>
@@ -176,8 +178,8 @@ export const AgentConversationPanel: React.FC<{
       content={content}
     >
       {/* 用「对话」图标而不是历史记录的回旋箭头：后者和断线重连的图标几乎一样 */}
-      <Tooltip title="对话记录">
-        <Button type="text" icon={<MessageOutlined />} aria-label="对话记录" />
+      <Tooltip title={t('对话记录')}>
+        <Button type="text" icon={<MessageOutlined />} aria-label={t('对话记录')} />
       </Tooltip>
     </Popover>
   );

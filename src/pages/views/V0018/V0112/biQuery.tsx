@@ -8,6 +8,11 @@ import type {ColumnsDefine} from "@visactor/vtable";
 import {sqlApi} from "@/api";
 import {type AppColumnDef, buildColumns} from "@/components/grid-table/columnBuilder.ts";
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0018_V0112");
+
+
 export interface BIQueryParamProps {
     open: boolean;
     node?: BIList;
@@ -122,8 +127,7 @@ export const BIQueryParam: React.FC<BIQueryParamProps> = ({open, node, onClose, 
                         }
                     }}
                 >
-                    确定
-                </Button>
+                    {t("确定")}</Button>
             </div>
         </div>
     );

@@ -13,6 +13,11 @@ import {emitActiveUIEvent, useUIBridgeHost} from "@/pages/agent/ui-bridge";
 import {createBIReportBridge, type BIReportBridgeContext} from "./bridged";
 import {ORG_NAME} from "@/store/orgs";
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0018_V0112");
+
+
 
 /**
  * 常规报表界面
@@ -57,7 +62,7 @@ const BIPage: React.FC<ViewPageProps> = ({view, trail}) => {
     const confirmQuery = useCallback((draft: BIList, path: string) => {
         setConfirming(true);
         modal.confirm({
-            title: '确认查询这张报表？',
+            title: t("确认查询这张报表？"),
             width: 460,
             content: (
                 <Descriptions
@@ -69,8 +74,8 @@ const BIPage: React.FC<ViewPageProps> = ({view, trail}) => {
                         content: {color: 'rgba(0, 0, 0, 0.88)', fontWeight: 500},
                     }}
                     items={[
-                        {key: '__name', label: '报表', children: draft.BIName},
-                        {key: '__path', label: '所在目录', children: path || '(根目录)'},
+                        {key: '__name', label: t("报表"), children: draft.BIName},
+                        {key: '__path', label: t("所在目录"), children: path || '(根目录)'},
                         ...draft.Args.map((arg) => ({
                             key: arg.Field,
                             label: arg.Name,
@@ -81,8 +86,8 @@ const BIPage: React.FC<ViewPageProps> = ({view, trail}) => {
                     ]}
                 />
             ),
-            okText: '执行查询',
-            cancelText: '取消',
+            okText: t("执行查询"),
+            cancelText: t("取消"),
             onOk: () => {
                 setConfirming(false);
                 emitActiveUIEvent('action.outcome', {
@@ -97,7 +102,7 @@ const BIPage: React.FC<ViewPageProps> = ({view, trail}) => {
                 emitActiveUIEvent('action.outcome', {
                     actionId: 'report.query',
                     outcome: 'cancelled',
-                    message: '用户取消了查询，未执行',
+                    message: t("用户取消了查询，未执行"),
                 });
             },
         });

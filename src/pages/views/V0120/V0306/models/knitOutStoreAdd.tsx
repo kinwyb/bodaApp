@@ -11,6 +11,11 @@ import {
     type KnitOutStoreAddBridgeContext,
 } from './knitOutStoreAddBridge';
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0120_V0306");
+
+
 const SCAN_COLUMNS = [
     {field: 'RowNo', title: '行号', width: 60, dataType: 'int' as const},
     {field: 'OrderCode', title: '订单号', width: 115},
@@ -49,18 +54,18 @@ export function KnitOutStoreAdd({
         const trimmed = code.trim();
         if (!trimmed) return;
         if (rows.some((row) => row.QRCode === trimmed)) {
-            void message.warning('重复条码');
+            void message.warning(t("重复条码"));
             return;
         }
         setLoading(true);
         try {
             const result = await misProductionApi.productOutStoreQrcodeData(trimmed);
             if (!result.data) {
-                void message.warning('没有查到条码数据');
+                void message.warning(t("没有查到条码数据"));
                 return;
             }
             if (rows.some((row) => row.QRCode === result.data?.QRCode)) {
-                void message.warning('重复条码');
+                void message.warning(t("重复条码"));
                 return;
             }
             setRows((previous) => [
@@ -81,7 +86,7 @@ export function KnitOutStoreAdd({
             const result = await misProductionApi.productOutStoreBillSave(rows);
             const [nextBillCode] = (result.data ?? '').split('|');
             setBillCode(nextBillCode ?? '');
-            void message.success('出库单保存成功');
+            void message.success(t("出库单保存成功"));
             onSaved();
         } catch (error) {
             void message.error(ErrorMessage(error, '出库单保存失败'));
@@ -108,23 +113,23 @@ export function KnitOutStoreAdd({
     return (
         <Modal
             open={open}
-            title="新增白坯出库单"
+            title={t("新增白坯出库单")}
             width={980}
             destroyOnHidden
             footer={null}
             onCancel={onClose}
         >
             <div style={{display: 'flex', gap: 16, marginBottom: 12}}>
-                <span>单据号：{billCode || '-'}</span>
-                <span>制单日期：{billDate}</span>
-                <span>制单人：{createUser || '-'}</span>
+                <span>{t("单据号：")}{billCode || '-'}</span>
+                <span>{t("制单日期：")}{billDate}</span>
+                <span>{t("制单人：")}{createUser || '-'}</span>
             </div>
             <Input.Search
                 autoFocus
                 allowClear
                 value={barcode}
                 loading={loading}
-                placeholder="扫描或输入条码后回车"
+                placeholder={t("扫描或输入条码后回车")}
                 enterButton="添加条码"
                 onChange={(event) => setBarcode(event.target.value)}
                 onSearch={(value) => void addBarcode(value)}
@@ -136,14 +141,13 @@ export function KnitOutStoreAdd({
                     records={rows}
                     rowKey="QRCode"
                     loading={loading}
-                    emptyTip="没有任何记录"
+                    emptyTip={t("没有任何记录")}
                     showSummary
                 />
             </div>
             <div style={{display: 'flex', justifyContent: 'flex-end', marginTop: 16}}>
                 <Button type="primary" loading={loading} disabled={rows.length === 0} onClick={() => void submit()}>
-                    保存
-                </Button>
+                    {t("保存")}</Button>
             </div>
         </Modal>
     );

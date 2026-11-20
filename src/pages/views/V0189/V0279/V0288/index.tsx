@@ -17,6 +17,11 @@ import {
 } from './bridged';
 import {YUPAI_COMPLETED_COLUMNS} from './columns';
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0189_V0279_V0288");
+
+
 const DATE_TYPE_OPTIONS: Array<{value: YupaiOrderCompleteDateType; label: string}> = [
     {value: 1, label: '下单日期'},
     {value: 2, label: '走货日期'},
@@ -151,20 +156,19 @@ const YupaiCompletedPage: React.FC<ViewPageProps> = ({view, trail, params}) => {
                     });
                 }}
             >
-                <Form.Item name="dateType" label="日期类型">
+                <Form.Item name="dateType" label={t("日期类型")}>
                     <Select style={{width: 110}} options={DATE_TYPE_OPTIONS}/>
                 </Form.Item>
-                <Form.Item name="startDate" label="开始日期">
+                <Form.Item name="startDate" label={t("开始日期")}>
                     <DatePicker allowClear={false}/>
                 </Form.Item>
-                <Form.Item name="endDate" label="结束日期">
+                <Form.Item name="endDate" label={t("结束日期")}>
                     <DatePicker allowClear={false}/>
                 </Form.Item>
                 <Form.Item>
                     <Space>
                         <Button type="primary" htmlType="submit" icon={<SearchOutlined/>}>
-                            查询
-                        </Button>
+                            {t("查询")}</Button>
                     </Space>
                 </Form.Item>
             </Form>
@@ -175,7 +179,7 @@ const YupaiCompletedPage: React.FC<ViewPageProps> = ({view, trail, params}) => {
                 rowKey="ID"
                 loading={loading}
                 emptyTip={loading ? '加载中…' : '没有任何记录'}
-                exportName="预订单已下单"
+                exportName={t("预订单已下单")}
                 groupable
                 filters={filters}
                 onFilterChange={setFilters}

@@ -4,6 +4,11 @@ import {emitActiveUIEvent} from '@/pages/agent/ui-bridge';
 import type {YupaiOrderCommandFactory} from './types';
 import {toNumberOrZero} from "@/utils";
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0189_V0279_V0280");
+
+
 /**
  * 发布只对 Status === 0 的预订单开放 —— 状态一旦推进（非 0）就不再允许发布。
  * 没有激活行时（多选后 Ctrl+A 全选、选中被清空、只点了表头）也返回 false：按钮该是灰的。
@@ -19,7 +24,7 @@ function canOpenSubmit(row: YupaiOrder | null): boolean {
 /** 发布订单：发布后不能取消，二次确认后批量提交 */
 export const publishCommand: YupaiOrderCommandFactory = ({message, modal, getSelectedRows, activeRow, reload}) => ({
     key: 'publish',
-    label: '发布',
+    label: t("发布"),
     icon: <SendOutlined/>,
     permission: '发布',
     // 点下去只弹二次确认，发布在 onOk 里做：agent 调它只会收到「已触发、等用户确认」
@@ -29,7 +34,7 @@ export const publishCommand: YupaiOrderCommandFactory = ({message, modal, getSel
     onClick: () => {
         const targets = getSelectedRows();
         if (targets.length === 0) {
-            message.warning('请选择一条数据').then();
+            message.warning(t("请选择一条数据")).then();
             return;
         }
         const content = targets.length > 1
@@ -37,9 +42,9 @@ export const publishCommand: YupaiOrderCommandFactory = ({message, modal, getSel
             : `发布订单:${targets[0].OrderCode} 款号: ${targets[0].StyleCode}`;
         modal.confirm({
             icon: <ExclamationCircleOutlined/>,
-            title: '发布确认',
+            title: t("发布确认"),
             content,
-            okText: '确认',
+            okText: t("确认"),
             okButtonProps: {danger: true},
             mask: {blur: true},
             onCancel: () => {

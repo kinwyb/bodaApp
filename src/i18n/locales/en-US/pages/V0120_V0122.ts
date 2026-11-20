@@ -1,0 +1,27 @@
+import type { LocaleMessages } from '../../../types';
+
+export default {
+  "刷新": "Refresh",
+  "厂别": "Factory type",
+  "开始日期": "Start Date",
+  "挡车工名称": "Name of the machinist",
+  "挡车工编号": "Machinist number",
+  "排班记录缺少有效 ID，无法保存": "The schedule record has no valid ID and cannot be saved.",
+  "操作人": "Operation of",
+  "日期": "Date",
+  "日期格式应为 YYYY-MM-DD": "Date format must be YYYY-MM-DD.",
+  "最后更新时间": "Last Updated Time",
+  "机修工名称": "Mechanic name",
+  "机修工编号": "Mechanic number",
+  "机台号": "Machine no.",
+  "查询": "Query",
+  "查询已被新的查询取代": "The query was superseded by a newer query.",
+  "毛坯全检工名称": "Blank whole name",
+  "毛坯全检工编号": "Blank all inspection work number",
+  "没有任何记录": "No Records",
+  "班次": "shift",
+  "班组": "team",
+  "结束日期": "End Date",
+  "踩毛边工名称": "Hit the burrs name",
+  "踩毛边工编号": "On flash work number",
+} satisfies LocaleMessages;

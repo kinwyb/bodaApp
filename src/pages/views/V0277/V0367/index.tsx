@@ -22,6 +22,11 @@ import {ErrorMessage} from "@/api/request.ts";
 import {SearchOutlined} from "@ant-design/icons";
 import {createProcessRouteMatrixBridge, type ProcessRouteMatrixBridgeContext} from "./bridged";
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0277_V0367");
+
+
 /**
  * V0277_V0367 工艺路线矩阵
  *
@@ -412,19 +417,18 @@ const NCProcessRouteMatrixPage: React.FC<ViewPageProps> = ({view, trail, params}
                 }}
             >
                 <div className="preorder-form-toolbar">
-                    <span className="pf-label">物料: </span>
+                    <span className="pf-label">{t("物料:")}</span>
                     <Form.Item name="materialCode">
                         <Input allowClear/>
                     </Form.Item>
-                    <span className="pf-label">项目: </span>
+                    <span className="pf-label">{t("项目:")}</span>
                     <Form.Item name="ProjectCode">
                         <Input allowClear/>
                     </Form.Item>
                     <Form.Item>
                         <Space>
                             <Button type="primary" htmlType="submit" icon={<SearchOutlined/>}>
-                                查询
-                            </Button>
+                                {t("查询")}</Button>
                         </Space>
                     </Form.Item>
                 </div>

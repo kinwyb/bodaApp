@@ -5,6 +5,11 @@ import {emitActiveUIEvent} from '@/pages/agent/ui-bridge';
 import {yupaiService} from '@/services/yupai';
 import type {YupaiOrderCommandFactory} from './types';
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0189_V0279_V0280");
+
+
 /**
  * 已下订单复制：先按订单号把订单查出来，再打开一份「复制」表单。
  *
@@ -19,7 +24,7 @@ import type {YupaiOrderCommandFactory} from './types';
  */
 export const copyOrderedCommand: YupaiOrderCommandFactory = ({message, modal, openForm}) => ({
     key: 'copyOrdered',
-    label: '已下订单复制',
+    label: t("已下订单复制"),
     icon: <CopyOutlined/>,
     // 点下去只弹「输入订单号」的确认框，表单在弹窗关闭后才打开：agent 调它只会收到「已触发、等用户确认」
     waitConfirm: true,
@@ -35,21 +40,21 @@ export const copyOrderedCommand: YupaiOrderCommandFactory = ({message, modal, op
          */
         let pending: YupaiOrder | null = null;
         modal.confirm({
-            title: '已下订单复制',
+            title: t("已下订单复制"),
             icon: <CopyOutlined/>,
             content: (
                 <div className="copy-order-confirm">
                     <Input
                         autoFocus
                         allowClear
-                        placeholder="请输入要复制的订单号"
+                        placeholder={t("请输入要复制的订单号")}
                         onChange={(event) => {
                             orderCode = event.target.value;
                         }}
                     />
                 </div>
             ),
-            okText: '查询',
+            okText: t("查询"),
             mask: {blur: true},
             onCancel: () => {
                 emitActiveUIEvent('action.outcome', {
@@ -67,7 +72,7 @@ export const copyOrderedCommand: YupaiOrderCommandFactory = ({message, modal, op
             onOk: async () => {
                 const code = orderCode.trim();
                 if (!code) {
-                    void message.warning('请输入订单号');
+                    void message.warning(t("请输入订单号"));
                     // 返回 rejected promise，弹窗保持打开，不丢已输入的内容
                     return Promise.reject();
                 }
@@ -100,19 +105,19 @@ export const copyOrderedCommand: YupaiOrderCommandFactory = ({message, modal, op
  *  「已下订单复制」已接入业务，见 ./copyOrdered.tsx */
 export const copyCommand: YupaiOrderCommandFactory = ({message, getSelectedRows, hasSelection, openForm}) => ({
     key: 'copy',
-    label: '复制',
+    label: t("复制"),
     icon: <CopyOutlined/>,
     disabled: !hasSelection,
     dividerBefore: true,
     onClick: () => {
         const targets = getSelectedRows();
         if (targets.length < 1) {
-            void message.warning('请选择一条数据');
+            void message.warning(t("请选择一条数据"));
             return;
         }
         const orderCode = targets[0].OrderCode;
         if (!orderCode) {
-            void message.warning("目标数据订单号空,无法复制")
+            void message.warning(t("目标数据订单号空,无法复制"))
             return;
         }
         openForm('copy', targets[0]);

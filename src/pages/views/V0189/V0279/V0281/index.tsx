@@ -18,6 +18,11 @@ import {DATE_FORMAT, formatDate, now} from "@/utils";
 import {buildYupaiOrderChangeListColumns} from "@/pages/views/V0189/V0279/V0281/columns.ts";
 import {usePageTitle, useTabTitle} from "@/store/tab-title-context";
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0189_V0279_V0281");
+
+
 interface SearchValues {
     orderCode?: string;
     dateRange?: [Dayjs, Dayjs];
@@ -128,19 +133,18 @@ const YupaiOrderChangePage: React.FC<ViewPageProps> = ({trail, params}) => {
                 }}
             >
                 <Form.Item name="status" hidden={true}>
-                    <Select placeholder="状态" allowClear style={{width: 120}} options={actionOptions}/>
+                    <Select placeholder={t("状态")} allowClear style={{width: 120}} options={actionOptions}/>
                 </Form.Item>
                 <Form.Item name="dateRange">
                     <DatePicker.RangePicker/>
                 </Form.Item>
                 <Form.Item name="orderCode">
-                    <Input placeholder="订单号" allowClear/>
+                    <Input placeholder={t("订单号")} allowClear/>
                 </Form.Item>
                 <Form.Item>
                     <Space>
                         <Button type="primary" htmlType="submit" icon={<SearchOutlined/>}>
-                            搜索
-                        </Button>
+                            {t("搜索")}</Button>
                         <Button
                             icon={<ReloadOutlined/>}
                             onClick={() => {
@@ -157,8 +161,7 @@ const YupaiOrderChangePage: React.FC<ViewPageProps> = ({trail, params}) => {
                                 })
                             }}
                         >
-                            重置
-                        </Button>
+                            {t("重置")}</Button>
                     </Space>
                 </Form.Item>
             </Form>

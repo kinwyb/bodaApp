@@ -13,6 +13,11 @@ import {useUIBridgeHost} from "@/pages/agent/ui-bridge";
 import {PRESCHEDULE_COLUMNS} from "./columns.ts";
 import {createPrescheduleBridge, type PrescheduleBridgeContext, type PrescheduleQuery} from "./bridged";
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0189_V0279_V0282");
+
+
 /**
  * V0189_V0279_V0282 计划管理 > 预排汇总
  *
@@ -184,18 +189,17 @@ const PrescheduleSummaryPage: React.FC<ViewPageProps> = ({view, trail}) => {
                     });
                 }}
             >
-                <Form.Item name="dateType" label="类型">
+                <Form.Item name="dateType" label={t("类型")}>
                     <Select style={{width: 100}} options={DATE_TYPE_OPTIONS}/>
                 </Form.Item>
-                <Form.Item name="dateRange" label="日期">
+                <Form.Item name="dateRange" label={t("日期")}>
                     {/* 与旧客户端同义：选「全部」时日期不参与筛选，控件禁用但值照传 */}
                     <DatePicker.RangePicker allowClear={false} disabled={dateType === 0}/>
                 </Form.Item>
                 <Form.Item>
                     <Space>
                         <Button type="primary" htmlType="submit" icon={<SearchOutlined/>}>
-                            查询
-                        </Button>
+                            {t("查询")}</Button>
                     </Space>
                 </Form.Item>
             </Form>
@@ -212,7 +216,7 @@ const PrescheduleSummaryPage: React.FC<ViewPageProps> = ({view, trail}) => {
                 records={records as unknown as Array<Record<string, unknown>>}
                 rowKey="ID"
                 loading={loading}
-                exportName="预排汇总"
+                exportName={t("预排汇总")}
                 groupable
             />
         </div>

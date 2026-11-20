@@ -4,6 +4,11 @@ import {buildColumns} from "@/components/grid-table/columnBuilder.ts";
 import {toNumberOrZero} from "@/utils";
 import {Tabs, type TabsProps} from "antd";
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0189_V0279_V0280");
+
+
 export interface YupaiOrderMasterDetailProps {
     /** 展开行对应的记录（明细表格的数据） */
     records: Record<string, unknown>[];
@@ -24,10 +29,10 @@ const YupaiOrderMasterDetail: React.FC<YupaiOrderMasterDetailProps> = ({records}
     const columns = useMemo(() => {
         return buildColumns([
             {
-                field: 'BatchDate', title: '出货日期', width: 80, dataType: "date"
+                field: 'BatchDate', title: t("出货日期"), width: 80, dataType: "date"
             },
             {
-                field: 'BatchRate', title: '出货比例', width: 80, dataType: "double",
+                field: 'BatchRate', title: t("出货比例"), width: 80, dataType: "double",
                 fieldFormat: (record: Record<string, unknown>) => {
                     const rate = toNumberOrZero(record.BatchRate);
                     return (rate * 100).toFixed(2) + "%";
@@ -39,7 +44,7 @@ const YupaiOrderMasterDetail: React.FC<YupaiOrderMasterDetailProps> = ({records}
     const items: TabsProps['items'] = [
         {
             key: '1',
-            label: '分批信息',
+            label: t("分批信息"),
             children: <GridTable columns={columns} records={records}/>,
         }
     ];

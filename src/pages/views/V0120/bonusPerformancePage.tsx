@@ -14,6 +14,11 @@ import type {UIBridgeHost} from '@/pages/agent/ui-bridge';
 import {MachRateModal} from './MachRateModal';
 import {BONUS_DETAIL_COLUMNS, BONUS_SUMMARY_COLUMNS} from './bonusColumns';
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0120");
+
+
 export type BonusSummaryRow = SalaryBonusMonth & {_rowKey: string};
 export type BonusDetailRow = SalaryBonusMonthDetail & {_rowKey: string};
 
@@ -141,11 +146,11 @@ export function BonusPerformancePage({
                 initialValues={{month: initialMonth}}
                 onFinish={(values) => setQuery({month: values.month.format('YYYY-MM')})}
             >
-                <Form.Item name="month" label="月份" rules={[{required: true}]}>
+                <Form.Item name="month" label={t("月份")} rules={[{required: true}]}>
                     <DatePicker picker="month" allowClear={false}/>
                 </Form.Item>
                 <Form.Item>
-                    <Button type="primary" htmlType="submit" icon={<SearchOutlined/>}>查询</Button>
+                    <Button type="primary" htmlType="submit" icon={<SearchOutlined/>}>{t("查询")}</Button>
                 </Form.Item>
             </Form>
             <div style={{
@@ -163,14 +168,14 @@ export function BonusPerformancePage({
                         className="splitter-pane-body"
                         style={{overflow: 'hidden', padding: '4px 6px 6px 8px'}}
                     >
-                        <div style={{padding: '4px 2px 8px', fontWeight: 600}}>月汇总</div>
+                        <div style={{padding: '4px 2px 8px', fontWeight: 600}}>{t("月汇总")}</div>
                         <FilterTable
                             ref={summaryRef}
                             columns={BONUS_SUMMARY_COLUMNS}
                             records={summaryRows}
                             rowKey="_rowKey"
                             loading={loading}
-                            emptyTip="没有任何记录"
+                            emptyTip={t("没有任何记录")}
                             onSelectedChange={(info) => setActiveEmployeeNo(String(info.record?.EmployeeNo ?? ''))}
                             onCellDblClick={(info) => openRate(String(info.record?.EmployeeNo ?? ''))}
                         />
@@ -179,14 +184,14 @@ export function BonusPerformancePage({
                         className="splitter-pane-body"
                         style={{overflow: 'hidden', padding: '4px 8px 6px 6px'}}
                     >
-                        <div style={{padding: '4px 2px 8px', fontWeight: 600}}>明细数据</div>
+                        <div style={{padding: '4px 2px 8px', fontWeight: 600}}>{t("明细数据")}</div>
                         <FilterTable
                             ref={detailRef}
                             columns={BONUS_DETAIL_COLUMNS}
                             records={detailRows}
                             rowKey="_rowKey"
                             loading={loading}
-                            emptyTip="没有任何记录"
+                            emptyTip={t("没有任何记录")}
                             exportName={exportName}
                             onCellDblClick={(info) => openRate(String(info.record?.EmployeeNo ?? ''))}
                         />

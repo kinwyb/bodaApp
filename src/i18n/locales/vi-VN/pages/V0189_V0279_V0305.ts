@@ -1,0 +1,27 @@
+import type { LocaleMessages } from '../../../types';
+
+export default {
+  "业务员": "Nhân viên phòng kinh doanh",
+  "业务组": "Nhóm kinh doanh",
+  "产地": "Nơi sản xuất",
+  "实际下单期": "Ngày đặt thực tế",
+  "客户": "Khách hàng",
+  "批次数": "Số lô",
+  "染色总重量(kg)": "Tổng trọng lượng nhuộm (kg)",
+  "查询": "Yêu cầu",
+  "款号": "Mã hàng",
+  "款式名称": "Tên kiểu",
+  "款式数量": "Số lượng kiểu",
+  "生产月份": "Tháng sản xuất",
+  "生产期": "Kỳ sản xuất",
+  "确认下单期": "Ngày xác nhận đặt hàng",
+  "织造总工时(h)": "Tổng giờ dệt (h)",
+  "缝制大类": "Nhóm may",
+  "缝制总工时(h)": "Tổng giờ may (h)",
+  "计划下单期": "Ngày dự kiến đặt hàng",
+  "订单号": "Số đơn hàng",
+  "订单类型": "Loại đơn hàng",
+  "走货月份": "Tháng xuất hàng",
+  "走货期": "Thời hạn giao hàng",
+  "预排日期": "Ngày lịch dự kiến",
+} satisfies LocaleMessages;

@@ -1,6 +1,11 @@
 import {PlusOutlined} from '@ant-design/icons';
 import type {DepartmentCommandFactory} from './types';
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0005_V0010");
+
+
 /**
  * 新增：在**当前选中的节点下**建一个子部门草稿（旧客户端 `newBtn_ItemClick`）。
  *
@@ -12,7 +17,7 @@ import type {DepartmentCommandFactory} from './types';
  */
 export const addCommand: DepartmentCommandFactory = ({canAdd, startAdd}) => ({
     key: 'add',
-    label: '新增',
+    label: t("新增"),
     icon: <PlusOutlined/>,
     permission: '新增',
     disabled: !canAdd,

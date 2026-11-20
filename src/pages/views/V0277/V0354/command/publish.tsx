@@ -1,6 +1,11 @@
 import {CloudUploadOutlined} from '@ant-design/icons';
 import {PACK_BOM_MATRIX_SAVE_MENU_CODE, type PackBomMatrixCommandFactory} from './types';
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0277_V0354");
+
+
 /**
  * 发布：打开「包装BOM矩阵明细」弹窗，对选中矩阵的规则做发布 / 取消发布 / 更新。
  *
@@ -10,7 +15,7 @@ import {PACK_BOM_MATRIX_SAVE_MENU_CODE, type PackBomMatrixCommandFactory} from '
  */
 export const publishCommand: PackBomMatrixCommandFactory = ({activeRow, hasSelection, openPush}) => ({
     key: 'publish',
-    label: '发布',
+    label: t("发布"),
     icon: <CloudUploadOutlined/>,
     dividerBefore: true,
     disabled: !hasSelection,

@@ -7,6 +7,11 @@ import {ErrorMessage} from '@/api/request.ts';
 import {emitActiveUIEvent} from '@/pages/agent/ui-bridge';
 import {PACK_BOM_MATRIX_DEL_MENU_CODE, type PackBomMatrixCommandFactory} from './types';
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0277_V0354");
+
+
 /**
  * 空值统一显示成「—」：确认框里留白会让人以为那一项没存，
  * 而「这一份确实没填包装数量」是有用的信息。
@@ -26,11 +31,11 @@ function summaryItems(row: PackBomMatrix) {
     const code = toStringOrEmpty(row.PackMaterialCode).trim();
     const name = toStringOrEmpty(row.PackMaterialName).trim();
     return [
-        {key: 'project', label: '项目', children: orDash(row.ProjectCode)},
+        {key: 'project', label: t("项目"), children: orDash(row.ProjectCode)},
         // 物料给「编码 + 名称」：编码是唯一标识，名称才是人认得出来的那个
-        {key: 'material', label: '物料', children: code && name ? `${code} ${name}` : orDash(code || name)},
-        {key: 'method', label: '包装方式', children: orDash(row.PackMethod)},
-        {key: 'num', label: '包装方法', children: orDash(row.PackNum)},
+        {key: 'material', label: t("物料"), children: code && name ? `${code} ${name}` : orDash(code || name)},
+        {key: 'method', label: t("包装方式"), children: orDash(row.PackMethod)},
+        {key: 'num', label: t("包装方法"), children: orDash(row.PackNum)},
     ];
 }
 
@@ -47,7 +52,7 @@ function summaryItems(row: PackBomMatrix) {
  */
 export const deleteCommand: PackBomMatrixCommandFactory = ({modal, message, activeRow, hasSelection, reload}) => ({
     key: 'delete',
-    label: '删除',
+    label: t("删除"),
     icon: <DeleteOutlined/>,
     danger: true,
     /**
@@ -61,12 +66,12 @@ export const deleteCommand: PackBomMatrixCommandFactory = ({modal, message, acti
     menuCode: PACK_BOM_MATRIX_DEL_MENU_CODE,
     onClick: () => {
         if (!activeRow) {
-            void message.warning('请先选中一行矩阵');
+            void message.warning(t("请先选中一行矩阵"));
             return;
         }
         modal.confirm({
             icon: <ExclamationCircleOutlined/>,
-            title: '确认删除这份包装 BOM 矩阵？',
+            title: t("确认删除这份包装 BOM 矩阵？"),
             width: 440,
             content: (
                 <>
@@ -83,12 +88,11 @@ export const deleteCommand: PackBomMatrixCommandFactory = ({modal, message, acti
                     />
                     {/* 靠右：不抢上面四条主信息的视线，又能紧贴「确认删除」按钮一侧 */}
                     <div style={{marginTop: 8, fontSize: 12, color: 'rgba(0, 0, 0, 0.45)', textAlign: 'right'}}>
-                        删除后不可恢复
-                    </div>
+                        {t("删除后不可恢复")}</div>
                 </>
             ),
-            okText: '确认删除',
-            cancelText: '取消',
+            okText: t("确认删除"),
+            cancelText: t("取消"),
             okButtonProps: {danger: true},
             mask: {blur: true},
             onCancel: () => {
@@ -101,17 +105,17 @@ export const deleteCommand: PackBomMatrixCommandFactory = ({modal, message, acti
             onOk: async () => {
                 const matrixID = toStringOrEmpty(activeRow.PackBomMatrixID).trim();
                 if (!matrixID) {
-                    void message.error('这一行没有主键（PackBomMatrixID），无法删除');
+                    void message.error(t("这一行没有主键（PackBomMatrixID），无法删除"));
                     return;
                 }
                 try {
                     await packBomMatrixApi.delete(matrixID);
-                    void message.success('已删除');
+                    void message.success(t("已删除"));
                     emitActiveUIEvent('action.outcome', {
                         actionId: 'delete',
                         outcome: 'confirmed',
                         targetIds: [matrixID],
-                        message: '已删除',
+                        message: t("已删除"),
                     });
                     // 列表按当前查询条件重拉：删完这一行就不该还留在屏幕上
                     await reload();

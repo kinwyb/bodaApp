@@ -13,6 +13,11 @@ import {isBlank} from '@/utils';
 import {ZZ_MONTH_DETAIL_COLUMNS, ZZ_MONTH_DETAIL_SUMMARY, type ZZMonthDetailRow} from './zzDetailColumns';
 import {createZZMonthDetailBridge, type ZZMonthDetailBridgeContext} from './zzDetailBridge';
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0018_V0372");
+
+
 type ZZMonthDetailDto = Omit<ZZMonthDetailRow, '_rowKey'>;
 
 export type ZZMonthDetailModalProps = {
@@ -90,8 +95,8 @@ export function ZZMonthDetailModal({open, view, startDate, endDate, orgId, onClo
                     loading={loading}
                     showPagination={false}
                     summary={ZZ_MONTH_DETAIL_SUMMARY}
-                    exportName="月织造数据明细"
-                    emptyTip="暂无数据"
+                    exportName={t("月织造数据明细")}
+                    emptyTip={t("暂无数据")}
                 />
             </div>
         </Modal>

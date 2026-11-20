@@ -15,6 +15,11 @@ import {
     type YupaiOrderBatchRow,
 } from './yupaiOrderBatchColumns.ts';
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0189_V0279_V0280");
+
+
 export interface YupaiOrderBatchModalProps {
     open: boolean;
     /** 要分批的那一单（列表行里已经带了 `Batchs`） */
@@ -125,7 +130,7 @@ const YupaiOrderBatchModal: React.FC<YupaiOrderBatchModalProps> = ({open, order,
         const active = tableRef.current?.getActiveRow();
         const rowKey = String(active?.record?._id ?? '');
         if (!rowKey) {
-            void message.warning('请先选中要删除的行');
+            void message.warning(t("请先选中要删除的行"));
             return;
         }
         setRows((prev) => rebuildBatchTail(prev.filter((row) => String(row._id) !== rowKey)));
@@ -179,9 +184,9 @@ const YupaiOrderBatchModal: React.FC<YupaiOrderBatchModalProps> = ({open, order,
             void message.error({
                 content: (
                     <div>
-                        <div>分批数据有 {problems.length} 处问题：</div>
+                        <div>{t("分批数据有")}{problems.length} {t("处问题：")}</div>
                         {problems.slice(0, 6).map((text) => <div key={text}>· {text}</div>)}
-                        {problems.length > 6 ? <div>· 其余 {problems.length - 6} 处请检查表格</div> : null}
+                        {problems.length > 6 ? <div>{t("· 其余")}{problems.length - 6} {t("处请检查表格")}</div> : null}
                     </div>
                 ),
                 duration: 6,
@@ -189,7 +194,7 @@ const YupaiOrderBatchModal: React.FC<YupaiOrderBatchModalProps> = ({open, order,
             return;
         }
         if (filledRows.length < 2) {
-            void message.warning('分批至少2条数据');
+            void message.warning(t("分批至少2条数据"));
             return;
         }
 
@@ -223,7 +228,7 @@ const YupaiOrderBatchModal: React.FC<YupaiOrderBatchModalProps> = ({open, order,
         };
         try {
             await yupaiApi.batchSave(payload);
-            void message.success('分批数据保存成功');
+            void message.success(t("分批数据保存成功"));
             onSaved();
         } catch (error) {
             void message.error(error instanceof ApiError ? error.message : '分批数据保存失败');
@@ -235,7 +240,7 @@ const YupaiOrderBatchModal: React.FC<YupaiOrderBatchModalProps> = ({open, order,
     return (
         <Modal
             open={open}
-            title="预订单分批"
+            title={t("预订单分批")}
             width={566}
             destroyOnHidden
             footer={null}
@@ -262,14 +267,13 @@ const YupaiOrderBatchModal: React.FC<YupaiOrderBatchModalProps> = ({open, order,
                     // 老系统的表格是「点中就改」，弹窗里只有两列，单击编辑最省事
                     editCellTrigger="click"
                     onCellValueChange={handleCellChange}
-                    emptyTip="请添加分批"
+                    emptyTip={t("请添加分批")}
                 />
             </div>
 
             <div style={{display: 'flex', alignItems: 'center', marginTop: 12}}>
                 <Checkbox checked={byDate} onChange={(event) => handleByDateChange(event.target.checked)}>
-                    按日期
-                </Checkbox>
+                    {t("按日期")}</Checkbox>
                 <InputNumber
                     readOnly
                     controls={false}
@@ -281,10 +285,9 @@ const YupaiOrderBatchModal: React.FC<YupaiOrderBatchModalProps> = ({open, order,
             </div>
 
             <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 12}}>
-                <Button onClick={handleDeleteRow}>删除行</Button>
+                <Button onClick={handleDeleteRow}>{t("删除行")}</Button>
                 <Button type="primary" onClick={() => void handleConfirm()}>
-                    确定
-                </Button>
+                    {t("确定")}</Button>
             </div>
         </Modal>
     );

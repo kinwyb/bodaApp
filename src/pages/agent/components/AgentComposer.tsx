@@ -30,6 +30,7 @@ import { AGENT_STEER_COMMAND, isSteerMessage, steerGuidanceOf } from '../command
 import { deleteAgentFile, fileErrorMessage, uploadAgentFile } from '../files';
 import { useVoiceInput } from '../hooks/use-voice-input';
 import { AgentTokenMeter } from './AgentTokenMeter';
+import { useI18n } from '@/i18n/context';
 
 /** 附件项：在 antd 的 UploadFile 上补上传结果（fileID / 可访问地址 / 失败文案） */
 type ComposerFile = UploadFile & {
@@ -108,6 +109,7 @@ export const AgentComposer = React.forwardRef<AgentComposerApi, AgentComposerPro
   onAbort,
 }, ref) => {
   const { message } = AntdApp.useApp();
+  const { t } = useI18n();
   const [inputValue, setInputValue] = useState('');
   const [fileList, setFileList] = useState<ComposerFile[]>([]);
   const [suggestionKind, setSuggestionKind] = useState<'command' | 'skill' | null>(null);
@@ -244,13 +246,13 @@ export const AgentComposer = React.forwardRef<AgentComposerApi, AgentComposerPro
       return [
         {
           value: AGENT_STEER_COMMAND,
-          label: <span className="agent-suggestion-label">引导</span>,
+          label: <span className="agent-suggestion-label">{t('引导')}</span>,
           description: '回答生成中补充一条引导',
           extra: <code className="agent-suggestion-token">{AGENT_STEER_COMMAND}</code>,
         },
       ];
     },
-    [inputValue, skillOptions, skillsLoading, suggestionFromIcon, suggestionKind],
+    [inputValue, skillOptions, skillsLoading, suggestionFromIcon, suggestionKind, t],
   );
 
   // 卸载时中断所有在途上传：组件都没了，传完也没人接
@@ -325,20 +327,20 @@ export const AgentComposer = React.forwardRef<AgentComposerApi, AgentComposerPro
 
       const uploading = fileList.filter((file) => file.status === 'uploading').length;
       if (uploading > 0) {
-        message.warning(`还有 ${uploading} 个文件正在上传，完成后会自动带上`);
+        message.warning(t('还有 {count} 个文件正在上传，完成后会自动带上', { vars: { count: uploading } }));
         return;
       }
       const failed = fileList.filter((file) => file.status === 'error').length;
       if (failed > 0) {
-        message.error(`有 ${failed} 个文件上传失败，请重试或移除后再发送`);
+        message.error(t('有 {count} 个文件上传失败，请重试或移除后再发送', { vars: { count: failed } }));
         return;
       }
       if (!text) {
-        message.info(fileList.length > 0 ? '请补充一句说明再发送' : '请先输入内容');
+        message.info(fileList.length > 0 ? t('请补充一句说明再发送') : t('请先输入内容'));
         return;
       }
       if (streaming && !steerText) {
-        message.info('请输入要补充的引导内容');
+        message.info(t('请输入要补充的引导内容'));
         return;
       }
 
@@ -360,7 +362,7 @@ export const AgentComposer = React.forwardRef<AgentComposerApi, AgentComposerPro
       // 发送成功不清服务端文件：它已经被这条消息引用（服务端会移到 agent 工作区）
       setFileList([]);
     },
-    [fileList, message, onSend, onSteer, streaming],
+    [fileList, message, onSend, onSteer, streaming, t],
   );
 
   const handleFilesPicked = useCallback(
@@ -428,7 +430,7 @@ export const AgentComposer = React.forwardRef<AgentComposerApi, AgentComposerPro
   const footerText =
     mode === 'mock'
       ? '演示模式：配置 VITE_AGENT_WS_URL（默认 ws://127.0.0.1:8765/ws）后连接真实服务'
-      : `ws · ${CONNECTION_META[connection].text}${latency !== undefined ? ` · ${latency}ms` : ''}`;
+      : `ws · ${t(CONNECTION_META[connection].text)}${latency !== undefined ? ` · ${latency}ms` : ''}`;
 
   return (
     <div className="agent-composer" ref={composerRef}>
@@ -495,18 +497,18 @@ export const AgentComposer = React.forwardRef<AgentComposerApi, AgentComposerPro
             placeholder={
               streaming
                 ? compact
-                  ? '输入引导，Enter 发送 /steer'
-                  : '输入引导，Enter 发送 /steer；输入 / 或 $ 选择命令与技能'
+                  ? t('输入引导，Enter 发送 /steer')
+                  : t('输入引导，Enter 发送 /steer；输入 / 或 $ 选择命令与技能')
                 : compact
-                  ? '想让助手做什么？Enter 发送'
-                  : '描述你想让助手做的事；输入 / 或 $ 选择命令与技能'
+                  ? t('想让助手做什么？Enter 发送')
+                  : t('描述你想让助手做的事；输入 / 或 $ 选择命令与技能')
             }
             allowSpeech={voice.allowSpeech}
             autoSize={{ minRows: 2, maxRows: 6 }}
             header={
               fileList.length > 0 ? (
                 <Sender.Header
-                  title={`已添加 ${fileList.length} 个附件`}
+                  title={t('已添加 {count} 个附件', { vars: { count: fileList.length } })}
                   open
                   onOpenChange={(open) => {
                     if (!open) clearFiles();
@@ -532,7 +534,7 @@ export const AgentComposer = React.forwardRef<AgentComposerApi, AgentComposerPro
                       icon={<ReloadOutlined />}
                       onClick={retryFailed}
                     >
-                      重试失败项（{failedCount}）
+                      {t('重试失败项（{count}）', { vars: { count: failedCount } })}
                     </Button>
                   ) : null}
                 </Sender.Header>
@@ -540,7 +542,7 @@ export const AgentComposer = React.forwardRef<AgentComposerApi, AgentComposerPro
             }
             prefix={
               <span className="agent-composer-tools">
-                <Tooltip title="添加附件">
+                <Tooltip title={t('添加附件')}>
                   <Button
                     type="text"
                     icon={<PaperClipOutlined />}
@@ -548,7 +550,7 @@ export const AgentComposer = React.forwardRef<AgentComposerApi, AgentComposerPro
                   />
                 </Tooltip>
                 <Tooltip
-                  title="选择技能"
+                  title={t('选择技能')}
                   open={
                     skillTipHover &&
                     !(suggestionOpen && suggestionKind === 'skill' && suggestionFromIcon)
@@ -557,7 +559,7 @@ export const AgentComposer = React.forwardRef<AgentComposerApi, AgentComposerPro
                   <Button
                     type="text"
                     icon={<AppstoreOutlined />}
-                    aria-label="选择技能"
+                    aria-label={t('选择技能')}
                     onKeyDown={onKeyDown}
                     onMouseEnter={() => setSkillTipHover(true)}
                     onMouseLeave={() => setSkillTipHover(false)}
@@ -585,11 +587,11 @@ export const AgentComposer = React.forwardRef<AgentComposerApi, AgentComposerPro
                  * LoadingButton 默认随 loading 禁用，这里显式解禁并交给 onCancel 中断。
                  */}
                 {streaming && !inputValue.trim() ? (
-                  <Tooltip title="停止生成">
-                    <components.LoadingButton disabled={false} aria-label="停止生成" />
+                  <Tooltip title={t('停止生成')}>
+                    <components.LoadingButton disabled={false} aria-label={t('停止生成')} />
                   </Tooltip>
                 ) : (
-                  <Tooltip title={streaming ? '发送引导 /steer' : '发送'}>
+                  <Tooltip title={streaming ? t('发送引导 /steer') : t('发送')}>
                     <components.SendButton />
                   </Tooltip>
                 )}
@@ -602,18 +604,18 @@ export const AgentComposer = React.forwardRef<AgentComposerApi, AgentComposerPro
                     title={
                       canFollow
                         ? uiFollow
-                          ? '界面联动已开启：普通事件会合并，确认终态会立即发送'
-                          : '界面联动已关闭：页面事件不会记录或发送'
-                        : '先发送一条消息开始对话，之后才能开启界面联动'
+                          ? t('界面联动已开启：普通事件会合并，确认终态会立即发送')
+                          : t('界面联动已关闭：页面事件不会记录或发送')
+                        : t('先发送一条消息开始对话，之后才能开启界面联动')
                     }
                   >
                     <label className="agent-ui-follow">
-                      <span>界面联动</span>
+                      <span>{t('界面联动')}</span>
                       <Switch
                         size="small"
                         checked={uiFollow}
                         disabled={!canFollow}
-                        aria-label="界面联动"
+                        aria-label={t('界面联动')}
                         onChange={onUIFollowChange}
                       />
                     </label>
@@ -625,18 +627,18 @@ export const AgentComposer = React.forwardRef<AgentComposerApi, AgentComposerPro
                   {usage ? <AgentTokenMeter usage={usage} /> : null}
                   <span className="agent-sender-hint">
                     {uploadingCount > 0
-                      ? `${uploadingCount} 个附件上传中`
+                      ? t('{count} 个附件上传中', { vars: { count: uploadingCount } })
                       : failedCount > 0
-                        ? `${failedCount} 个附件上传失败`
+                        ? t('{count} 个附件上传失败', { vars: { count: failedCount } })
                         : voice.transcribing
-                          ? '识别中…'
+                          ? t('识别中…')
                           : voice.recording
-                            ? '正在听…说完再点麦克风结束'
+                            ? t('正在听…说完再点麦克风结束')
                             : inputValue.length > 0
-                              ? `${inputValue.length} 字`
+                              ? t('{count} 字', { vars: { count: inputValue.length } })
                               : streaming
-                                ? 'Enter 发送 /steer'
-                                : 'Shift + Enter 换行'}
+                                ? t('Enter 发送 /steer')
+                                : t('Shift + Enter 换行')}
                   </span>
                 </span>
               </div>

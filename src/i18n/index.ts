@@ -67,6 +67,14 @@ export function translate(source: string, options: TranslateOptions = {}): strin
 
 export const t: Translate = translate;
 
+export function createPageTranslator(pageCode: string): Translate {
+  return (source, options = {}) =>
+    translate(source, {
+      ...options,
+      pageCode: options.pageCode ?? pageCode,
+    });
+}
+
 export type { AppLocale, Translate, TranslateOptions } from './types';
 export { APP_LOCALES, isAppLocale } from './types';
 export { LANGUAGE_OPTIONS, getComponentLocale, languageLabel } from './config';

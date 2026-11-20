@@ -1,0 +1,26 @@
+import type { LocaleMessages } from '../../../types';
+
+export default {
+  "下生产单": "Tạo lệnh sản xuất",
+  "事件": "Sự kiện",
+  "产地": "Nơi sản xuất",
+  "修改人": "Người sửa",
+  "修改前": "Trước khi sửa",
+  "修改后": "Sau khi sửa",
+  "修改字段": "Trường đã sửa",
+  "修改日期": "Ngày sửa",
+  "修改时间": "Thời gian sửa",
+  "删除": "Xóa",
+  "恢复": "Khôi phục",
+  "搜索": "Tìm kiếm",
+  "新增": "Thêm",
+  "更新": "Cập nhật",
+  "款号": "Mã hàng",
+  "款式描述": "Miêu tả kiểu dáng",
+  "款式数量": "Số lượng kiểu",
+  "状态": "Tình trạng",
+  "确认日期": "Ngày xác nhận",
+  "订单号": "Số đơn hàng",
+  "走货日期": "Ngày xuất hàng",
+  "重置": "Đặt lại",
+} satisfies LocaleMessages;

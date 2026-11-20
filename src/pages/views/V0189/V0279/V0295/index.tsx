@@ -17,6 +17,11 @@ import {
 } from './bridged';
 import {YUPAI_COMPLETE_GROUP_COLUMNS} from './columns';
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0189_V0279_V0295");
+
+
 type SearchValues = {
     org: string;
     orderCode: string;
@@ -127,17 +132,16 @@ const YupaiCompleteGroupPage: React.FC<ViewPageProps> = ({view, trail}) => {
                     });
                 }}
             >
-                <Form.Item name="org" label="组织">
+                <Form.Item name="org" label={t("组织")}>
                     <Select style={{width: 110}} options={[...COMPLETE_GROUP_ORG_OPTIONS]}/>
                 </Form.Item>
-                <Form.Item name="orderCode" label="订单号">
+                <Form.Item name="orderCode" label={t("订单号")}>
                     <Input allowClear style={{width: 160}}/>
                 </Form.Item>
                 <Form.Item>
                     <Space>
                         <Button type="primary" htmlType="submit" icon={<SearchOutlined/>}>
-                            查询
-                        </Button>
+                            {t("查询")}</Button>
                     </Space>
                 </Form.Item>
             </Form>
@@ -148,7 +152,7 @@ const YupaiCompleteGroupPage: React.FC<ViewPageProps> = ({view, trail}) => {
                 rowKey="OrderCode"
                 loading={loading}
                 emptyTip={loading ? '加载中…' : '没有任何记录'}
-                exportName="已下单汇总"
+                exportName={t("已下单汇总")}
                 groupable
             />
         </div>

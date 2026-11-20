@@ -31,6 +31,11 @@ import {buildMonthProductionColumns} from './columns';
 import {createMonthProductionBridge, type MonthProductionBridgeContext, type MonthProductionQuery} from './bridged';
 import {ZZMonthDetailModal} from './models/zzDetail';
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0018_V0372");
+
+
 const MIN_YEAR = 2025;
 
 /** 越南组织：只有它的双击织造列能开明细（旧客户端限定）。按前缀取，不依赖数组下标 */
@@ -57,7 +62,7 @@ const MonthProductionPage: React.FC<ViewPageProps> = ({view, trail}) => {
         const available = PRODUCTION_ORGS.filter((org) => orgs.some((item) => item.OrgID === org.id));
         const options = available.map((org) => ({value: org.id, label: org.name}));
         if (available.length === PRODUCTION_ORGS.length) {
-            options.unshift({value: '', label: '全部'});
+            options.unshift({value: '', label: t("全部")});
         }
         return options;
     }, [orgs]);
@@ -153,18 +158,18 @@ const MonthProductionPage: React.FC<ViewPageProps> = ({view, trail}) => {
                     setQuery({year: (values.year ?? now()).year()});
                 }}
             >
-                <Form.Item name="year" label="年份">
+                <Form.Item name="year" label={t("年份")}>
                     <DatePicker
                         picker="year"
                         allowClear={false}
                         disabledDate={(current) => current.year() < MIN_YEAR || current.isAfter(now(), 'year')}
                     />
                 </Form.Item>
-                <Form.Item label="组织">
+                <Form.Item label={t("组织")}>
                     <Select
                         style={{width: 120}}
                         options={orgOptions}
-                        placeholder="选择组织"
+                        placeholder={t("选择组织")}
                         // 候选未加载或当前组织不在候选里时不显示原始 GUID（与另两页一致）
                         value={orgOptions.some((option) => option.value === orgId) ? orgId : undefined}
                         onChange={(value: string) => setOrgId(value)}
@@ -173,8 +178,7 @@ const MonthProductionPage: React.FC<ViewPageProps> = ({view, trail}) => {
                 <Form.Item>
                     <Space>
                         <Button type="primary" htmlType="submit" icon={<SearchOutlined/>}>
-                            查询
-                        </Button>
+                            {t("查询")}</Button>
                     </Space>
                 </Form.Item>
             </Form>
@@ -186,7 +190,7 @@ const MonthProductionPage: React.FC<ViewPageProps> = ({view, trail}) => {
                 loading={loading}
                 showPagination={false}
                 summary={summary}
-                exportName="月生产数据"
+                exportName={t("月生产数据")}
                 onCellDblClick={handleCellDblClick}
             />
             <ZZMonthDetailModal

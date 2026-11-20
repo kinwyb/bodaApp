@@ -5,6 +5,11 @@ import type {BasicDataNode} from "antd/es/tree";
 import {Empty, Input, theme} from "antd";
 import {SearchOutlined} from "@ant-design/icons";
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0018_V0112");
+
+
 interface treeNode extends BIList, BasicDataNode {
 }
 
@@ -125,14 +130,14 @@ export const BITree: React.FC<biTreeProps> = ({open, onLoaded}) => {
         }}>
             <Input
                 allowClear
-                placeholder="搜索报表"
+                placeholder={t("搜索报表")}
                 prefix={<SearchOutlined style={{color: token.colorTextPlaceholder}}/>}
                 value={keyword}
                 onChange={(event) => setKeyword(event.target.value)}
             />
             {searching && visibleData.length === 0 ? (
                 <div style={{flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center'}}>
-                    <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有匹配的报表"/>
+                    <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t("没有匹配的报表")}/>
                 </div>
             ) : (
                 <div style={{flex: 1, minHeight: 0, overflow: 'auto'}}>

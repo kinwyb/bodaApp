@@ -1,6 +1,11 @@
 import {ReloadOutlined} from '@ant-design/icons';
 import type {PackBomMatrixCommandFactory} from './types';
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0277_V0354");
+
+
 /**
  * 刷新：按当前查询条件重新查列表。
  *
@@ -9,7 +14,7 @@ import type {PackBomMatrixCommandFactory} from './types';
  */
 export const refreshCommand: PackBomMatrixCommandFactory = ({reload}) => ({
     key: 'refresh',
-    label: '刷新',
+    label: t("刷新"),
     icon: <ReloadOutlined/>,
     dividerBefore: true,
     onClick: () => void reload(),

@@ -57,6 +57,11 @@ import {
 import "./bomMatrixEdit.css";
 import MatrixPushModal, {type MatrixPushApi} from "@/components/nc/matrixPushModal.tsx";
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0277_V0354");
+
+
 export type BomMatrixEditProps = {
     open: boolean;
     /**
@@ -505,7 +510,7 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
 
     const handleGenerate = useCallback(() => {
         if (!recordID) {
-            void message.warning('保存成功（拿到矩阵主键）后才能生成');
+            void message.warning(t("保存成功（拿到矩阵主键）后才能生成"));
             return;
         }
         setPushOpen(true);
@@ -515,7 +520,7 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
 
     /** 复制：把当前这份内容复制成新的（不改原记录） */
     const handleCopy = useCallback(() => {
-        void message.info('复制：复制为新矩阵的功能还没接入');
+        void message.info(t("复制：复制为新矩阵的功能还没接入"));
     }, [message]);
 
     /**
@@ -688,7 +693,7 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
             };
             setSewSort(next);
             if (next.colors.length === 0 && next.sizes.length === 0) {
-                void message.warning('这个产成品没有维护颜色（vfree6）/ 尺码（vfree7）辅助属性，配色 / 配码没有列可铺');
+                void message.warning(t("这个产成品没有维护颜色（vfree6）/ 尺码（vfree7）辅助属性，配色 / 配码没有列可铺"));
             }
         } catch (err) {
             if (seq !== sewSortSeqRef.current) return;
@@ -1018,7 +1023,7 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
                 // 存进去了却没回主键：没法重取、没法继续编辑/生成，如实说，别当成功
                 return {
                     ok: false,
-                    message: '保存已提交，但接口没有返回 PackBomMatrixID，无法重新载入这份矩阵（请刷新列表确认）'
+                    message: t("保存已提交，但接口没有返回 PackBomMatrixID，无法重新载入这份矩阵（请刷新列表确认）")
                 };
             }
             return {ok: true, id};
@@ -1068,9 +1073,9 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
             if (prepared.kind === 'invalid') {
                 const rest = prepared.messages.length - MAX_SHOWN_MESSAGES;
                 modal.warning({
-                    title: '保存校验没通过',
+                    title: t("保存校验没通过"),
                     width: 560,
-                    okText: '知道了',
+                    okText: t("知道了"),
                     content: (
                         <div>
                             <ul className="bom-matrix-edit-errors">
@@ -1080,14 +1085,11 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
                             </ul>
                             {rest > 0 && (
                                 <div className="bom-matrix-edit-errors-more">
-                                    还有 {rest} 处没列出来，见表格里标红的格子
-                                </div>
+                                    {t("还有")}{rest} {t("处没列出来，见表格里标红的格子")}</div>
                             )}
                             {prepared.issues.length > 0 && (
                                 <div className="bom-matrix-edit-errors-more">
-                                    不通过的格子已在下方表格里标红（共 {prepared.issues.length} 处），
-                                    鼠标移上去能看到原因
-                                </div>
+                                    {t("不通过的格子已在下方表格里标红（共")}{prepared.issues.length} {t("处）， 鼠标移上去能看到原因")}</div>
                             )}
                         </div>
                     ),
@@ -1103,10 +1105,10 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
                  */
                 const confirmed = await new Promise<boolean>((resolve) => {
                     modal.confirm({
-                        title: '确认',
-                        content: '该订单当前包装物料存在相同的包装方法及数量数据，是否重复添加？',
-                        okText: '是',
-                        cancelText: '否',
+                        title: t("确认"),
+                        content: t("该订单当前包装物料存在相同的包装方法及数量数据，是否重复添加？"),
+                        okText: t("是"),
+                        cancelText: t("否"),
                         onOk: () => resolve(true),
                         onCancel: () => resolve(false),
                         afterClose: () => resolve(false),
@@ -1309,7 +1311,7 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
             <div className="bom-matrix-edit-toolbar">
                 <Button type="text" className="bom-matrix-edit-action" icon={<SaveOutlined/>}
                         loading={saving} disabled={saving}
-                        onClick={() => void handleSave()}>保存</Button>
+                        onClick={() => void handleSave()}>{t("保存")}</Button>
                 {/*
                  * 分割线：「保存」是对这一份的直接操作；「生成」「复制」要按**已落库**的记录做事，
                  * 线一划，两组的分界就看得出来了（不用靠按钮灰不灰去猜）。
@@ -1324,11 +1326,11 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
                 <Button type="text" className="bom-matrix-edit-action" icon={<ThunderboltOutlined/>}
                         disabled={!hasRecord}
                         title={hasRecord ? undefined : '保存成功后（拿到矩阵主键）才可用'}
-                        onClick={handleGenerate}>生成</Button>
+                        onClick={handleGenerate}>{t("生成")}</Button>
                 <Button type="text" className="bom-matrix-edit-action" icon={<CopyOutlined/>}
                         disabled={!hasRecord}
                         title={hasRecord ? undefined : '保存成功后（拿到矩阵主键）才可用'}
-                        onClick={handleCopy}>复制</Button>
+                        onClick={handleCopy}>{t("复制")}</Button>
             </div>
 
             <Form
@@ -1343,7 +1345,7 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
                 className="bom-matrix-edit-form"
             >
                 <section className="bom-matrix-group">
-                    <div className="bom-matrix-group-title">包装成品</div>
+                    <div className="bom-matrix-group-title">{t("包装成品")}</div>
                     <div className="bom-matrix-fields">
                         {/*
                          * 隐藏字段：包装物料的关联键 —— 「单位」的可选列表按它取换算单位。
@@ -1383,7 +1385,7 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
                 </section>
 
                 <section className="bom-matrix-group">
-                    <div className="bom-matrix-group-title">产成品</div>
+                    <div className="bom-matrix-group-title">{t("产成品")}</div>
                     <div className="bom-matrix-fields">
                         {/* 隐藏字段：接口里真正的关联键，决定子项明细能不能编 */}
                         <Form.Item name="SewMaterialVID" hidden>
@@ -1413,12 +1415,12 @@ const BomMatrixEdit: React.FC<BomMatrixEditProps> = ({open, view, mode, record, 
                 {loadingDetail ? (
                     <div className="bom-matrix-edit-loading">
                         <Spin/>
-                        <span>正在加载矩阵详情…</span>
+                        <span>{t("正在加载矩阵详情…")}</span>
                     </div>
                 ) : detailFailed ? (
                     <div className="bom-matrix-edit-loading">
-                        <span>矩阵详情没加载出来，表格暂时不可用</span>
-                        <Button size="small" onClick={retryDetail}>重试</Button>
+                        <span>{t("矩阵详情没加载出来，表格暂时不可用")}</span>
+                        <Button size="small" onClick={retryDetail}>{t("重试")}</Button>
                     </div>
                 ) : (
                     <>

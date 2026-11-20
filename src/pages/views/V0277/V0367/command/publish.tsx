@@ -1,6 +1,11 @@
 import {CloudUploadOutlined} from '@ant-design/icons';
 import type {ProcessRouteMatrixCommandFactory} from './types';
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0277_V0367");
+
+
 /**
  * 发布：打开「工艺路线矩阵明细」弹窗，对选中矩阵的规则做发布 / 取消发布 / 更新。
  *
@@ -9,7 +14,7 @@ import type {ProcessRouteMatrixCommandFactory} from './types';
  */
 export const publishCommand: ProcessRouteMatrixCommandFactory = ({activeRow, hasSelection, openPush}) => ({
     key: 'publish',
-    label: '发布',
+    label: t("发布"),
     icon: <CloudUploadOutlined/>,
     dividerBefore: true,
     disabled: !hasSelection,

@@ -17,6 +17,11 @@ import {createProduceDataColumns} from './columns';
 import {useProduceDataCommands, type ProduceDataCommandContext} from './command';
 import {QtyChangeModal} from './models/qtyChange';
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0120_V0126");
+
+
 const VN_ORG_ID = '0001E610000000KWHO9D';
 
 type SearchValues = {
@@ -170,14 +175,14 @@ const ProduceDataPage: React.FC<ViewPageProps> = ({view, trail}) => {
                     });
                 }}
             >
-                <Form.Item name="dateRange" label="日期" rules={[{required: true}]}>
+                <Form.Item name="dateRange" label={t("日期")} rules={[{required: true}]}>
                     <DatePicker.RangePicker allowClear={false}/>
                 </Form.Item>
-                <Form.Item name="machCode" label="机台">
+                <Form.Item name="machCode" label={t("机台")}>
                     <Input allowClear style={{width: 100}}/>
                 </Form.Item>
                 <Form.Item>
-                    <Button type="primary" htmlType="submit" icon={<SearchOutlined/>}>查询</Button>
+                    <Button type="primary" htmlType="submit" icon={<SearchOutlined/>}>{t("查询")}</Button>
                 </Form.Item>
             </Form>
             <FilterTable
@@ -186,8 +191,8 @@ const ProduceDataPage: React.FC<ViewPageProps> = ({view, trail}) => {
                 records={rows}
                 rowKey="ID"
                 loading={loading}
-                emptyTip="没有任何记录"
-                exportName="挡车扫描"
+                emptyTip={t("没有任何记录")}
+                exportName={t("挡车扫描")}
                 cellStyle={cellStyle}
                 onSelectedChange={(info) => setActiveRow((info.record as MisProduceDataRow | undefined) ?? null)}
             />

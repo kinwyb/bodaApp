@@ -3,9 +3,11 @@ import {Card, Col, Row, Statistic} from 'antd';
 import {FileTextOutlined, RiseOutlined, ShoppingCartOutlined, UserOutlined} from '@ant-design/icons';
 import {useTabs} from '@/store/tabs';
 import {isDebugEnv} from "@/utils";
+import {useI18n} from '@/i18n/context';
 
 const Dashboard: React.FC = () => {
     const {openView} = useTabs();
+    const {t} = useI18n();
 
     return (
         <div style={{padding: 0}}>
@@ -18,7 +20,7 @@ const Dashboard: React.FC = () => {
                             onClick={() => openView('V0277_V0354')}
                         >
                             <Statistic
-                                title="总订单数"
+                                title={t('总订单数')}
                                 value={1268}
                                 prefix={<ShoppingCartOutlined/>}
                                 styles={{content: {color: '#1890ff'}}}
@@ -28,7 +30,7 @@ const Dashboard: React.FC = () => {
                     <Col xs={24} sm={12} lg={6}>
                         <Card>
                             <Statistic
-                                title="用户数"
+                                title={t('用户数')}
                                 value={368}
                                 prefix={<UserOutlined/>}
                                 styles={{content: {color: '#52c41a'}}}
@@ -38,7 +40,7 @@ const Dashboard: React.FC = () => {
                     <Col xs={24} sm={12} lg={6}>
                         <Card>
                             <Statistic
-                                title="今日订单"
+                                title={t('今日订单')}
                                 value={42}
                                 prefix={<FileTextOutlined/>}
                                 styles={{content: {color: '#faad14'}}}
@@ -48,7 +50,7 @@ const Dashboard: React.FC = () => {
                     <Col xs={24} sm={12} lg={6}>
                         <Card>
                             <Statistic
-                                title="增长率"
+                                title={t('增长率')}
                                 value={12.5}
                                 precision={1}
                                 suffix="%"
@@ -59,9 +61,9 @@ const Dashboard: React.FC = () => {
                     </Col>
                 </Row>
             }
-            <Card title="系统公告">
-                <p>欢迎使用</p>
-                <p>本系统内嵌一个AI Agent用于辅助用户使用系统功能。</p>
+            <Card title={t('系统公告')}>
+                <p>{t('欢迎使用')}</p>
+                <p>{t('本系统内嵌一个AI Agent用于辅助用户使用系统功能。')}</p>
             </Card>
         </div>
     );

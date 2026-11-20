@@ -1,6 +1,11 @@
 import {ReloadOutlined} from '@ant-design/icons';
 import type {DepartmentCommandFactory} from './types';
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0005_V0010");
+
+
 /**
  * 刷新：重新取整棵部门树。
  *
@@ -12,7 +17,7 @@ import type {DepartmentCommandFactory} from './types';
  */
 export const refreshCommand: DepartmentCommandFactory = ({reload}) => ({
     key: 'refresh',
-    label: '刷新',
+    label: t("刷新"),
     icon: <ReloadOutlined/>,
     dividerBefore: true,
     onClick: () => void reload(),

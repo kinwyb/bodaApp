@@ -24,6 +24,11 @@ import {
     type DepartmentTreeNode,
 } from './departmentTree';
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0005_V0010");
+
+
 /**
  * V0005_V0010 基础资料 > 部门设定
  *
@@ -201,7 +206,7 @@ const DepartmentPage: React.FC<ViewPageProps> = ({view, trail}) => {
     const startAdd = useCallback(() => {
         const key = editorKey(editorRef.current);
         if (!key) {
-            void message.warning('请先在部门树上选中上级部门');
+            void message.warning(t("请先在部门树上选中上级部门"));
             return;
         }
         const parent = findDepartment(departmentsRef.current, key);
@@ -221,19 +226,19 @@ const DepartmentPage: React.FC<ViewPageProps> = ({view, trail}) => {
     const save = useCallback(async (): Promise<DepartmentSaveResult> => {
         const state = editorRef.current;
         const key = editorKey(state);
-        if (savingRef.current) return {ok: false, message: '正在保存，请等待本次保存结果'};
-        if (!key) return {ok: false, message: '请先在部门树上选中一个部门，或执行新增'};
+        if (savingRef.current) return {ok: false, message: t("正在保存，请等待本次保存结果")};
+        if (!key) return {ok: false, message: t("请先在部门树上选中一个部门，或执行新增")};
         const node = findDepartment(departmentsRef.current, key);
-        if (!node) return {ok: false, message: '选中的部门已不存在，请刷新后重试'};
+        if (!node) return {ok: false, message: t("选中的部门已不存在，请刷新后重试")};
         const isAdd = state.kind === 'add';
         if (!isAdd && key === ROOT_KEY) {
-            return {ok: false, message: '「所有部门」是树根，不能保存；要新建顶级部门请执行新增'};
+            return {ok: false, message: t("「所有部门」是树根，不能保存；要新建顶级部门请执行新增")};
         }
         let values: DepartmentFormValues;
         try {
             values = await form.validateFields();
         } catch {
-            return {ok: false, message: '部门名称必填，请补齐后再保存'};
+            return {ok: false, message: t("部门名称必填，请补齐后再保存")};
         }
         const request: DepartmentSaveRequest = {
             ID: isAdd ? '' : toStringOrEmpty(node.ID),
@@ -406,30 +411,30 @@ const DepartmentPage: React.FC<ViewPageProps> = ({view, trail}) => {
                                     if (current.kind === 'view') applyEditor({kind: 'edit', key: current.key});
                                 }}
                             >
-                                <Form.Item label="上级部门" name="ParentName">
+                                <Form.Item label={t("上级部门")} name="ParentName">
                                     <Input readOnly variant="borderless"/>
                                 </Form.Item>
-                                <Form.Item label="部门编号" name="No">
+                                <Form.Item label={t("部门编号")} name="No">
                                     <Input disabled/>
                                 </Form.Item>
-                                <Form.Item label="部门名称" name="Name"
-                                           rules={[{required: true, message: '请填写部门名称'}]}>
+                                <Form.Item label={t("部门名称")} name="Name"
+                                           rules={[{required: true, message: t("请填写部门名称")}]}>
                                     <Input allowClear maxLength={50}/>
                                 </Form.Item>
-                                <Form.Item label="联系人" name="ContactUser">
+                                <Form.Item label={t("联系人")} name="ContactUser">
                                     <Input allowClear maxLength={50}/>
                                 </Form.Item>
-                                <Form.Item label="部门属性" name="Attribute">
+                                <Form.Item label={t("部门属性")} name="Attribute">
                                     <Select
                                         allowClear
-                                        placeholder="请选择"
-                                        options={DEPARTMENT_ATTRIBUTES.map((item) => ({value: item, label: item}))}
+                                        placeholder={t("请选择")}
+                                        options={DEPARTMENT_ATTRIBUTES.map((item) => ({value: item, label: t(item)}))}
                                     />
                                 </Form.Item>
-                                <Form.Item label="部门简码" name="Code" extra="主要用在打印工序条码时使用">
+                                <Form.Item label={t("部门简码")} name="Code" extra="主要用在打印工序条码时使用">
                                     <Input allowClear maxLength={10} style={{width: 120}}/>
                                 </Form.Item>
-                                <Form.Item label="是否显示" name="Visible" valuePropName="checked">
+                                <Form.Item label={t("是否显示")} name="Visible" valuePropName="checked">
                                     <Switch/>
                                 </Form.Item>
                             </Form>

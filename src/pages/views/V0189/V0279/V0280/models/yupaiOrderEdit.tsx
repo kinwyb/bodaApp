@@ -42,6 +42,11 @@ import {
     type YupaiOrderEditBridgeContext,
 } from './yupaiOrderEditBridge';
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0189_V0279_V0280");
+
+
 /**
  * 右键菜单图标：直接用 antd 图标。
  *
@@ -388,7 +393,7 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                             // 订单里已经没有选中的这条记录了（多半被他人改动过）。
                             // 提示后直接关窗，这里同样不翻 isLoading —— 理由同上，
                             // 别在弹窗关闭之后还把详情表格建出来。
-                            void message.error("预订单信息与选择数据不匹配,请重试")
+                            void message.error(t("预订单信息与选择数据不匹配,请重试"))
                             onCancel();
                             return;
                         }
@@ -452,7 +457,7 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                     return prev
                 }
                 if (!isBlank(row.YupaiOrderID)) {
-                    void message.warning("该行数据已保存请前往列表页取消")
+                    void message.warning(t("该行数据已保存请前往列表页取消"))
                     return prev;
                 }
                 next.splice(anchor, 1);
@@ -593,8 +598,8 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
         const handleCheck = useCallback(async (): Promise<{ok: boolean; message: string}> => {
             const code = String(form.getFieldValue('OrderCode') ?? '').trim();
             if (!code) {
-                void message.warning('请先输入订单号');
-                return {ok: false, message: '订单号是空的，先 form.set OrderCode 再检测'};
+                void message.warning(t("请先输入订单号"));
+                return {ok: false, message: t("订单号是空的，先 form.set OrderCode 再检测")};
             }
             setChecking(true);
             try {
@@ -755,9 +760,9 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                 void message.error({
                     content: (
                         <div>
-                            <div>有 {errorEntries.length} 处数据需要修正（表格里已标红，鼠标移到红格上可看原因）：</div>
+                            <div>{t("有")}{errorEntries.length} {t("处数据需要修正（表格里已标红，鼠标移到红格上可看原因）：")}</div>
                             {preview.map((text) => <div key={text}>· {text}</div>)}
-                            {rest > 0 ? <div>· 其余 {rest} 处请在表格中查看</div> : null}
+                            {rest > 0 ? <div>{t("· 其余")}{rest} {t("处请在表格中查看")}</div> : null}
                         </div>
                     ),
                     duration: 6,
@@ -779,7 +784,7 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                         values.ZHDate = values.WCDate.add(3, 'day')
                     }
                     if (values.ZHDate?.isBefore(values.QRDate)) {
-                        void message.error("走货期无效");
+                        void message.error(t("走货期无效"));
                         return '走货期无效：早于确认可下单期，请先改走货期或确认可下单期';
                     }
                 }
@@ -860,7 +865,7 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
             newDataRows.push(...newHideRows)
             const totalNum = newDataRows.reduce((acc, row) => acc + toNumberOrZero(row.Number), 0);
             if (totalNum < 1) {
-                void message.error("总数量不能为空");
+                void message.error(t("总数量不能为空"));
                 return '总数量为 0：明细里的款式数量（或尺码数量）都没填';
             }
             newDataRows = newDataRows.map((row) => {
@@ -1056,9 +1061,9 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                     }}
                 >
                     <div className="preorder-form-toolbar">
-                        <span className="pf-label">订单号</span>
+                        <span className="pf-label">{t("订单号")}</span>
                         <Form.Item name="OrderCode" noStyle
-                                   rules={[{required: true, message: '订单号不能为空'}]}>
+                                   rules={[{required: true, message: t("订单号不能为空")}]}>
                             <Input
                                 style={{width: 150}}
                                 // allowClear 必须恒定：它决定 antd 要不要套 affix（后缀）容器 ——
@@ -1066,7 +1071,7 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                                 // （控制台报 dynamic add or remove prefix / suffix）。
                                 // 锁定由 readOnly 表达即可，清除图标本来就只在非锁定态显示。
                                 allowClear
-                                placeholder="订单号"
+                                placeholder={t("订单号")}
                                 readOnly={toolbarLocked}
 
                             />
@@ -1080,12 +1085,11 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                                     void handleCheck();
                                 }}
                             >
-                                检测
-                            </Button>
+                                {t("检测")}</Button>
                         )}
-                        <span className="pf-label pf-toolbar-gap">预排日期</span>
+                        <span className="pf-label pf-toolbar-gap">{t("预排日期")}</span>
                         <Form.Item name="YPDate" noStyle
-                                   rules={[{required: true, message: '预排日期不能为空'}]}>
+                                   rules={[{required: true, message: t("预排日期不能为空")}]}>
                             <DatePicker
                                 style={{width: 150}}
                                 format={DATE_FORMAT}
@@ -1100,18 +1104,17 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                                 disabled={detailLocked}
                                 onClick={handleSave}
                             >
-                                保存
-                            </Button>
+                                {t("保存")}</Button>
                         )}
                     </div>
 
                     <fieldset
                         className={`preorder-fieldset${detailLocked && !isView ? ' preorder-fieldset-disabled' : ''}`}>
-                        <legend>详情</legend>
+                        <legend>{t("详情")}</legend>
 
                         <div className="pf-row">
-                            <Field label="业务员" required>
-                                <Form.Item name="Ywy" noStyle rules={[{required: true, message: '业务员不能为空'}]}>
+                            <Field label={t("业务员")} required>
+                                <Form.Item name="Ywy" noStyle rules={[{required: true, message: t("业务员不能为空")}]}>
                                     <Input style={{width: 120}} readOnly allowClear={false}/>
                                 </Form.Item>
                                 <Button
@@ -1141,11 +1144,11 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                             <Form.Item name="DepartmentID" hidden>
                                 <Input/>
                             </Form.Item>
-                            <Field label="产地" required>
-                                <Form.Item name="WorkPlace" noStyle rules={[{required: true, message: '产地不能为空'}]}>
+                            <Field label={t("产地")} required>
+                                <Form.Item name="WorkPlace" noStyle rules={[{required: true, message: t("产地不能为空")}]}>
                                     <Select
                                         style={{width: 150}}
-                                        placeholder="请选择"
+                                        placeholder={t("请选择")}
                                         options={workPlaces.map((value) => ({value, label: value}))}
                                         {...selectProps(detailLocked)}
                                     />
@@ -1154,11 +1157,11 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                         </div>
 
                         <div className="pf-row">
-                            <Field label="计划下单日期" required>
+                            <Field label={t("计划下单日期")} required>
                                 <Form.Item
                                     name="JHDate"
                                     noStyle
-                                    rules={[{required: true, message: '请选择计划下单日期'}]}
+                                    rules={[{required: true, message: t("请选择计划下单日期")}]}
                                 >
                                     <DatePicker
                                         style={{width: 150}}
@@ -1168,7 +1171,7 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                                     />
                                 </Form.Item>
                             </Field>
-                            <Field label="确认可下单期">
+                            <Field label={t("确认可下单期")}>
                                 <Form.Item name="QRDate" noStyle>
                                     <DatePicker
                                         style={{width: 150}}
@@ -1181,7 +1184,7 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                         </div>
 
                         <div className="pf-row">
-                            <Field label="尾货期">
+                            <Field label={t("尾货期")}>
                                 <Form.Item
                                     name="WCDate"
                                     noStyle
@@ -1194,11 +1197,11 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                                     />
                                 </Form.Item>
                             </Field>
-                            <Field label="走货期" required>
+                            <Field label={t("走货期")} required>
                                 <Form.Item
                                     name="ZHDate"
                                     noStyle
-                                    rules={[{required: true, message: '请选择走货期'}]}
+                                    rules={[{required: true, message: t("请选择走货期")}]}
                                 >
                                     <DatePicker
                                         style={{width: 150}}
@@ -1212,9 +1215,9 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                         </div>
 
                         <div className="pf-row">
-                            <Field label="原料可下单期" required>
+                            <Field label={t("原料可下单期")} required>
                                 <Form.Item name="YLDate" noStyle
-                                           rules={[{required: true, message: '请选择原料可下单期'}]}>
+                                           rules={[{required: true, message: t("请选择原料可下单期")}]}>
                                     <DatePicker
                                         style={{width: 150}}
                                         format={DATE_FORMAT}
@@ -1223,9 +1226,9 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                                     />
                                 </Form.Item>
                             </Field>
-                            <Field label="缝制辅料可下单期" required>
+                            <Field label={t("缝制辅料可下单期")} required>
                                 <Form.Item name="FLDate" noStyle
-                                           rules={[{required: true, message: '请选择缝制辅料可下单期'}]}>
+                                           rules={[{required: true, message: t("请选择缝制辅料可下单期")}]}>
                                     <DatePicker
                                         style={{width: 150}}
                                         format={DATE_FORMAT}
@@ -1234,9 +1237,9 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                                     />
                                 </Form.Item>
                             </Field>
-                            <Field label="包装辅料提供期" required>
+                            <Field label={t("包装辅料提供期")} required>
                                 <Form.Item name="BZFLDate" noStyle
-                                           rules={[{required: true, message: '请选择包装辅料提供期'}]}>
+                                           rules={[{required: true, message: t("请选择包装辅料提供期")}]}>
                                     <DatePicker
                                         style={{width: 150}}
                                         format={DATE_FORMAT}
@@ -1247,17 +1250,17 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                         </div>
 
                         <div className="pf-row">
-                            <Field label="下单把握率">
+                            <Field label={t("下单把握率")}>
                                 <Form.Item name="XDRate" noStyle>
                                     <Input
                                         style={{width: 150}}
-                                        placeholder="如 95%"
+                                        placeholder={t("如 95%")}
                                         readOnly={detailLocked}
                                         allowClear
                                     />
                                 </Form.Item>
                             </Field>
-                            <Field label="总数量:">
+                            <Field label={t("总数量:")}>
                                 <Form.Item name="Qty" noStyle>
                                     <InputNumber
                                         style={{width: 130}}
@@ -1269,10 +1272,10 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                         </div>
 
                         <div className="pf-row">
-                            <Field label="备注" grow>
+                            <Field label={t("备注")} grow>
                                 <Form.Item name="Memo" noStyle>
                                     <Input
-                                        placeholder="备注"
+                                        placeholder={t("备注")}
                                         readOnly={detailLocked}
                                         allowClear
                                     />
@@ -1281,7 +1284,7 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                         </div>
 
                         <div className="pf-row">
-                            <Field label="中期检验日期">
+                            <Field label={t("中期检验日期")}>
                                 <Form.Item name="ZQCheckDate" noStyle>
                                     <DatePicker
                                         style={{width: 150}}
@@ -1290,10 +1293,10 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                                     />
                                 </Form.Item>
                             </Field>
-                            <Field label="中期检验要求" grow>
+                            <Field label={t("中期检验要求")} grow>
                                 <Form.Item name="ZQCheckMemo" noStyle>
                                     <Input
-                                        placeholder="中期检验要求"
+                                        placeholder={t("中期检验要求")}
                                         readOnly={detailLocked}
                                         allowClear
                                     />
@@ -1313,13 +1316,13 @@ const YupaiOrderEdit: React.FC<yupaiOrderFormModalProps> = ({
                                 cellTooltip={detailCellTooltip}
                                 menu={detailMenu}
                             />
-                            {detailRows.length === 0 && <div className="preorder-detail-empty">没有任何记录</div>}
+                            {detailRows.length === 0 && <div className="preorder-detail-empty">{t("没有任何记录")}</div>}
                         </div>
                     </fieldset>
                 </Form>
                 <EmployeeQuickSelect
                     open={employeeOpen}
-                    title="快速选择-业务员"
+                    title={t("快速选择-业务员")}
                     loadData={async () => (await employeeApi.list()).data ?? []}
                     onSelect={(employee) => {
                         // 后端 /employee 的姓名字段就叫 Employee（不是 EmployeeName）

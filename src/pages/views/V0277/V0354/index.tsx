@@ -20,6 +20,11 @@ import {ErrorMessage} from "@/api/request.ts";
 import {SearchOutlined} from "@ant-design/icons";
 import MatrixPushView from "@/components/nc/matrixPushView.tsx";
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0277_V0354");
+
+
 /**
  * V0277_V0354 包装 BOM 矩阵
  *
@@ -406,7 +411,7 @@ const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({view, trail}) => {
     const pushRuleTab = useMemo((): TabsProps['items'] => [
         {
             key: PUSH_RULE_SECTION,
-            label: '发布情况',
+            label: t("发布情况"),
             children: <MatrixPushView Datas={pushData} RowKeyField={'PackBomMatrixRuleID'}
                                       VersionFieldName={'Bom矩阵版本'} VersionField={'BomVersion'}/>,
         },
@@ -439,19 +444,18 @@ const NCPackBomMatrixPage: React.FC<ViewPageProps> = ({view, trail}) => {
                 }}
             >
                 <div className="preorder-form-toolbar">
-                    <span className="pf-label">物料: </span>
+                    <span className="pf-label">{t("物料:")}</span>
                     <Form.Item name="materialCode">
                         <Input allowClear/>
                     </Form.Item>
-                    <span className="pf-label">项目: </span>
+                    <span className="pf-label">{t("项目:")}</span>
                     <Form.Item name="ProjectCode">
                         <Input allowClear/>
                     </Form.Item>
                     <Form.Item>
                         <Space>
                             <Button type="primary" htmlType="submit" icon={<SearchOutlined/>}>
-                                查询
-                            </Button>
+                                {t("查询")}</Button>
                         </Space>
                     </Form.Item>
                 </div>

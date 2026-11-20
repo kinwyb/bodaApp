@@ -37,6 +37,11 @@ import type {
 import {useYupaiOrderCommands} from './command';
 import {YupaiOrderLogModal} from "@/pages/views/V0189/V0279/V0280/models/yupaiOrderLog.tsx";
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0189_V0279_V0280");
+
+
 /**
  * V0189_V0279_V0280 计划管理 > 预订单 > 预订单管理
  *
@@ -269,7 +274,7 @@ const YupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
             renderExpanded: ({record}) => {
                 const ypOrder = record as YupaiOrder | undefined;
                 if (!ypOrder || !ypOrder.Batchs) {
-                    return (<div>分批数据空</div>);
+                    return (<div>{t("分批数据空")}</div>);
                 }
                 return (<YupaiOrderMasterDetail
                     records={ypOrder.Batchs as Record<string, unknown>[]}
@@ -317,9 +322,9 @@ const YupaiOrderPage: React.FC<ViewPageProps> = ({view, trail}) => {
                 if (menuKey === 'copyCell') {
                     if (navigator.clipboard?.writeText) {
                         void navigator.clipboard.writeText(value == null ? '' : String(value));
-                        message.success('已复制到剪贴板');
+                        message.success(t("已复制到剪贴板"));
                     } else {
-                        message.warning('当前环境不支持剪贴板');
+                        message.warning(t("当前环境不支持剪贴板"));
                     }
                     return;
                 }

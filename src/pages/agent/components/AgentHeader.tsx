@@ -17,6 +17,7 @@ import {
 } from '@ant-design/icons';
 import type { AgentConnectionStatus, AgentInfo } from '../types';
 import { CONNECTION_HINT, CONNECTION_META, FALLBACK_AGENT_OPTIONS, RECONNECTABLE_STATUSES } from '../constants';
+import { useI18n } from '@/i18n/context';
 
 const { Text } = Typography;
 
@@ -58,6 +59,7 @@ export const AgentHeader: React.FC<{
   onReconnect,
   onOpenFiles,
 }) => {
+  const { t } = useI18n();
   const agentOptions = useMemo(
     () =>
       agents.length > 0
@@ -71,7 +73,9 @@ export const AgentHeader: React.FC<{
   );
 
   const statusTag =
-    mode === 'mock' ? { text: '演示模式', color: 'gold' } : CONNECTION_META[connection];
+    mode === 'mock'
+      ? { text: t('演示模式'), color: 'gold' }
+      : { ...CONNECTION_META[connection], text: t(CONNECTION_META[connection].text) };
   /**
    * 断开状态下，状态标签本身也当作重连入口（最不容易被忽略的那个位置）。
    * failed 尤其要给：那正是「已经停手、只能人来点」的状态。
@@ -80,18 +84,18 @@ export const AgentHeader: React.FC<{
   /** 按钮与提示语随状态变化：idle 是「连接」，error 还在自动重试，failed 已停手 */
   const reconnectTip =
     connection === 'failed'
-      ? '自动重连已停止，点击重新连接'
+      ? t('自动重连已停止，点击重新连接')
       : connection === 'error'
-        ? '连接异常，点击重连'
-        : '未连接，点击连接';
+        ? t('连接异常，点击重连')
+        : t('未连接，点击连接');
 
   /**
    * 副标题：紧凑形态里省掉 agent 名字 —— 它就在右边的下拉里，
    * 再写一遍在 480px 的面板里会把副标题挤成两行。
    */
   const subtitle = [
-    messageCount > 0 ? `${messageCount} 条消息` : '新会话',
-    compact ? '' : agent || '未选择 agent',
+    messageCount > 0 ? t('{count} 条消息', { vars: { count: messageCount } }) : t('新会话'),
+    compact ? '' : agent || t('未选择 agent'),
     latency !== undefined ? `${latency}ms` : '',
   ]
     .filter(Boolean)
@@ -107,7 +111,7 @@ export const AgentHeader: React.FC<{
             </Text>
             {temporary ? (
               <Tag color="orange" variant="filled">
-                临时会话
+                {t('临时会话')}
               </Tag>
             ) : null}
           </div>
@@ -120,10 +124,10 @@ export const AgentHeader: React.FC<{
         <Tooltip
           title={
             mode === 'mock'
-              ? '当前是本地演示数据'
+              ? t('当前是本地演示数据')
               : tagClickable
-                ? `${CONNECTION_HINT[connection]}（点击可重连）`
-                : CONNECTION_HINT[connection]
+                ? `${t(CONNECTION_HINT[connection])}${t('（点击可重连）')}`
+                : t(CONNECTION_HINT[connection])
           }
         >
           <Tag
@@ -159,7 +163,7 @@ export const AgentHeader: React.FC<{
               icon={<ReloadOutlined />}
               onClick={onReconnect}
             >
-              {connection === 'idle' ? '连接' : '重连'}
+              {connection === 'idle' ? t('连接') : t('重连')}
             </Button>
           )
         ) : null}
@@ -169,11 +173,11 @@ export const AgentHeader: React.FC<{
           onChange={onAgentChange}
           variant="borderless"
           popupMatchSelectWidth={260}
-          placeholder="选择 agent"
+          placeholder={t('选择 agent')}
           options={agentOptions}
         />
         {onOpenFiles ? (
-          <Tooltip title="文件浏览">
+          <Tooltip title={t('文件浏览')}>
             <Button type="text" icon={<FolderOpenOutlined />} onClick={onOpenFiles} />
           </Tooltip>
         ) : null}
@@ -189,13 +193,13 @@ export const AgentHeader: React.FC<{
                 {
                   key: 'settings',
                   icon: <SettingOutlined />,
-                  label: '对话参数',
+                  label: t('对话参数'),
                   onClick: onOpenSettings,
                 },
                 {
                   key: 'clear',
                   icon: <ClearOutlined />,
-                  label: '清空当前对话',
+                  label: t('清空当前对话'),
                   onClick: onClear,
                 },
               ],
@@ -205,10 +209,10 @@ export const AgentHeader: React.FC<{
           </Dropdown>
         ) : (
           <>
-            <Tooltip title="对话参数">
+            <Tooltip title={t('对话参数')}>
               <Button type="text" icon={<SettingOutlined />} onClick={onOpenSettings} />
             </Tooltip>
-            <Tooltip title="清空当前对话">
+            <Tooltip title={t('清空当前对话')}>
               <Button type="text" icon={<ClearOutlined />} onClick={onClear} />
             </Tooltip>
           </>
@@ -216,7 +220,7 @@ export const AgentHeader: React.FC<{
         {/* 紧凑形态里「新建对话」就在会话浮层顶部，顶栏不再放一个重复按钮 */}
         {compact || temporary ? null : (
           <Button type="primary" icon={<PlusOutlined />} onClick={onCreate}>
-            新对话
+            {t('新对话')}
           </Button>
         )}
       </Space>

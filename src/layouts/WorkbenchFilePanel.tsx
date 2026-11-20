@@ -47,6 +47,7 @@ import {
 } from '../pages/agent/files';
 import type { WorkspaceAgent, WorkspaceEntry } from '../pages/agent/files';
 import { agentTransportMode } from '../pages/agent/transport';
+import { useI18n } from '@/i18n/context';
 
 /** 目录树节点：key 就是容器路径，entry/root 用来区分文件、目录与根 */
 type FileTreeNode = TreeDataNode & {
@@ -63,6 +64,7 @@ const FileTabsContext = createContext<{ tabs: FileTab[]; active: string }>({ tab
 
 /** 单个页签的内容：加载态 / 错误态 / 预览 iframe（ready 后投一次 Blob） */
 const FileTabFrame: React.FC<{ tabKey: string }> = ({ tabKey }) => {
+  const { t } = useI18n();
   const { tabs } = useContext(FileTabsContext);
   const tab = tabs.find((item) => item.key === tabKey);
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -107,7 +109,7 @@ const FileTabFrame: React.FC<{ tabKey: string }> = ({ tabKey }) => {
                 size="small"
                 onClick={() => window.open(tab.error!.fallbackUrl, '_blank', 'noopener,noreferrer')}
               >
-                新窗口打开
+                {t('新窗口打开')}
               </Button>
             ) : undefined
           }
@@ -119,7 +121,7 @@ const FileTabFrame: React.FC<{ tabKey: string }> = ({ tabKey }) => {
     return (
       <div className="workbench-files-preview-status">
         <Spin />
-        <span className="workbench-files-preview-status-text">读取文件…</span>
+        <span className="workbench-files-preview-status-text">{t('读取文件…')}</span>
       </div>
     );
   }
@@ -127,7 +129,7 @@ const FileTabFrame: React.FC<{ tabKey: string }> = ({ tabKey }) => {
     <iframe
       ref={iframeRef}
       className="workbench-files-frame"
-      title={`预览：${tab.name}`}
+      title={t('预览：{name}', { vars: { name: tab.name } })}
       src={fileViewerFrameUrl(tab.name)}
     />
   );
@@ -176,6 +178,7 @@ const WorkbenchFilePanel: React.FC<{
   /** 右栏宿主：取消固定；主页签宿主不传（页签与工作台同级不可关闭，不显示关闭按钮） */
   onClose?: () => void;
 }> = ({ onClose }) => {
+  const { t } = useI18n();
   // agent / 附件 / 停靠态 / 页签存档都走 context：keep-alive 缓存的元素身份不变，
   // props 传值会让异步到达的附件/_blob 更新不进子树，context 能穿透缓存
   const {
@@ -220,14 +223,16 @@ const WorkbenchFilePanel: React.FC<{
     () =>
       roots.map((root) => ({
         key: root.container,
-        title: root.exists ? root.container : `${root.container}（未创建）`,
+        title: root.exists
+          ? root.container
+          : t('{name}（未创建）', { vars: { name: root.container } }),
         icon: <FolderOutlined />,
         isLeaf: false,
         selectable: root.exists,
         disabled: !root.exists,
         isRoot: true,
       })),
-    [roots],
+    [roots, t],
   );
 
   /** 重置目录树（切 agent / 刷新）：展开、加载、选中状态一起清 */
@@ -250,13 +255,13 @@ const WorkbenchFilePanel: React.FC<{
       // 404 = 服务端没开 websocket.agent_files，给出配置提示而不是网络错误
       setAgentsError(
         error instanceof AgentFileError && error.code === 'http_404'
-          ? '后端未开启文件浏览（需配置 websocket.agent_files = true）'
+          ? t('后端未开启文件浏览（需配置 websocket.agent_files = true）')
           : fileErrorMessage(error),
       );
     } finally {
       setAgentsLoading(false);
     }
-  }, [mock]);
+  }, [mock, t]);
 
   useEffect(() => {
     void loadAgents();
@@ -415,21 +420,21 @@ const WorkbenchFilePanel: React.FC<{
   return (
     <div className="workbench-files-panel">
       <div className="workbench-files-header">
-        <span className="workbench-files-title">文件浏览</span>
-        <Tag className="workbench-files-readonly">只读</Tag>
+        <span className="workbench-files-title">{t('文件浏览')}</span>
+        <Tag className="workbench-files-readonly">{t('只读')}</Tag>
         <Select
           size="small"
           className="workbench-files-agent"
           value={selectedAgent || undefined}
           onChange={setSelectedAgent}
           options={agentOptions}
-          placeholder="选择 agent"
+          placeholder={t('选择 agent')}
           popupMatchSelectWidth={200}
           disabled={mock || agents.length === 0}
         />
         <span className="workbench-files-spacer" />
         {canDock ? (
-          <Tooltip title={docked ? '取消固定，返回主界面' : '固定到右侧'}>
+          <Tooltip title={docked ? t('取消固定，返回主界面') : t('固定到右侧')}>
             <Button
               type="text"
               size="small"
@@ -438,10 +443,10 @@ const WorkbenchFilePanel: React.FC<{
             />
           </Tooltip>
         ) : null}
-        <Tooltip title="刷新目录">
+        <Tooltip title={t('刷新目录')}>
           <Button type="text" size="small" icon={<ReloadOutlined />} onClick={handleRefresh} />
         </Tooltip>
-        <Tooltip title="下载当前文件">
+        <Tooltip title={t('下载当前文件')}>
           <Button
             type="text"
             size="small"
@@ -453,7 +458,7 @@ const WorkbenchFilePanel: React.FC<{
           />
         </Tooltip>
         {onClose ? (
-          <Tooltip title="取消固定">
+          <Tooltip title={t('取消固定')}>
             <Button type="text" size="small" icon={<CloseOutlined />} onClick={onClose} />
           </Tooltip>
         ) : null}
@@ -462,7 +467,7 @@ const WorkbenchFilePanel: React.FC<{
       <div className="workbench-files-body">
         <div className="workbench-files-tree">
           {mock ? (
-            <Alert type="info" showIcon message="演示模式没有文件服务" />
+            <Alert type="info" showIcon title={t('演示模式没有文件服务')} />
           ) : agentsError ? (
             <Alert type="warning" showIcon message={agentsError} />
           ) : agentsLoading && agents.length === 0 ? (
@@ -470,7 +475,7 @@ const WorkbenchFilePanel: React.FC<{
               <Spin size="small" />
             </div>
           ) : treeData.length === 0 ? (
-            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无可浏览的目录" />
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('暂无可浏览的目录')} />
           ) : (
             <Tree
               showIcon
@@ -503,7 +508,7 @@ const WorkbenchFilePanel: React.FC<{
             <div className="workbench-files-empty">
               <Empty
                 image={Empty.PRESENTED_IMAGE_SIMPLE}
-                description="从左侧目录或对话附件选择文件"
+                description={t('从左侧目录或对话附件选择文件')}
               />
             </div>
           ) : null}

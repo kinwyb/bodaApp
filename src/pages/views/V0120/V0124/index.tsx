@@ -13,6 +13,11 @@ import {createSalaryDetailBridge, type SalaryDetailBridgeContext, type SalaryDet
 import {SALARY_DETAIL_COLUMNS} from './columns';
 import {OrderCodeSelect} from '@/components/quick-select';
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0120_V0124");
+
+
 type SearchValues = {
     dateRange: [Dayjs, Dayjs];
     orderCode?: string;
@@ -106,17 +111,17 @@ const SalaryDetailPage: React.FC<ViewPageProps> = ({view, trail}) => {
                     });
                 }}
             >
-                <Form.Item name="dateRange" label="日期" rules={[{required: true}]}>
+                <Form.Item name="dateRange" label={t("日期")} rules={[{required: true}]}>
                     <DatePicker.RangePicker allowClear={false}/>
                 </Form.Item>
-                <Form.Item name="orderCode" label="订单号">
+                <Form.Item name="orderCode" label={t("订单号")}>
                     <OrderCodeSelect style={{width: 130}}/>
                 </Form.Item>
-                <Form.Item name="machineCode" label="机台号">
+                <Form.Item name="machineCode" label={t("机台号")}>
                     <Input allowClear style={{width: 100}}/>
                 </Form.Item>
                 <Form.Item>
-                    <Button type="primary" htmlType="submit" icon={<SearchOutlined/>}>查询</Button>
+                    <Button type="primary" htmlType="submit" icon={<SearchOutlined/>}>{t("查询")}</Button>
                 </Form.Item>
             </Form>
             <FilterTable
@@ -125,8 +130,8 @@ const SalaryDetailPage: React.FC<ViewPageProps> = ({view, trail}) => {
                 records={rows}
                 rowKey="ID"
                 loading={loading}
-                emptyTip="没有任何记录"
-                exportName="工资明细"
+                emptyTip={t("没有任何记录")}
+                exportName={t("工资明细")}
             />
         </div>
     );

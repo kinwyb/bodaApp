@@ -13,7 +13,7 @@ import type { ColumnsDefine, ListTableConstructorOptions } from '@visactor/vtabl
 import { TableExportPlugin } from '@visactor/vtable-plugins';
 import type { TableExportPluginOptions } from '@visactor/vtable-plugins';
 import { isDebugEnv } from '@/utils';
-import { useI18n } from '@/i18n/context';
+import { usePageI18n } from '@/i18n/context';
 import {
   toDataTableCellStyle,
   type GridTableCellStyleHook,
@@ -480,13 +480,13 @@ export const GridTable = React.forwardRef<GridTableApi, GridTableProps>(({
   onActiveSelectionChange,
   onSelectedChange,
 }, ref) => {
-  const { t } = useI18n();
+  const { t } = usePageI18n();
   /**
    * 列定义归一化：传 `AppColumnDef[]` 时自动用 buildColumns 转成 `ColumnsDefine`；
    * 传原生 `ColumnsDefine` 时原样返回（**引用不变**，不会白白触发表格重建）。
    * 组件内部一律用归一化后的 columns。
    */
-  const columns = useMemo(() => normalizeColumns(columnsProp), [columnsProp]);
+  const columns = useMemo(() => normalizeColumns(columnsProp, t), [columnsProp, t]);
   const containerRef = useRef<HTMLDivElement>(null);
   const tableRef = useRef<ListTable | null>(null);
   /** 构造时的完整 options：updateOption 需要完整配置，否则 theme / 行高等会被重置为默认值 */

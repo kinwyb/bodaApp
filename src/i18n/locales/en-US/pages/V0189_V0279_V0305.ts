@@ -1,0 +1,27 @@
+import type { LocaleMessages } from '../../../types';
+
+export default {
+  "业务员": "Salesman",
+  "业务组": "Business group",
+  "产地": "Origin",
+  "实际下单期": "Actual order date",
+  "客户": "Customer",
+  "批次数": "Batch count",
+  "染色总重量(kg)": "Total dyeing weight (kg)",
+  "查询": "Query",
+  "款号": "Product Code",
+  "款式名称": "Style name",
+  "款式数量": "Style quantity",
+  "生产月份": "Production month",
+  "生产期": "Production period",
+  "确认下单期": "Confirmed order date",
+  "织造总工时(h)": "Total weaving hours (h)",
+  "缝制大类": "Sewing category",
+  "缝制总工时(h)": "Total sewing hours (h)",
+  "计划下单期": "Planned order date",
+  "订单号": "Order Code",
+  "订单类型": "Order type",
+  "走货月份": "Shipment month",
+  "走货期": "Take the goods time",
+  "预排日期": "Pre-schedule date",
+} satisfies LocaleMessages;

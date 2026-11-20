@@ -6,6 +6,11 @@ import {emitActiveUIEvent} from '@/pages/agent/ui-bridge';
 import {toStringOrEmpty} from '@/utils';
 import type {DepartmentCommandFactory} from './types';
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0005_V0010");
+
+
 /**
  * 删除：删掉**树上当前选中的那个部门**（旧客户端 `delBtn_ItemClick`，删的是焦点节点，
  * 不是右侧表单里的草稿）。
@@ -25,7 +30,7 @@ export const deleteCommand: DepartmentCommandFactory = ({
                                                             reload,
                                                         }) => ({
     key: 'delete',
-    label: '删除',
+    label: t("删除"),
     icon: <DeleteOutlined/>,
     permission: '删除',
     danger: true,
@@ -35,14 +40,14 @@ export const deleteCommand: DepartmentCommandFactory = ({
     onClick: () => {
         const departmentID = toStringOrEmpty(activeNode?.ID).trim();
         if (!activeNode || isRootSelected || !departmentID) {
-            void message.warning('请先在部门树上选中一个要删除的部门');
+            void message.warning(t("请先在部门树上选中一个要删除的部门"));
             return;
         }
         const no = toStringOrEmpty(activeNode.No);
         const name = toStringOrEmpty(activeNode.Name);
         modal.confirm({
             icon: <ExclamationCircleOutlined/>,
-            title: '确认删除这个部门？',
+            title: t("确认删除这个部门？"),
             width: 420,
             content: (
                 <Descriptions
@@ -54,14 +59,14 @@ export const deleteCommand: DepartmentCommandFactory = ({
                         content: {color: 'rgba(0, 0, 0, 0.88)', fontWeight: 500},
                     }}
                     items={[
-                        {key: 'no', label: '部门编码', children: no || '—'},
-                        {key: 'name', label: '部门名称', children: name || '—'},
-                        {key: 'parent', label: '上级部门', children: toStringOrEmpty(activeNode.ParentName) || '—'},
+                        {key: 'no', label: t("部门编码"), children: no || '—'},
+                        {key: 'name', label: t("部门名称"), children: name || '—'},
+                        {key: 'parent', label: t("上级部门"), children: toStringOrEmpty(activeNode.ParentName) || '—'},
                     ]}
                 />
             ),
-            okText: '确认删除',
-            cancelText: '取消',
+            okText: t("确认删除"),
+            cancelText: t("取消"),
             okButtonProps: {danger: true},
             onCancel: () => {
                 emitActiveUIEvent('action.outcome', {
@@ -78,7 +83,7 @@ export const deleteCommand: DepartmentCommandFactory = ({
                         actionId: 'delete',
                         outcome: 'confirmed',
                         targetIds: [departmentID],
-                        message: '已删除',
+                        message: t("已删除"),
                     });
                     await reload();
                 } catch (error) {

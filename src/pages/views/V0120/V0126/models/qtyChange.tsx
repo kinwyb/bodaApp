@@ -7,6 +7,11 @@ import {useAuth} from '@/store/auth-context';
 import {toStringOrEmpty} from '@/utils';
 import {createQtyChangeBridge, type QtyChangeBridgeContext} from './qtyChangeBridge';
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0120_V0126");
+
+
 export type QtyChangeModalProps = {
     open: boolean;
     view: string;
@@ -43,7 +48,7 @@ export function QtyChangeModal({open, view, row, onClose, onSaved}: QtyChangeMod
         try {
             await misProductionApi.changeScanQty(toStringOrEmpty(row?.Barcode), qty, toStringOrEmpty(userInfo?.EmpID));
             onSaved(qty);
-            void message.success('修改成功');
+            void message.success(t("修改成功"));
             onClose();
         } catch (submitError) {
             void message.error(ErrorMessage(submitError, '保存失败'));
@@ -69,18 +74,18 @@ export function QtyChangeModal({open, view, row, onClose, onSaved}: QtyChangeMod
     useUIBridgeDialog(view, bridge, open);
 
     return (
-        <Modal open={open} title="修改挡车数量" width={420} destroyOnHidden footer={null} onCancel={onClose}>
+        <Modal open={open} title={t("修改挡车数量")} width={420} destroyOnHidden footer={null} onCancel={onClose}>
             <div style={{display: 'grid', gap: 10, marginTop: 16}}>
-                <span>日期：{row?.DateShiftStart || '-'}</span>
-                <span>机台号：{row?.MachCode ?? '-'}</span>
-                <span>派工单号：{row?.DispatchNo || '-'}</span>
-                <span>挡车工：{row?.EmployeeName || '-'}</span>
-                <span>原数量：{row?.Qty ?? 0}</span>
+                <span>{t("日期：")}{row?.DateShiftStart || '-'}</span>
+                <span>{t("机台号：")}{row?.MachCode ?? '-'}</span>
+                <span>{t("派工单号：")}{row?.DispatchNo || '-'}</span>
+                <span>{t("挡车工：")}{row?.EmployeeName || '-'}</span>
+                <span>{t("原数量：")}{row?.Qty ?? 0}</span>
                 <Input
                     autoFocus
                     value={newQty}
                     status={error ? 'error' : undefined}
-                    placeholder="请输入新数量"
+                    placeholder={t("请输入新数量")}
                     onChange={(event) => {
                         setNewQty(event.target.value);
                         setError(undefined);
@@ -89,7 +94,7 @@ export function QtyChangeModal({open, view, row, onClose, onSaved}: QtyChangeMod
                 {error ? <span style={{color: '#cf1322'}}>{error}</span> : null}
             </div>
             <div style={{display: 'flex', justifyContent: 'flex-end', marginTop: 20}}>
-                <Button type="primary" loading={loading} onClick={() => void submit()}>保存</Button>
+                <Button type="primary" loading={loading} onClick={() => void submit()}>{t("保存")}</Button>
             </div>
         </Modal>
     );

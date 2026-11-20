@@ -33,7 +33,7 @@ import type {
     GridTableHeightMode,
 } from './index';
 import {formatDate, now, toNumberOrZero, toStringOrEmpty} from "@/utils";
-import {useI18n} from '@/i18n/context';
+import {usePageI18n} from '@/i18n/context';
 
 const DEFAULT_PAGE_SIZE = 30;
 
@@ -326,7 +326,7 @@ export const FilterTable = React.forwardRef<FilterTableApi, FilterTableProps>(
     ) => {
         const tableRef = useRef<GridTableApi | null>(null);
         const searchRef = useRef<SearchComponent | null>(null);
-        const {t} = useI18n();
+        const {t} = usePageI18n();
         const resolvedSearchPlaceholder = searchPlaceholder ?? t('搜索关键字');
         // 导出的 loading / 结果提示（App.useApp 只能组件顶层调，与页面取 message 同一来源）
         const {message} = App.useApp();
@@ -346,7 +346,7 @@ export const FilterTable = React.forwardRef<FilterTableApi, FilterTableProps>(
         const [activeRowCount, setActiveRowCount] = useState(0);
 
         /** 筛选字段：从列定义上配的 `filterType` 自动收集，页面不用再单独配 FilterField */
-        const filterFields = useMemo(() => collectFilterFields(columns), [columns]);
+        const filterFields = useMemo(() => collectFilterFields(columns, t), [columns, t]);
 
         // 从当前 records 自动构建 enum 类型的筛选候选项
         const autoOptions = useMemo(() => {
@@ -406,7 +406,7 @@ export const FilterTable = React.forwardRef<FilterTableApi, FilterTableProps>(
         }, [summary, filteredRecords, showSummary]);
 
         /** 可分组列：直接取当前表格的所有列，页面不用配 */
-        const groupOptions = useMemo(() => collectGroupableColumns(columns), [columns]);
+        const groupOptions = useMemo(() => collectGroupableColumns(columns, t), [columns, t]);
 
         /** 列上标了 `group: true` 的字段（按列顺序）—— 表格一进来就按这些分层 */
         const defaultGroupFields = useMemo(

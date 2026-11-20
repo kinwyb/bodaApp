@@ -14,6 +14,11 @@ import {PRODUCTION_ORGS} from '../../productionShared';
 import {ZZ_DETAIL_COLUMNS, ZZ_DETAIL_FIELDS, ZZ_DETAIL_SUMMARY, type ZZDetailRow} from './zzDetailColumns';
 import {createZZDetailBridge, type ZZDetailBridgeContext} from './zzDetailBridge';
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0018_V0326");
+
+
 const ZZ_DETAIL_SQL =
     'SELECT * FROM [transitDB].dbo.ProductionWeekData WHERE IsDel = 0 AND DataType = 2 AND StartDate = ? AND EndDate = ? AND OrgID = ? ORDER BY ExtendVal1,DataField';
 
@@ -93,7 +98,7 @@ export function ZZDetailModal({open, view, startDate, endDate, orgId, onClose}: 
                     loading={loading}
                     showPagination={false}
                     summary={ZZ_DETAIL_SUMMARY}
-                    emptyTip="暂无数据"
+                    emptyTip={t("暂无数据")}
                 />
             </div>
         </Modal>

@@ -5,6 +5,11 @@ import {yupaiApi, type YupaiOrder} from '@/api';
 import {DATE_FORMAT, isDebugEnv, toDateString, toDayjs, toStringOrEmpty} from '@/utils';
 import {ErrorMessage} from "@/api/request.ts";
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0189_V0279_V0280");
+
+
 export interface YupaiOrderPlanModalProps {
     open: boolean;
     order: YupaiOrder | null;
@@ -46,7 +51,7 @@ const YupaiOrderPlanModal: React.FC<YupaiOrderPlanModalProps> = ({open, order, o
 
         try {
             await yupaiApi.pmcSetting(payload.OrderCode, payload.YLZLDate, payload.YLDHDate);
-            void message.success('设置成功');
+            void message.success(t("设置成功"));
             onSaved();
         } catch (error) {
             void message.error(ErrorMessage(error, '设置失败'));
@@ -63,7 +68,7 @@ const YupaiOrderPlanModal: React.FC<YupaiOrderPlanModalProps> = ({open, order, o
     return (
         <Modal
             open={open}
-            title="计划部设置"
+            title={t("计划部设置")}
             width={460}
             destroyOnHidden
             footer={null}
@@ -71,17 +76,17 @@ const YupaiOrderPlanModal: React.FC<YupaiOrderPlanModalProps> = ({open, order, o
             onCancel={onCancel}
         >
             <div style={{display: 'flex', alignItems: 'center', marginTop: 20}}>
-                <span style={labelStyle}>订单号：</span>
+                <span style={labelStyle}>{t("订单号：")}</span>
                 <Input
                     style={{flex: 1}}
-                    placeholder="订单号"
+                    placeholder={t("订单号")}
                     value={toStringOrEmpty(order?.OrderCode)}
                     readOnly
                 />
             </div>
 
             <div style={{display: 'flex', alignItems: 'center', marginTop: 20}}>
-                <span style={labelStyle}>原料资料提供期：</span>
+                <span style={labelStyle}>{t("原料资料提供期：")}</span>
                 <DatePicker
                     style={{flex: 1}}
                     format={DATE_FORMAT}
@@ -91,7 +96,7 @@ const YupaiOrderPlanModal: React.FC<YupaiOrderPlanModalProps> = ({open, order, o
             </div>
 
             <div style={{display: 'flex', alignItems: 'center', marginTop: 12}}>
-                <span style={labelStyle}>原料计划到货期：</span>
+                <span style={labelStyle}>{t("原料计划到货期：")}</span>
                 <DatePicker
                     style={{flex: 1}}
                     format={DATE_FORMAT}
@@ -102,8 +107,7 @@ const YupaiOrderPlanModal: React.FC<YupaiOrderPlanModalProps> = ({open, order, o
 
             <div style={{display: 'flex', justifyContent: 'flex-end', marginTop: 24}}>
                 <Button type="primary" style={{minWidth: 88}} onClick={handleSave}>
-                    保存
-                </Button>
+                    {t("保存")}</Button>
             </div>
         </Modal>
     );

@@ -12,6 +12,11 @@ import {createDeliverPlanBridge, type DeliverPlanBridgeContext} from './bridged'
 import {useDeliverPlanCommands, type DeliverPlanCommandContext} from './command';
 import {DELIVER_PLAN_COLUMNS} from './columns';
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0189_V0279_V0296");
+
+
 /**
  * V0189_V0279_V0296 计划管理 > 已下单分期。
  *
@@ -65,8 +70,8 @@ const DeliverPlanPage: React.FC<ViewPageProps> = ({view, trail}) => {
                 records={rows}
                 rowKey="_rowKey"
                 loading={loading}
-                emptyTip="没有任何记录"
-                exportName="已下单分批"
+                emptyTip={t("没有任何记录")}
+                exportName={t("已下单分批")}
                 showSummary={false}
                 groupable
             />

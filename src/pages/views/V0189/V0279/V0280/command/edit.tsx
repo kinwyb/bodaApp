@@ -1,10 +1,15 @@
 import {EditOutlined} from '@ant-design/icons';
 import type {YupaiOrderCommandFactory} from './types';
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0189_V0279_V0280");
+
+
 /** 修改：取选中的第一条，打开编辑表单 */
 export const editCommand: YupaiOrderCommandFactory = ({message, getSelectedRows, hasSelection, openForm}) => ({
     key: 'edit',
-    label: '修改',
+    label: t("修改"),
     icon: <EditOutlined/>,
     permission: '编辑',
     disabled: !hasSelection,
@@ -12,7 +17,7 @@ export const editCommand: YupaiOrderCommandFactory = ({message, getSelectedRows,
     onClick: () => {
         const target = getSelectedRows()[0];
         if (!target) {
-            message.warning('请选择一条数据再修改').then();
+            message.warning(t("请选择一条数据再修改")).then();
             return;
         }
         openForm('edit', target);

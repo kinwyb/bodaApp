@@ -1,6 +1,11 @@
 import {ApartmentOutlined} from '@ant-design/icons';
 import type {YupaiOrderBatchCommandFactory} from './types';
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0189_V0279_V0280");
+
+
 /**
  * 分批：对**当前激活的那一行**设置出货分批（月份/日期 + 比例）。
  *
@@ -12,7 +17,7 @@ import type {YupaiOrderBatchCommandFactory} from './types';
  */
 export const batchCommand: YupaiOrderBatchCommandFactory = ({activeRow, openBatch}) => ({
     key: 'assign',
-    label: '分批',
+    label: t("分批"),
     icon: <ApartmentOutlined/>,
     dividerBefore: true,
     disabled: !activeRow,

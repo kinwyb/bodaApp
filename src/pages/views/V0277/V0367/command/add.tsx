@@ -1,6 +1,11 @@
 import {FileAddOutlined} from '@ant-design/icons';
 import type {ProcessRouteMatrixCommandFactory} from './types';
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0277_V0367");
+
+
 /**
  * 新增：打开空白的矩阵表单。
  *
@@ -9,7 +14,7 @@ import type {ProcessRouteMatrixCommandFactory} from './types';
  */
 export const addCommand: ProcessRouteMatrixCommandFactory = ({openForm}) => ({
     key: 'add',
-    label: '新增',
+    label: t("新增"),
     icon: <FileAddOutlined/>,
     onClick: () => openForm('add', null),
 });

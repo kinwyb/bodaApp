@@ -48,6 +48,11 @@ import {
 } from './schedule';
 import MachineTiles from './MachineTiles';
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0120_V0122");
+
+
 type SearchValues = {
     date: Dayjs;
 };
@@ -103,7 +108,7 @@ const ScheduleMaintenancePage: React.FC<ViewPageProps> = ({view, trail}) => {
         try {
             const result = await misScheduleApi.scheduleLoad(date);
             if (seq !== querySeqRef.current) {
-                return {ok: false, message: '查询已被新的查询取代', total: rowsRef.current.length};
+                return {ok: false, message: t("查询已被新的查询取代"), total: rowsRef.current.length};
             }
             const next = result.data ?? [];
             tableRef.current?.getTable()?.cancelEditCell();
@@ -112,7 +117,7 @@ const ScheduleMaintenancePage: React.FC<ViewPageProps> = ({view, trail}) => {
             return {ok: true, message: `查询成功，共 ${next.length} 条排班记录`, total: next.length};
         } catch (error) {
             if (seq !== querySeqRef.current) {
-                return {ok: false, message: '查询已被新的查询取代', total: rowsRef.current.length};
+                return {ok: false, message: t("查询已被新的查询取代"), total: rowsRef.current.length};
             }
             const text = ErrorMessage(error, '班次加载失败');
             void message.error(text);
@@ -131,7 +136,7 @@ const ScheduleMaintenancePage: React.FC<ViewPageProps> = ({view, trail}) => {
 
     const applyQuery = useCallback(async (next: ScheduleQuery): Promise<ScheduleQueryResult> => {
         if (!toDayjs(next.date)) {
-            return {ok: false, message: '日期格式应为 YYYY-MM-DD', total: rowsRef.current.length};
+            return {ok: false, message: t("日期格式应为 YYYY-MM-DD"), total: rowsRef.current.length};
         }
         setQuery({...next});
         form.setFieldValue('date', toDayjs(next.date));
@@ -208,7 +213,7 @@ const ScheduleMaintenancePage: React.FC<ViewPageProps> = ({view, trail}) => {
         field: EmployeeField,
         code: unknown,
     ): Promise<ScheduleMutationResult> => {
-        if (rowId <= 0) return {ok: false, message: '排班记录缺少有效 ID，无法保存'};
+        if (rowId <= 0) return {ok: false, message: t("排班记录缺少有效 ID，无法保存")};
         const source = rowsRef.current.find((row) => toNumberOrZero(row.ID) === rowId);
         if (!source) {
             return {ok: false, message: `没有找到 ID = ${rowId} 的排班记录，可能已被重新查询替换`};
@@ -355,13 +360,12 @@ const ScheduleMaintenancePage: React.FC<ViewPageProps> = ({view, trail}) => {
                     if (date) void applyQuery({date});
                 }}
             >
-                <Form.Item name="date" label="日期" rules={[{required: true}]}>
+                <Form.Item name="date" label={t("日期")} rules={[{required: true}]}>
                     <DatePicker allowClear={false}/>
                 </Form.Item>
                 <Form.Item>
                     <Button type="primary" htmlType="submit" icon={<SearchOutlined/>} loading={loading}>
-                        查询
-                    </Button>
+                        {t("查询")}</Button>
                 </Form.Item>
             </Form>
             <div style={{
@@ -386,7 +390,7 @@ const ScheduleMaintenancePage: React.FC<ViewPageProps> = ({view, trail}) => {
                             records={rows as unknown as Array<Record<string, unknown>>}
                             rowKey="ID"
                             loading={loading}
-                            emptyTip="没有任何记录"
+                            emptyTip={t("没有任何记录")}
                             editableFields={editableFields}
                             onCellValueChange={handleCellValueChange}
                             onSelectedChange={handleSelectedChange}

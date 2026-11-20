@@ -21,6 +21,11 @@ import {
     type MonthSummaryQuery,
 } from './bridged';
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0189_V0279_V0297");
+
+
 /**
  * V0189_V0279_V0297 计划管理 > 月份汇总
  *
@@ -209,7 +214,7 @@ const MonthSummaryPage: React.FC<ViewPageProps> = ({view, trail}) => {
                     records={months as unknown as Array<Record<string, unknown>>}
                     rowKey="ZHMonth"
                     loading={loading}
-                    exportName="预订单月份汇总"
+                    exportName={t("预订单月份汇总")}
                 />
             </Splitter.Panel>
             <Splitter.Panel
@@ -217,14 +222,14 @@ const MonthSummaryPage: React.FC<ViewPageProps> = ({view, trail}) => {
                 style={{overflow: 'hidden', paddingLeft: 5}}
             >
                 {/* 旧客户端这里是一个粗体 LabelControl「按部门汇总」，压在表格上方 */}
-                <div style={{fontWeight: 600, padding: '0 0 6px 2px'}}>按部门汇总</div>
+                <div style={{fontWeight: 600, padding: '0 0 6px 2px'}}>{t("按部门汇总")}</div>
                 <FilterTable
                     ref={departmentTableRef}
                     columns={DEPARTMENT_SUMMARY_COLUMNS}
                     records={departmentRecords as unknown as Array<Record<string, unknown>>}
                     rowKey="_rowKey"
                     loading={loading}
-                    exportName="预订单月份部门汇总"
+                    exportName={t("预订单月份部门汇总")}
                     /*
                      * 2 = 组行下面直接摊开部门明细。
                      * C# 那边是 `GroupCount = 1` + `GroupFooterShowMode.VisibleAlways`，
@@ -268,7 +273,7 @@ const MonthSummaryPage: React.FC<ViewPageProps> = ({view, trail}) => {
                     setQuery((prev) => ({year: prev.year}));
                 }}
             >
-                <Form.Item label="年份">
+                <Form.Item label={t("年份")}>
                     {/*
                       年份直接受控在 query 上（而不是 Form 的 store）：界面桥 `query.set` 改年份后，
                       控件要跟着显示新年份。走 Form.Item 的 name 绑定做不到这一点 ——
@@ -286,7 +291,7 @@ const MonthSummaryPage: React.FC<ViewPageProps> = ({view, trail}) => {
                         }}
                     />
                 </Form.Item>
-                <Form.Item label="图表">
+                <Form.Item label={t("图表")}>
                     {/*
                       「图表」只切换图表取哪两列，**不重新查库**（数据早就在表里的四组字段中）：
                       与旧客户端 `barEditItem1_EditValueChanged` 一致。
@@ -301,8 +306,7 @@ const MonthSummaryPage: React.FC<ViewPageProps> = ({view, trail}) => {
                 <Form.Item>
                     <Space>
                         <Button type="primary" htmlType="submit" icon={<SearchOutlined/>}>
-                            查询
-                        </Button>
+                            {t("查询")}</Button>
                     </Space>
                 </Form.Item>
             </Form>
@@ -357,7 +361,7 @@ const MonthSummaryPage: React.FC<ViewPageProps> = ({view, trail}) => {
                                 xField="ZHMonth"
                                 series={CHART_SERIES}
                                 loading={loading}
-                                emptyTip="该年份没有汇总数据"
+                                emptyTip={t("该年份没有汇总数据")}
                             />
                         </Splitter.Panel>
                     </Splitter>

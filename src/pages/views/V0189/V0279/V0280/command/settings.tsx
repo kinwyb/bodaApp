@@ -1,6 +1,11 @@
 import {FieldTimeOutlined, SettingOutlined, ShopOutlined} from '@ant-design/icons';
 import type {YupaiOrderSettingsCommandFactory} from './types';
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0189_V0279_V0280");
+
+
 /**
  * 三个「设置」类命令：预订单阶段 / 工段产地 / 计划部。
  *
@@ -14,7 +19,7 @@ import type {YupaiOrderSettingsCommandFactory} from './types';
 /** 预订单阶段（产前样 / 全码样 / 待客户反馈 / 待订单 + 其它阶段） */
 export const stageCommand: YupaiOrderSettingsCommandFactory = ({activeRow, openSetting}) => ({
     key: 'stage',
-    label: '预订的阶段',
+    label: t("预订的阶段"),
     icon: <FieldTimeOutlined/>,
     disabled: !activeRow,
     onClick: () => {
@@ -26,7 +31,7 @@ export const stageCommand: YupaiOrderSettingsCommandFactory = ({activeRow, openS
 /** 工段产地（织造产地 / 缝制产地） */
 export const originCommand: YupaiOrderSettingsCommandFactory = ({activeRow, openSetting}) => ({
     key: 'origin',
-    label: '工段产地',
+    label: t("工段产地"),
     icon: <ShopOutlined/>,
     permission: '产地设置',
     disabled: !activeRow,
@@ -39,7 +44,7 @@ export const originCommand: YupaiOrderSettingsCommandFactory = ({activeRow, open
 /** 计划部设定（原料资料提供期 / 原料计划到货期） */
 export const planCommand: YupaiOrderSettingsCommandFactory = ({activeRow, openSetting}) => ({
     key: 'plan',
-    label: '计划部设定',
+    label: t("计划部设定"),
     icon: <SettingOutlined/>,
     permission: 'PMC设置',
     disabled: !activeRow,

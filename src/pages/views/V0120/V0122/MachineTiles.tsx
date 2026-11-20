@@ -3,6 +3,11 @@ import {Card, Empty, Flex, Spin, Typography} from 'antd';
 import machineImage from './assets/machine.png';
 import type {MachineScheduleRow} from './schedule';
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0120_V0122");
+
+
 type MachineTilesProps = {
     rows: MachineScheduleRow[];
     loading: boolean;
@@ -18,7 +23,7 @@ const MachineTiles: React.FC<MachineTilesProps> = ({rows, loading}) => {
             <div style={{height: '100%', overflow: 'auto', padding: 2}}>
                 {rows.length === 0 ? (
                     <Flex align="center" justify="center" style={{height: '100%'}}>
-                        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有任何记录"/>
+                        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t("没有任何记录")}/>
                     </Flex>
                 ) : (
                     <Flex wrap gap={6} align="flex-start">

@@ -6,7 +6,7 @@ import type { FilterType } from './columnBuilder';
 // 空条件判定与「过滤时跳过该字段」共用同一份实现（见 filtering.ts）：
 // 各写一套会出现「标签上写着筛了、数据却没变」这类对不上的情况
 import { isEmptyFilterCondition as isEmpty } from './filtering';
-import { useI18n } from '@/i18n/context';
+import { usePageI18n } from '@/i18n/context';
 
 /** 可筛选的列：类型决定用哪种筛选控件。通常不用手写 —— FilterTable 从列定义的 `filterType` 自动收集 */
 export interface FilterField {
@@ -60,7 +60,7 @@ function describe(condition: FilterCondition, type: FilterField['type']): string
  * - text：包含
  */
 export const TableFilter: React.FC<TableFilterProps> = ({ fields, options, value, onChange, extra }) => {
-  const { t } = useI18n();
+  const { t } = usePageI18n();
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<FilterModel>(value);
 

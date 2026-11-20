@@ -13,6 +13,11 @@ import {DataTable} from '@/services/sql';
 import {formatDate, now} from '@/utils';
 import type {EfficiencyBridgeContext, EfficiencyQuery} from './efficiencyBridge';
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0120");
+
+
 export type EfficiencyReportDefinition = {
     title: string;
     exportName: string;
@@ -113,11 +118,11 @@ export function EfficiencyReportPage({
                     });
                 }}
             >
-                <Form.Item name="dateRange" label="日期" rules={[{required: true}]}>
+                <Form.Item name="dateRange" label={t("日期")} rules={[{required: true}]}>
                     <DatePicker.RangePicker allowClear={false}/>
                 </Form.Item>
                 <Form.Item>
-                    <Button type="primary" htmlType="submit" icon={<SearchOutlined/>}>查询</Button>
+                    <Button type="primary" htmlType="submit" icon={<SearchOutlined/>}>{t("查询")}</Button>
                 </Form.Item>
             </Form>
             {columns.length === 0 ? (
@@ -132,11 +137,11 @@ export function EfficiencyReportPage({
                     background: '#fff',
                 }}>
                     {loading ? (
-                        <Spin description="数据加载中…">
+                        <Spin description={t("数据加载中…")}>
                             <div style={{width: 220, height: 120}}/>
                         </Spin>
                     ) : (
-                        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有任何记录"/>
+                        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t("没有任何记录")}/>
                     )}
                 </div>
             ) : (
@@ -146,7 +151,7 @@ export function EfficiencyReportPage({
                     records={records}
                     rowKey="_rowKey"
                     loading={loading}
-                    emptyTip="没有任何记录"
+                    emptyTip={t("没有任何记录")}
                     exportName={exportName}
                 />
             )}

@@ -1,6 +1,11 @@
 import {SaveOutlined} from '@ant-design/icons';
 import type {DepartmentCommandFactory} from './types';
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0005_V0010");
+
+
 /**
  * 保存：把右侧表单提交到 `/department/save`（新增与修改同一个接口，靠 ID 是否为空区分）。
  *
@@ -9,7 +14,7 @@ import type {DepartmentCommandFactory} from './types';
  */
 export const saveCommand: DepartmentCommandFactory = ({canSave, save}) => ({
     key: 'save',
-    label: '保存',
+    label: t("保存"),
     icon: <SaveOutlined/>,
     permission: '保存',
     disabled: !canSave,

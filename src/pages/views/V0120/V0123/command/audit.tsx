@@ -2,9 +2,14 @@ import {CheckOutlined} from '@ant-design/icons';
 import {runProductionMonitorAudit} from './auditAction';
 import type {ProductionMonitorCommandFactory} from './types';
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0120_V0123");
+
+
 export const auditCommand: ProductionMonitorCommandFactory = (context) => ({
     key: 'audit',
-    label: '审核',
+    label: t("审核"),
     icon: <CheckOutlined/>,
     permission: '审核',
     disabled: context.selectionCount === 0,

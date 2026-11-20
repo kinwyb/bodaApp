@@ -20,6 +20,11 @@ import {runProductionMonitorAudit} from './command/auditAction';
 import {ChangeLogModal} from './models/changeLog';
 import type {ProductionMonitorQueryState, ProductionMonitorRow} from './types';
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0120_V0123");
+
+
 registerAntdNumberEditor('production-monitor-pieces', {min: 0, precision: 0}, {
     validator: (value) => (Number.isInteger(value) && (value ?? 0) >= 0 ? undefined : '请输入有效数量'),
 });
@@ -199,26 +204,26 @@ const ProductionMonitorPage: React.FC<ViewPageProps> = ({view, trail}) => {
                     });
                 }}
             >
-                <Form.Item name="startDate" label="开始日期" rules={[{required: true}]}>
+                <Form.Item name="startDate" label={t("开始日期")} rules={[{required: true}]}>
                     <DatePicker allowClear={false} style={{width: 130}}/>
                 </Form.Item>
-                <Form.Item name="endDate" label="结束日期" rules={[{required: true}]}>
+                <Form.Item name="endDate" label={t("结束日期")} rules={[{required: true}]}>
                     <DatePicker allowClear={false} style={{width: 130}}/>
                 </Form.Item>
-                <Form.Item name="orderCode" label="订单号">
+                <Form.Item name="orderCode" label={t("订单号")}>
                     <OrderCodeSelect style={{width: 130}}/>
                 </Form.Item>
-                <Form.Item name="machineCode" label="机台号">
+                <Form.Item name="machineCode" label={t("机台号")}>
                     <Input allowClear style={{width: 100}}/>
                 </Form.Item>
-                <Form.Item name="roomCode" label="厂别">
+                <Form.Item name="roomCode" label={t("厂别")}>
                     <Input allowClear style={{width: 120}}/>
                 </Form.Item>
-                <Form.Item name="dispatchNo" label="派工单号">
+                <Form.Item name="dispatchNo" label={t("派工单号")}>
                     <Input allowClear style={{width: 160}}/>
                 </Form.Item>
                 <Form.Item>
-                    <Button type="primary" htmlType="submit" icon={<SearchOutlined/>}>查询</Button>
+                    <Button type="primary" htmlType="submit" icon={<SearchOutlined/>}>{t("查询")}</Button>
                 </Form.Item>
             </Form>
             <FilterTable
@@ -228,8 +233,8 @@ const ProductionMonitorPage: React.FC<ViewPageProps> = ({view, trail}) => {
                 rowKey="ID"
                 checkboxSelection
                 loading={loading}
-                emptyTip="没有任何记录"
-                exportName="产量差异调整"
+                emptyTip={t("没有任何记录")}
+                exportName={t("产量差异调整")}
                 filters={filters}
                 onFilterChange={setFilters}
                 editableFields={PIECES_EDITABLE_FIELDS}

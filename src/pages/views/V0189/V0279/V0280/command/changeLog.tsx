@@ -3,6 +3,11 @@ import type {YupaiOrderLogCommandFactory} from "@/pages/views/V0189/V0279/V0280/
 import {CalendarOutlined} from "@ant-design/icons";
 import {toNumberOrZero} from "@/utils";
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0189_V0279_V0280");
+
+
 /**
  * 只有当 Status 大于 0（状态已推进过）的预订单才允许看变更日志。
  * 没有激活行时（多选后 Ctrl+A 全选、选中被清空、只点了表头）也返回 false：按钮该是灰的。
@@ -32,7 +37,7 @@ function canOpenChangeLog(row: YupaiOrder | null): row is YupaiOrder {
  */
 export const changeLogCommand: YupaiOrderLogCommandFactory = ({activeRow, openLog}) => ({
     key: "changeDate",
-    label: "变更日志",
+    label: t("变更日志"),
     icon: <CalendarOutlined/>,
     dividerBefore: true,
     disabled: !canOpenChangeLog(activeRow),

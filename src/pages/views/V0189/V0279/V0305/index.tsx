@@ -10,6 +10,11 @@ import {now} from "@/utils";
 import {type YupaiAllGroup, yupaiService} from "@/services/yupai.ts";
 import {ErrorMessage} from "@/api/request.ts";
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0189_V0279_V0305");
+
+
 
 const YupaiOrderAllGroupPage: React.FC<ViewPageProps> = ({trail}) => {
 
@@ -59,8 +64,7 @@ const YupaiOrderAllGroupPage: React.FC<ViewPageProps> = ({trail}) => {
                 <Form.Item>
                     <Space>
                         <Button type="primary" htmlType="submit" icon={<SearchOutlined/>}>
-                            查询
-                        </Button>
+                            {t("查询")}</Button>
                     </Space>
                 </Form.Item>
             </Form>

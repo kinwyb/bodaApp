@@ -3,6 +3,11 @@ import {buildColumns, type AppColumnDef} from '@/components/grid-table/columnBui
 import {registerAntdDatePickerEditor, registerAntdNumberEditor} from '@/components/grid-table/editors/register';
 import {DATE_FORMAT, formatDate, toDayjs, toNumberOrNull, toStringOrEmpty} from '@/utils';
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0189_V0279_V0280");
+
+
 /**
  * 预订单分批弹窗的一行。
  *
@@ -232,7 +237,7 @@ export function buildBatchColumns(byDate: boolean): ColumnsDefine {
         },
         {
             field: 'BatchPercent',
-            title: '出货比例',
+            title: t("出货比例"),
             width: 220,
             dataType: 'double',
             fieldFormat: (record: Record<string, unknown>) => {

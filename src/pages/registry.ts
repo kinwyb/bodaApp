@@ -1,5 +1,6 @@
 import React from 'react';
 import type { ViewComponent } from './types';
+import { useI18n } from '@/i18n/context';
 
 /**
  * 通用列表页：没单独实现页面的菜单都落到这里。
@@ -13,6 +14,21 @@ import type { ViewComponent } from './types';
  * 把 vtable 摘出去（试过把 tag 布局改成注册制，代价是隐式时序约定，已回退）。
  */
 const ViewPage = React.lazy(() => import('./ViewPage'));
+
+/**
+ * 页面用模块级 translator 读取当前 locale。业务组件本身不一定消费 LocaleContext，
+ * 这层只负责在语言变化时让页面重新渲染一次，不改变状态、不重新挂载。
+ */
+function withLocaleSubscription(component: ViewComponent): ViewComponent {
+  const Localized: ViewComponent = (props) => {
+    useI18n();
+    return React.createElement(component, props);
+  };
+  Localized.displayName = `Localized(${component.displayName ?? 'View'})`;
+  return Localized;
+}
+
+const LocalizedViewPage = withLocaleSubscription(ViewPage);
 
 /**
  * 页面按 View 层级建目录，注册全自动：
@@ -48,7 +64,7 @@ const descriptionByView = new Map<string, string>(
 /** View 路径 -> 页面组件（懒加载，按需分包） */
 const viewRegistry = new Map<string, ViewComponent>();
 Object.entries(loaders).forEach(([path, loader]) => {
-  viewRegistry.set(viewFromPath(path), React.lazy(loader));
+  viewRegistry.set(viewFromPath(path), withLocaleSubscription(React.lazy(loader)));
 });
 
 /** 手工注册，用于覆盖约定或注册非目录形式的页面 */
@@ -102,5 +118,5 @@ export function resolveViewPath(view: string): string | null {
  */
 export function resolveView(view: string): ViewComponent {
   const path = resolveViewPath(view);
-  return (path && viewRegistry.get(path)) || ViewPage;
+  return (path && viewRegistry.get(path)) || LocalizedViewPage;
 }

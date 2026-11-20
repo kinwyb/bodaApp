@@ -19,6 +19,11 @@ import {OUT_STORE_BILL_COLUMNS, OUT_STORE_DETAIL_COLUMNS} from './columns';
 import {useOutStoreCommands, type OutStoreCommandContext} from './command';
 import {KnitOutStoreAdd} from './models/knitOutStoreAdd';
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0120_V0306");
+
+
 const OutStoreBillPage: React.FC<ViewPageProps> = ({view, trail}) => {
     const {message, modal} = App.useApp();
     const [form] = Form.useForm<{dateRange: [Dayjs, Dayjs]}>();
@@ -118,11 +123,11 @@ const OutStoreBillPage: React.FC<ViewPageProps> = ({view, trail}) => {
                     setQuery({startDate: formatDate(start), endDate: formatDate(end)});
                 }}
             >
-                <Form.Item name="dateRange" label="日期" rules={[{required: true}]}>
+                <Form.Item name="dateRange" label={t("日期")} rules={[{required: true}]}>
                     <DatePicker.RangePicker allowClear={false}/>
                 </Form.Item>
                 <Form.Item>
-                    <Button type="primary" htmlType="submit" icon={<SearchOutlined/>}>查询</Button>
+                    <Button type="primary" htmlType="submit" icon={<SearchOutlined/>}>{t("查询")}</Button>
                 </Form.Item>
             </Form>
             <div style={{
@@ -143,8 +148,8 @@ const OutStoreBillPage: React.FC<ViewPageProps> = ({view, trail}) => {
                             records={bills}
                             rowKey="BillID"
                             loading={loading}
-                            emptyTip="没有任何记录"
-                            exportName="白坯出库单"
+                            emptyTip={t("没有任何记录")}
+                            exportName={t("白坯出库单")}
                             onSelectedChange={(info) => {
                                 const bill = (info.record as MisProductOutStoreBill | undefined) ?? null;
                                 setSelected(bill);
@@ -159,7 +164,7 @@ const OutStoreBillPage: React.FC<ViewPageProps> = ({view, trail}) => {
                             records={details}
                             rowKey="QRCode"
                             loading={loading}
-                            emptyTip="没有任何记录"
+                            emptyTip={t("没有任何记录")}
                         />
                     </Splitter.Panel>
                 </Splitter>

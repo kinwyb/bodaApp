@@ -1,0 +1,27 @@
+import type { LocaleMessages } from '../../../types';
+
+export default {
+  "刷新": "Làm mới",
+  "厂别": "Nhà máy",
+  "开始日期": "Ngày bắt đầu",
+  "挡车工名称": "Tên công nhân đứng máy dệt",
+  "挡车工编号": "Số hiệu công nhân đứng máy dệt",
+  "排班记录缺少有效 ID，无法保存": "Bản ghi lịch làm việc thiếu ID hợp lệ nên không thể lưu.",
+  "操作人": "Người thao tác",
+  "日期": "Ngày tháng",
+  "日期格式应为 YYYY-MM-DD": "Định dạng ngày phải là YYYY-MM-DD.",
+  "最后更新时间": "Giờ cập nhật cuối cùng",
+  "机修工名称": "Tên nhân viên sửa máy",
+  "机修工编号": "Số hiệu nhân viên sửa máy",
+  "机台号": "Mã số máy",
+  "查询": "Yêu cầu",
+  "查询已被新的查询取代": "Truy vấn đã được thay bằng truy vấn mới hơn.",
+  "毛坯全检工名称": "Tên nhân viên kiểm tra đầy đủ phôi thô",
+  "毛坯全检工编号": "Số hiệu nhân viên kiểm tra đầy đủ phôi thô",
+  "没有任何记录": "Không có dữ liệu lưu",
+  "班次": "Ca làm việc",
+  "班组": "Tổ ca",
+  "结束日期": "Ngày kết thúc",
+  "踩毛边工名称": "Tên công nhân may phôi",
+  "踩毛边工编号": "Số hiệu công nhân may phôi",
+} satisfies LocaleMessages;

@@ -6,9 +6,14 @@ import {toStringOrEmpty} from '@/utils';
 import {copyOrderRow, rowIdFromRecord} from '../orderInfo';
 import type {OrderInfoCommandFactory} from './types';
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0120_V0121");
+
+
 export const copyCommand: OrderInfoCommandFactory = ({activeRow, loading, saving, modal, message, insertCopy}) => ({
     key: 'copy',
-    label: '复制',
+    label: t("复制"),
     icon: <CopyOutlined/>,
     permission: '复制',
     waitConfirm: true,
@@ -18,14 +23,14 @@ export const copyCommand: OrderInfoCommandFactory = ({activeRow, loading, saving
         const target = activeRow;
         const id = rowIdFromRecord(target);
         if (!target || id === null) {
-            void message.warning('请先选中一条数据');
+            void message.warning(t("请先选中一条数据"));
             return;
         }
         modal.confirm({
-            title: '确认复制选中的数据?',
+            title: t("确认复制选中的数据?"),
             content: `订单号：${toStringOrEmpty(target.OrderCode) || '—'}；机台号：${toStringOrEmpty(target.MachCode) || '—'}`,
-            okText: '确认',
-            cancelText: '取消',
+            okText: t("确认"),
+            cancelText: t("取消"),
             onCancel: () => {
                 emitActiveUIEvent('action.outcome', {
                     actionId: 'copy',
@@ -41,13 +46,13 @@ export const copyCommand: OrderInfoCommandFactory = ({activeRow, loading, saving
                         throw new Error('复制失败：接口没有返回有效的新数据 ID');
                     }
                     insertCopy(id, copyOrderRow(target, newId));
-                    void message.success('复制成功');
+                    void message.success(t("复制成功"));
                     emitActiveUIEvent('action.outcome', {
                         actionId: 'copy',
                         outcome: 'confirmed',
                         rowId: String(id),
                         newRowId: String(newId),
-                        message: '复制成功',
+                        message: t("复制成功"),
                     });
                 } catch (error) {
                     const text = ErrorMessage(error, '复制失败');

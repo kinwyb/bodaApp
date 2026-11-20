@@ -9,6 +9,11 @@ import {toNumberOrZero} from "@/utils";
 import {Empty, Typography} from "antd";
 import {BI_REPORT_ROW_KEY} from "./bridged";
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0018_V0112");
+
+
 export interface BITableProps {
     node?: BIList;
     /** 页面持有的表格实例引用（界面桥按显示行号取数用）；不传则组件内部自持 */
@@ -93,11 +98,10 @@ export const BITable: React.FC<BITableProps> = ({node, apiRef, onStateChange}) =
                     image={Empty.PRESENTED_IMAGE_SIMPLE}
                     description={
                         <>
-                            <Typography.Text>请先选择报表</Typography.Text>
+                            <Typography.Text>{t("请先选择报表")}</Typography.Text>
                             <br/>
                             <Typography.Text type="secondary" style={{fontSize: 12}}>
-                                在左侧选择报表，设置查询条件后点击「确定」
-                            </Typography.Text>
+                                {t("在左侧选择报表，设置查询条件后点击「确定」")}</Typography.Text>
                         </>
                     }
                 />

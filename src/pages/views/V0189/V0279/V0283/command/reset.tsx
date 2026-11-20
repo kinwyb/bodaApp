@@ -4,6 +4,11 @@ import {ErrorMessage} from '@/api/request';
 import {emitActiveUIEvent} from '@/pages/agent/ui-bridge';
 import type {YupaiCancelledCommandFactory} from './types';
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0189_V0279_V0283");
+
+
 /** 恢复：可批量恢复选中的已取消预订单 */
 export const resetCommand: YupaiCancelledCommandFactory = ({
     message,
@@ -13,7 +18,7 @@ export const resetCommand: YupaiCancelledCommandFactory = ({
     reload,
 }) => ({
     key: 'reset',
-    label: '恢复',
+    label: t("恢复"),
     icon: <UndoOutlined/>,
     waitConfirm: true,
     disabled: !hasSelection,
@@ -21,16 +26,16 @@ export const resetCommand: YupaiCancelledCommandFactory = ({
     onClick: () => {
         const targets = getSelectedRows();
         if (targets.length === 0) {
-            void message.warning('请先选中要恢复的数据');
+            void message.warning(t("请先选中要恢复的数据"));
             return;
         }
         const targetIds = targets.map((row) => row.ID);
         modal.confirm({
             icon: <ExclamationCircleOutlined/>,
             title: `确认恢复选中的 ${targets.length} 条预排数据？`,
-            content: '恢复后这些记录会重新回到预排列表。',
-            okText: '确认恢复',
-            cancelText: '取消',
+            content: t("恢复后这些记录会重新回到预排列表。"),
+            okText: t("确认恢复"),
+            cancelText: t("取消"),
             mask: {blur: true},
             onCancel: () => {
                 emitActiveUIEvent('action.outcome', {
@@ -42,12 +47,12 @@ export const resetCommand: YupaiCancelledCommandFactory = ({
             onOk: async () => {
                 try {
                     await yupaiApi.reset(targetIds);
-                    void message.success('已恢复');
+                    void message.success(t("已恢复"));
                     emitActiveUIEvent('action.outcome', {
                         actionId: 'reset',
                         outcome: 'confirmed',
                         targetIds,
-                        message: '已恢复',
+                        message: t("已恢复"),
                     });
                     await reload();
                 } catch (error) {

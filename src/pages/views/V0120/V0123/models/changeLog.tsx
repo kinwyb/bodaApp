@@ -10,6 +10,11 @@ import type {ProductionMonitorRow} from '../types';
 import {type ChangeLogBridgeContext, createChangeLogBridge} from './changeLogBridge';
 import {CHANGE_LOG_DETAIL_COLUMNS, CHANGE_LOG_LOG_COLUMNS} from './changeLogColumns';
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0120_V0123");
+
+
 registerAntdNumberEditor('production-monitor-detail-gx', {min: 0, precision: 0}, {
     validator: (value) => (Number.isInteger(value) && (value ?? 0) >= 0 ? undefined : '请输入有效数量'),
 });
@@ -126,7 +131,7 @@ export function ChangeLogModal({open, view, row, onClose, onChanged}: ChangeLogM
     return (
         <Modal
             open={open}
-            title="产量差异调整表"
+            title={t("产量差异调整表")}
             width={1050}
             footer={null}
             destroyOnHidden
@@ -142,7 +147,7 @@ export function ChangeLogModal({open, view, row, onClose, onChanged}: ChangeLogM
                             records={details}
                             rowKey="ID"
                             loading={loading}
-                            emptyTip="没有任何记录"
+                            emptyTip={t("没有任何记录")}
                             editableFields={DETAIL_EDITABLE_FIELDS}
                             editCellTrigger="click"
                             canEditCell={({field}) => field === 'GxProduction' || (field === 'CpQty' && isTwins)}
@@ -157,14 +162,14 @@ export function ChangeLogModal({open, view, row, onClose, onChanged}: ChangeLogM
                     </Splitter.Panel>
                     <Splitter.Panel className="splitter-pane-body" style={{overflow: 'hidden'}}>
                         <div style={{display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0}}>
-                            <span style={{padding: '6px 8px', fontWeight: 600}}>明细详情</span>
+                            <span style={{padding: '6px 8px', fontWeight: 600}}>{t("明细详情")}</span>
                             <div style={{flex: 1, minHeight: 0}}>
                                 <GridTable
                                     ref={logTableRef}
                                     columns={CHANGE_LOG_LOG_COLUMNS}
                                     records={logs}
                                     rowKey="ID"
-                                    emptyTip="没有任何记录"
+                                    emptyTip={t("没有任何记录")}
                                 />
                             </div>
                         </div>

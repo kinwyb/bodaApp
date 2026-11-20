@@ -5,6 +5,11 @@ import {isDebugEnv, toNumberOrZero, toStringOrEmpty} from '@/utils';
 import {ErrorMessage} from "@/api/request.ts";
 import type {YupaiOrderStep} from "@/api/modules/yupai.ts";
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0189_V0279_V0280");
+
+
 export interface YupaiOrderStageModalProps {
     open: boolean;
     /** 要设置阶段的那一单 */
@@ -74,7 +79,7 @@ const YupaiOrderStageModal: React.FC<YupaiOrderStageModalProps> = ({open, order,
 
         try {
             await yupaiApi.orderStepSave([payload]);
-            void message.success('设置成功');
+            void message.success(t("设置成功"));
             onSaved();
         } catch (error) {
             void message.error(ErrorMessage(error, '设置失败'));
@@ -85,7 +90,7 @@ const YupaiOrderStageModal: React.FC<YupaiOrderStageModalProps> = ({open, order,
     return (
         <Modal
             open={open}
-            title="预订单阶段设置"
+            title={t("预订单阶段设置")}
             width={600}
             destroyOnHidden
             footer={null}
@@ -93,19 +98,19 @@ const YupaiOrderStageModal: React.FC<YupaiOrderStageModalProps> = ({open, order,
             onCancel={onCancel}
         >
             <div style={{display: 'flex', alignItems: 'center', marginTop: 16}}>
-                <span style={labelStyle}>订单号：</span>
+                <span style={labelStyle}>{t("订单号：")}</span>
                 <Input
                     style={{flex: 1}}
-                    placeholder="订单号"
+                    placeholder={t("订单号")}
                     value={toStringOrEmpty(order?.OrderCode)}
                     readOnly
                 />
             </div>
             <div style={{display: 'flex', alignItems: 'center', marginTop: 16, marginBottom: 16}}>
-                <span style={labelStyle}>款号：</span>
+                <span style={labelStyle}>{t("款号：")}</span>
                 <Input
                     style={{flex: 1}}
-                    placeholder="款号"
+                    placeholder={t("款号")}
                     value={toStringOrEmpty(order?.StyleCode)}
                     readOnly
                 />
@@ -125,10 +130,10 @@ const YupaiOrderStageModal: React.FC<YupaiOrderStageModalProps> = ({open, order,
             </div>
 
             <div style={{display: 'flex', marginTop: 24}}>
-                <span style={{width: 84, flex: 'none', lineHeight: '22px'}}>其它阶段：</span>
+                <span style={{width: 84, flex: 'none', lineHeight: '22px'}}>{t("其它阶段：")}</span>
                 <Input.TextArea
                     rows={9}
-                    placeholder="其它阶段描述"
+                    placeholder={t("其它阶段描述")}
                     value={otherStep}
                     onChange={(event) => setOtherStep(event.target.value)}
                     style={{flex: 1, resize: 'none'}}
@@ -137,8 +142,7 @@ const YupaiOrderStageModal: React.FC<YupaiOrderStageModalProps> = ({open, order,
 
             <div style={{display: 'flex', justifyContent: 'flex-end', marginTop: 16}}>
                 <Button type="primary" style={{minWidth: 88}} onClick={handleConfirm}>
-                    确认
-                </Button>
+                    {t("确认")}</Button>
             </div>
         </Modal>
     );

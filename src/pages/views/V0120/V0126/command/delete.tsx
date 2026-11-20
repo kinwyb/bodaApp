@@ -3,6 +3,11 @@ import {misProductionApi} from '@/api';
 import {ErrorMessage} from '@/api/request';
 import type {ProduceDataCommandFactory} from './types';
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0120_V0126");
+
+
 export const deleteProduceDataCommand: ProduceDataCommandFactory = ({
     activeRow,
     isVietnam,
@@ -11,7 +16,7 @@ export const deleteProduceDataCommand: ProduceDataCommandFactory = ({
     modal,
 }) => ({
     key: 'delete',
-    label: '删除',
+    label: t("删除"),
     icon: <DeleteOutlined/>,
     permission: '删除',
     danger: true,
@@ -20,7 +25,7 @@ export const deleteProduceDataCommand: ProduceDataCommandFactory = ({
     onClick: () => {
         const target = activeRow;
         if (!target) {
-            void message.warning('请先选中一条数据');
+            void message.warning(t("请先选中一条数据"));
             return;
         }
         if (!target.Barcode) return;
@@ -29,19 +34,19 @@ export const deleteProduceDataCommand: ProduceDataCommandFactory = ({
             return;
         }
         if (!target.ID) {
-            void message.warning('数据ID不能为空');
+            void message.warning(t("数据ID不能为空"));
             return;
         }
         modal.confirm({
-            title: '确认删除选中数据?',
-            okText: '确认',
-            cancelText: '取消',
+            title: t("确认删除选中数据?"),
+            okText: t("确认"),
+            cancelText: t("取消"),
             okButtonProps: {danger: true},
             onOk: async () => {
                 try {
                     await misProductionApi.appletsDataDelete(target.ID!);
                     clearDeletedRow(target.ID!);
-                    void message.success('删除成功');
+                    void message.success(t("删除成功"));
                 } catch (error) {
                     void message.error(ErrorMessage(error, '删除失败'));
                     throw error;

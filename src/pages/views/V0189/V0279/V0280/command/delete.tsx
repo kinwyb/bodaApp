@@ -4,10 +4,15 @@ import {ApiError, yupaiApi} from '@/api';
 import {emitActiveUIEvent} from '@/pages/agent/ui-bridge';
 import type {YupaiOrderCommandFactory} from './types';
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0189_V0279_V0280");
+
+
 /** 取消（删除）订单：支持批量，确认时必须填写删除原因 */
 export const deleteCommand: YupaiOrderCommandFactory = ({message, modal, getSelectedRows, hasSelection, reload}) => ({
     key: 'cancel',
-    label: '取消',
+    label: t("取消"),
     icon: <CloseOutlined/>,
     // 点下去只弹确认框（还要填删除原因），删除在 onOk 里做：agent 调它只会收到「已触发、等用户确认」
     waitConfirm: true,
@@ -16,7 +21,7 @@ export const deleteCommand: YupaiOrderCommandFactory = ({message, modal, getSele
     onClick: () => {
         const targets = getSelectedRows();
         if (targets.length < 1) {
-            message.warning('请选择至少一条数据').then();
+            message.warning(t("请选择至少一条数据")).then();
             return;
         }
         const title = targets.length > 1
@@ -34,14 +39,14 @@ export const deleteCommand: YupaiOrderCommandFactory = ({message, modal, getSele
                         autoFocus
                         maxLength={200}
                         showCount
-                        placeholder="请填写删除原因"
+                        placeholder={t("请填写删除原因")}
                         onChange={(event) => {
                             memo = event.target.value;
                         }}
                     />
                 </div>
             ),
-            okText: '确认删除',
+            okText: t("确认删除"),
             okButtonProps: {danger: true},
             mask: {blur: true},
             onCancel: () => {
@@ -54,18 +59,18 @@ export const deleteCommand: YupaiOrderCommandFactory = ({message, modal, getSele
             onOk: async () => {
                 const value = memo.trim();
                 if (!value) {
-                    void message.warning('请填写删除原因');
+                    void message.warning(t("请填写删除原因"));
                     // 返回 rejected promise，弹窗保持打开，不丢已填内容
                     return Promise.reject();
                 }
                 try {
                     await yupaiApi.delete({ID: targets.map((order) => order.ID), Memo: value});
-                    void message.success('已删除');
+                    void message.success(t("已删除"));
                     emitActiveUIEvent('action.outcome', {
                         actionId: 'cancel',
                         outcome: 'confirmed',
                         targetIds: targets.map((order) => order.ID),
-                        message: '已删除',
+                        message: t("已删除"),
                     });
                     await reload();
                 } catch (error) {

@@ -52,6 +52,11 @@ import {
 } from './processRouteMatrixEditBridge.ts';
 import './processRouteMatrixEdit.css';
 
+import { createPageTranslator } from '@/i18n';
+
+const t = createPageTranslator("V0277_V0367");
+
+
 export type ProcessRouteMatrixEditProps = {
     open: boolean;
     /**
@@ -588,7 +593,7 @@ const ProcessRouteMatrixEdit: React.FC<ProcessRouteMatrixEditProps> = ({
      * 两边各写一份迟早对不上（界面改了校验、桥那边还按老规则回「已保存」）。
      */
     const performSave = useCallback(async (): Promise<SaveOutcome> => {
-        if (saving) return {ok: false, message: '正在保存中：等这一次回来再操作（重复提交会存两份）'};
+        if (saving) return {ok: false, message: t("正在保存中：等这一次回来再操作（重复提交会存两份）")};
         const values = form.getFieldsValue() as Record<string, unknown>;
         const detail = matrixRef.current?.readRows('items') ?? (baseRecord.Detail ?? []);
         const issues = validateProcessRouteMatrix({
@@ -612,11 +617,11 @@ const ProcessRouteMatrixEdit: React.FC<ProcessRouteMatrixEditProps> = ({
                 // 存进去了却没回主键：没法重取、没法继续编辑 / 发布，如实说，别当成功
                 return {
                     ok: false,
-                    message: '保存已提交，但接口没有返回 ProcessRouteMatrixID，无法重新载入这份矩阵（请刷新列表确认）',
+                    message: t("保存已提交，但接口没有返回 ProcessRouteMatrixID，无法重新载入这份矩阵（请刷新列表确认）"),
                 };
             }
             setRecordID(savedID);
-            void message.success('已保存');
+            void message.success(t("已保存"));
             // 重取详情：接口补上明细主键与矩阵版本之后，这份记录才能接着改 / 发布
             await loadDetail(savedID);
             onSaved?.(savedID);
@@ -641,14 +646,14 @@ const ProcessRouteMatrixEdit: React.FC<ProcessRouteMatrixEditProps> = ({
         // 只有「校验不过」才值得弹列表；接口失败已经 toast 过，再弹一个框只是噪音
         if (!outcome.issues || outcome.issues.length === 0) return;
         modal.warning({
-            title: '还不能保存',
+            title: t("还不能保存"),
             width: 460,
             content: (
                 <ul style={{margin: '8px 0 0', paddingLeft: 20}}>
                     {outcome.issues.map((text) => <li key={text}>{text}</li>)}
                 </ul>
             ),
-            okText: '知道了',
+            okText: t("知道了"),
         });
     }, [performSave, modal]);
 
@@ -776,7 +781,7 @@ const ProcessRouteMatrixEdit: React.FC<ProcessRouteMatrixEditProps> = ({
                 <div className="process-matrix-edit-toolbar">
                     <Button type="text" className="process-matrix-edit-action" icon={<SaveOutlined/>}
                             loading={saving} disabled={saving || !isEditable}
-                            onClick={() => void handleSave()}>保存</Button>
+                            onClick={() => void handleSave()}>{t("保存")}</Button>
                     {/*
                      * 分割线：「保存」是对这一份的直接操作；「发布」要按**已落库**的记录做事，
                      * 线一划，两组的分界就看得出来了。
@@ -785,7 +790,7 @@ const ProcessRouteMatrixEdit: React.FC<ProcessRouteMatrixEditProps> = ({
                     <Button type="text" className="process-matrix-edit-action" icon={<CloudUploadOutlined/>}
                             disabled={!hasRecord}
                             title={hasRecord ? undefined : '保存成功后（拿到矩阵主键）才可用'}
-                            onClick={() => setPushOpen(true)}>发布</Button>
+                            onClick={() => setPushOpen(true)}>{t("发布")}</Button>
                 </div>
 
                 <Form
@@ -851,7 +856,7 @@ const ProcessRouteMatrixEdit: React.FC<ProcessRouteMatrixEditProps> = ({
                     {loadingDetail ? (
                         <div className="process-matrix-edit-loading">
                             <Spin/>
-                            <span>正在加载矩阵详情…</span>
+                            <span>{t("正在加载矩阵详情…")}</span>
                         </div>
                     ) : (
                         <>
